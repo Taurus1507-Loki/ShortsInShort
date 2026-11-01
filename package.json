@@ -1,0 +1,28 @@
+{
+  "name": "shorts-in-short-platform",
+  "version": "1.0.0",
+  "description": "ShortsInShort — Production-Ready AI Video Creation SaaS Platform",
+  "private": true,
+  "scripts": {
+    "server:install": "cd server && npm install",
+    "client:install": "cd client && npm install",
+    "install:all": "npm run server:install && npm run client:install",
+    "server:dev": "cd server && npm run dev",
+    "client:dev": "cd client && npm run dev",
+    "server:build": "cd server && npm run build",
+    "client:build": "cd client && npm run build",
+    "build": "npm run server:build && npm run client:build",
+    "test": "cd server && npm test"
+  },
+  "keywords": [
+    "ai-video",
+    "reels",
+    "shorts",
+    "submagic-alternative",
+    "ffmpeg",
+    "saas"
+  ],
+  "author": "ShortsInShort Team",
+  "license": "UNLICENSED"
+}
+
