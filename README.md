@@ -1,147 +1,86 @@
-# ShortsInShort — Production-Ready AI Video Creation SaaS
+# ShortsInShort
 
-> **Your Script. Your AI Editor. Your Video. Done.**  
-> Create professional Instagram Reels, YouTube Shorts, and viral TikToks in minutes with automated AI video editing.
+> **Your Script. Your AI Editor. Your Video. Done.**
 
----
+AI video creation SaaS (React + TypeScript + Tailwind / Node + Express + MongoDB).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the architecture, schema design, provider
+strategy, cost estimates, MVP scope and roadmap, and [docs/API.md](docs/API.md) for the REST API.
 
-## 🚀 Overview
+## Status
 
-**ShortsInShort** is a scalable, enterprise-grade AI-powered video creation and automated post-production platform designed to produce viral Instagram Reels, YouTube Shorts, TikTok videos (9:16), and YouTube widescreen content (16:9). The platform transforms raw talking-head footage, simple text scripts, or authorized digital avatar assets into professionally edited videos with Submagic-grade animated captions, automatic silence removal, B-roll overlays, and dynamic zooms.
+| Phase | Scope | Status |
+|---|---|---|
+| 1 Foundation | Landing page, design system, auth (email/password, verification, reset, Google OAuth, sessions), workspaces, dashboard, project drafts | ✅ Implemented & tested locally |
+| 2 AI Video Editor | Uploads, transcription, silence removal, captions, B-roll, music, FFmpeg render | Not started |
+| 3 Avatar Studio · 4 Faceless · 5 Billing · 6 Admin · 7 Launch | | Not started |
 
----
+**Not production-ready.** AI generation, payments, uploads and deployment are not built yet; the UI
+marks those areas "Soon" and no feature pretends to work. The previous prototype is archived,
+untouched and not built, in [`legacy/`](legacy/).
 
-## 🛠️ Tech Stack & Architecture
+## Prerequisites
 
-### Frontend Layer
-- **Framework**: React 18 with TypeScript & Vite
-- **Styling**: Tailwind CSS & Modern Dark Glassmorphism Design
-- **Icons**: Lucide Icons
-- **Routing**: React Router DOM v6
-- **State & Auth**: Context API with JWT persistence & automatic session refresh
-- **Video Studio**: Interactive HTML5 player with synchronized karaoke subtitles, multi-track timeline, and live inspector tabs
+- Node.js 20.11+ (tested on 24)
+- MongoDB 7+ running locally (`mongodb://127.0.0.1:27017`) — or `docker compose up -d mongo`
 
-### Backend Services Layer
-- **Runtime**: Node.js & TypeScript (ESM modules)
-- **Framework**: Express.js
-- **Database**: MongoDB with Mongoose (Multi-tenant scoped schemas & compound indexes)
-- **Validation**: Zod schema validation
-- **Security**: Argon2/bcrypt password hashing, HTTP-only SameSite cookies, Helmet, CORS, Rate Limiting
-- **Auditing**: Credit transaction ledger & Biometric Avatar Consent tracking
+## Run locally
 
-### Video Processing & AI Orchestration Layer
-- **Video Engine**: FFmpeg 6.1 static binary & FFprobe inspection
-  - Frame-accurate trimming and silence detection via `silencedetect=noise=-30dB:d=0.4`
-  - Submagic/CapCut-grade Advanced SubStation Alpha (`.ass`) animated subtitles with karaoke timing (`\k`)
-  - Aspect ratio transformation (9:16 vertical 1080x1920, 16:9 widescreen 1920x1080)
-  - Poster thumbnail snapshot generation
-- **Speech-to-Text (STT)**: Whisper / Deepgram word-level alignment with intelligent hook & keyword extraction
-- **Stock Media & B-Roll**: Pexels Video API & curated CC0 royalty-free footage library
-- **Voiceover & Audio**: Sidechain compressor & auto-ducking (-18dB) during active speech
-
----
-
-## 📦 Project Structure
-
-```
-ShortsInShort/
-├── client/                     # Frontend Single Page Application (Vite + React + TS)
-│   ├── src/
-│   │   ├── components/         # Navbar, Footer, Sidebar, AppLayout
-│   │   ├── context/            # AuthContext & Session management
-│   │   ├── pages/
-│   │   │   ├── LandingPage.tsx
-│   │   │   ├── LoginPage.tsx
-│   │   │   ├── RegisterPage.tsx
-│   │   │   ├── DashboardPage.tsx
-│   │   │   ├── EditorStudioPage.tsx # Multi-track video studio & caption editor
-│   │   │   ├── BrandKitPage.tsx
-│   │   │   ├── TemplatesPage.tsx
-│   │   │   ├── BillingPage.tsx
-│   │   │   └── SettingsPage.tsx
-│   │   ├── services/           # API wrapper with JWT interceptor
-│   │   ├── types/              # TypeScript models (User, Project, Template, Credit, Scene, Word)
-│   │   ├── utils/              # ClassName merge & formatters
-│   │   ├── App.tsx             # Application routing
-│   │   └── main.tsx            # App entrypoint
-│   ├── tailwind.config.js      # Custom theme colors and keyframe animations
-│   ├── vite.config.ts          # Vite build config with backend proxy
-│   └── package.json
-│
-├── server/                     # Backend API & Services (Node.js + Express + TS)
-│   ├── src/
-│   │   ├── config/             # DB connection, Environment validation, Template seeds
-│   │   ├── controllers/        # Auth, User, Project, Credit, Template, Video controllers
-│   │   ├── middleware/         # Auth JWT, RBAC roles, Tenant Isolation, Error Handler, Zod validation
-│   │   ├── models/             # User, Project, Subscription, CreditTransaction, Template, AvatarConsent
-│   │   ├── routes/             # Express API routes (auth, users, projects, credits, templates, videos)
-│   │   ├── services/
-│   │   │   ├── authService.ts
-│   │   │   ├── projectService.ts
-│   │   │   ├── creditService.ts
-│   │   │   ├── video/
-│   │   │   │   ├── ffmpegService.ts        # FFmpeg/FFprobe transcode & ASS subtitle engine
-│   │   │   │   └── videoPipelineService.ts # Orchestrator with auto-refund on failed render
-│   │   │   └── ai/
-│   │   │       ├── transcriptionService.ts # Word-level speech alignment & keyword highlighter
-│   │   │       └── brollService.ts         # Semantic stock B-roll search
-│   │   ├── utils/              # JWT helpers, bcrypt hashing, API response envelope
-│   │   ├── __tests__/          # Vitest integration test suites
-│   │   ├── app.ts              # Express configuration, static upload serving & security middleware
-│   │   └── server.ts           # Server bootstrap & graceful shutdown
-│   ├── uploads/                # Local media directories (raw, processed, thumbnails, audio)
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── architecture_blueprint.md   # Detailed production architecture & schema documentation
-└── package.json                # Monorepo task runner
-```
-
----
-
-## 💰 Indian Rupee (INR) Pricing & Credit System
-
-| Plan Tier | Monthly Price (INR) | Annual Price (INR) | Monthly Credits | Video Resolution | Core Features |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Free Starter** | ₹0 | ₹0 | 10 Credits | 720p Fast | Watermarked exports, standard caption templates |
-| **Starter** | ₹499/mo | ₹4,790/yr | 20 Credits | 1080p Full HD | No watermark, silence removal, basic B-roll |
-| **Creator** | ₹999/mo | ₹9,590/yr | 50 Credits | 1080p Full HD | AI Avatar access, Submagic-style captions, B-roll ducking |
-| **Pro Studio** | ₹1,999/mo | ₹19,190/yr | 120 Credits | 4K Ultra-HD | Priority GPU queue, 3 brand kits, 5 team seats |
-| **Agency** | ₹4,999/mo | ₹47,990/yr | 350 Credits | 4K Ultra-HD | Multiple workspaces, 15 team seats, dedicated render node |
-
----
-
-## 🏃 Getting Started
-
-### 1. Prerequisites
-- **Node.js**: v18.0.0 or higher
-- **MongoDB**: Local `mongod` instance or MongoDB Atlas connection string
-
-### 2. Installation
 ```bash
-# Install server and client dependencies
+npm install
 npm run install:all
-```
-
-### 3. Running Development Servers
-In two separate terminals:
-
-```bash
-# Terminal 1: Run Backend API (Port 5000)
-cd server
-npm run dev
-
-# Terminal 2: Run Frontend UI (Port 5173)
-cd client
+cp server/.env.example server/.env   # then set JWT_ACCESS_SECRET (see the comment in the file)
 npm run dev
 ```
 
-- **Frontend Application**: `http://localhost:5173`
-- **Backend API & Health**: `http://localhost:5000/api/health`
+- Web app: http://localhost:5173 (Vite proxies `/api` to the API)
+- API: http://localhost:5000/api/health
 
-### 4. Running Backend Integration Tests
+Without SMTP configured, **emails are printed to the API console** (look for `[DEV EMAIL …]`) —
+open the verification / reset link from there.
+
+Promote a verified user to admin (roles are never assignable through the API):
+
 ```bash
-cd server
-npm test
+npm --prefix server run seed:admin -- you@example.com super_admin
 ```
-*Current test suite: 9 passed (100% success).*
+
+## Tests
+
+```bash
+npm test             # 31 API integration tests against a throwaway mongod
+npm run typecheck    # server + client
+npm run build        # production builds
+```
+
+The test suite covers registration, login, enumeration resistance, NoSQL-injection rejection,
+origin checks, refresh-token rotation and replay detection, logout/session revocation, email
+verification (single-use, credits granted once), password reset/change, account deletion,
+project CRUD, validation/mass-assignment, **tenant isolation**, pagination, dashboard figures and
+credit-ledger idempotency/concurrency.
+
+## Environment variables (server/.env)
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `MONGODB_URI` | ✅ | MongoDB connection string |
+| `JWT_ACCESS_SECRET` | ✅ | ≥32 random chars for signing 15-min access tokens |
+| `APP_URL` | ✅ | Public URL of the web app (emails, OAuth redirect) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` | ✅ in production | Transactional email |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | optional | Google sign-in (button appears only when set) |
+| `REQUIRE_EMAIL_VERIFICATION`, `FREE_PLAN_CREDITS` | optional | Policy knobs |
+| `TRUST_PROXY`, `CORS_ORIGINS`, `COOKIE_SECURE` | deploy | Reverse proxy / origin settings |
+
+## Security notes (Phase 1)
+
+- Argon2id password hashing (OWASP parameters); constant-time-ish login for unknown emails.
+- Access token in memory only; opaque refresh token in an httpOnly, `SameSite=Strict` cookie scoped
+  to `/api/auth`, stored hashed, rotated on every use, with replay detection.
+- Every authenticated request checks the session is live, so "sign out device" is immediate.
+- zod `.strict()` validation on every body (rejects `$`-operators and unknown fields).
+- Helmet headers, CORS allow-list, Origin check on state-changing requests, per-IP/email rate limits.
+- Every user-owned query is scoped by `workspaceId`; covered by tests.
+- Audit log for sign-ins, failed logins, password changes, session revocations, deletions.
+
+Known gaps to close in later phases: Redis-backed rate limits and session cache (multi-instance),
+MongoDB transactions for the credit ledger (needs a replica set), scheduled hard-purge of deleted
+accounts, CSP for the static site, error tracking.

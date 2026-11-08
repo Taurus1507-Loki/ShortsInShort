@@ -1,46 +1,29 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { Schema, model, type InferSchemaType } from 'mongoose';
 
-export type CreditOperation =
-  | 'generation_deduct'
-  | 'monthly_grant'
-  | 'purchase_topup'
-  | 'failed_job_refund'
-  | 'admin_adjustment';
+export const CREDIT_TX_TYPES = ['grant', 'reserve', 'consume', 'refund', 'adjust', 'purchase'] as const;
 
-export interface ICreditTransaction extends Document {
-  userId: mongoose.Types.ObjectId;
-  workspaceId: mongoose.Types.ObjectId;
-  projectId?: mongoose.Types.ObjectId;
-  amount: number; // Negative for deductions, positive for credits added
-  balanceAfter: number;
-  operation: CreditOperation;
-  description: string;
-  idempotencyKey?: string;
-  createdAt: Date;
-}
-
-const CreditTransactionSchema = new Schema<ICreditTransaction>(
+/** Append-only credit ledger. `idempotencyKey` is unique, so a retried operation can't apply twice. */
+const creditTransactionSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    workspaceId: { type: Schema.Types.ObjectId, required: true, index: true },
-    projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+    workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
+    type: { type: String, enum: CREDIT_TX_TYPES, required: true },
+    /** Signed: positive adds credits, negative removes them. */
     amount: { type: Number, required: true },
-    balanceAfter: { type: Number, required: true },
-    operation: {
-      type: String,
-      enum: ['generation_deduct', 'monthly_grant', 'purchase_topup', 'failed_job_refund', 'admin_adjustment'],
-      required: true,
-      index: true,
+    balanceAfter: { type: Number, default: null },
+    idempotencyKey: { type: String, required: true, maxlength: 200 },
+    status: { type: String, enum: ['pending', 'applied', 'rejected'], default: 'pending' },
+    reference: {
+      kind: { type: String, default: null },
+      id: { type: String, default: null },
     },
-    description: { type: String, required: true },
-    idempotencyKey: { type: String, sparse: true, unique: true },
+    note: { type: String, default: '', maxlength: 300 },
+    actorId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
-  {
-    timestamps: { createdAt: true, updatedAt: false },
-  }
+  { timestamps: true },
 );
 
-CreditTransactionSchema.index({ userId: 1, createdAt: -1 });
+creditTransactionSchema.index({ idempotencyKey: 1 }, { unique: true });
+creditTransactionSchema.index({ workspaceId: 1, createdAt: -1 });
 
-export const CreditTransaction = mongoose.model<ICreditTransaction>('CreditTransaction', CreditTransactionSchema);
-
+export type CreditTransactionAttrs = InferSchemaType<typeof creditTransactionSchema>;
+export const CreditTransaction = model('CreditTransaction', creditTransactionSchema);

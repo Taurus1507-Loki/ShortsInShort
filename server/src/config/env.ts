@@ -1,27 +1,101 @@
-import dotenv from 'dotenv';
-import path from 'path';
+import 'dotenv/config';
+import { z } from 'zod';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+const bool = (def: boolean) =>
+  z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((v) => (v === undefined ? def : v === 'true' || v === '1'));
 
-export const config = {
-  env: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '5000', 10),
-  mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/shortsinshort',
-  jwtSecret: process.env.JWT_SECRET || 'shortsinshort_jwt_super_secret_production_key_2026_x8934k',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
-  refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET || 'shortsinshort_refresh_token_super_secret_key_84920',
-  refreshTokenExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
-  clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
-  razorpay: {
-    keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_shortsinshort123',
-    keySecret: process.env.RAZORPAY_KEY_SECRET || 'rzp_secret_shortsinshort456',
-    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_whsec_shortsinshort789',
+const schema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().int().positive().default(5000),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+
+  MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+
+  /** Public URL of the web app (used in emails and OAuth redirects). */
+  APP_URL: z.url().default('http://localhost:5173'),
+  /** Extra comma-separated origins allowed by CORS (APP_URL is always allowed). */
+  CORS_ORIGINS: z.string().default(''),
+  /** Number of reverse proxies in front of the API (for correct client IPs). */
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+  ACCESS_TOKEN_TTL_MIN: z.coerce.number().int().min(1).max(60).default(15),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  COOKIE_SECURE: z.enum(['true', 'false', '1', '0']).optional(),
+
+  REQUIRE_EMAIL_VERIFICATION: bool(true),
+  FREE_PLAN_CREDITS: z.coerce.number().int().min(0).default(3),
+
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: bool(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().default('ShortsInShort <no-reply@localhost>'),
+
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.url().optional(),
+});
+
+const parsed = schema.safeParse(process.env);
+if (!parsed.success) {
+  // eslint-disable-next-line no-console
+  console.error('Invalid environment configuration:\n' + z.prettifyError(parsed.error));
+  process.exit(1);
+}
+const e = parsed.data;
+
+const isProd = e.NODE_ENV === 'production';
+const smtpConfigured = Boolean(e.SMTP_HOST);
+const googleConfigured = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET);
+
+if (isProd && !smtpConfigured) {
+  console.error('SMTP_HOST must be configured in production (verification and reset emails).');
+  process.exit(1);
+}
+
+export const env = {
+  nodeEnv: e.NODE_ENV,
+  isProd,
+  isTest: e.NODE_ENV === 'test',
+  port: e.PORT,
+  logLevel: e.NODE_ENV === 'test' ? 'silent' : e.LOG_LEVEL,
+  mongodbUri: e.MONGODB_URI,
+  appUrl: e.APP_URL.replace(/\/$/, ''),
+  corsOrigins: [
+    e.APP_URL.replace(/\/$/, ''),
+    ...e.CORS_ORIGINS.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean),
+  ],
+  trustProxy: e.TRUST_PROXY,
+  jwt: {
+    accessSecret: e.JWT_ACCESS_SECRET,
+    accessTtlSec: e.ACCESS_TOKEN_TTL_MIN * 60,
+    issuer: 'shortsinshort-api',
+    audience: 'shortsinshort-web',
   },
-  ai: {
-    openaiApiKey: process.env.OPENAI_API_KEY || '',
-    elevenlabsApiKey: process.env.ELEVENLABS_API_KEY || '',
-    heygenApiKey: process.env.HEYGEN_API_KEY || '',
-    pexelsApiKey: process.env.PEXELS_API_KEY || '',
-  }
-};
-
+  refreshTtlMs: e.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  cookieSecure: e.COOKIE_SECURE ? e.COOKIE_SECURE === 'true' || e.COOKIE_SECURE === '1' : isProd,
+  requireEmailVerification: e.REQUIRE_EMAIL_VERIFICATION,
+  freePlanCredits: e.FREE_PLAN_CREDITS,
+  smtp: smtpConfigured
+    ? {
+        host: e.SMTP_HOST!,
+        port: e.SMTP_PORT,
+        secure: e.SMTP_SECURE,
+        user: e.SMTP_USER,
+        pass: e.SMTP_PASS,
+      }
+    : null,
+  emailFrom: e.EMAIL_FROM,
+  google: googleConfigured
+    ? {
+        clientId: e.GOOGLE_CLIENT_ID!,
+        clientSecret: e.GOOGLE_CLIENT_SECRET!,
+        redirectUri: e.GOOGLE_REDIRECT_URI ?? `${e.APP_URL.replace(/\/$/, '')}/api/auth/google/callback`,
+      }
+    : null,
+} as const;

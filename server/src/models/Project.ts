@@ -1,159 +1,73 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument, type InferSchemaType, Types } from 'mongoose';
 
-export type CreationMode = 'ai_editor' | 'ai_avatar' | 'faceless';
-export type ProjectStatus = 'draft' | 'queued' | 'transcribing' | 'analyzing' | 'rendering' | 'ready' | 'failed';
-export type AspectRatio = '9:16' | '16:9' | '1:1' | '4:5';
-export type Resolution = '720p' | '1080p' | '4k';
-export type EditingStyle = 'Podcast' | 'Cinematic' | 'Viral' | 'Educational' | 'Business' | 'Storytelling' | 'Vlog';
+export const PROJECT_MODES = ['editor', 'avatar', 'faceless'] as const;
+export const PROJECT_STATUSES = ['draft', 'queued', 'processing', 'completed', 'failed'] as const;
+export const ASPECT_RATIOS = ['9:16', '16:9', '1:1', '4:5'] as const;
+export const EDITING_STYLES = [
+  'viral',
+  'podcast',
+  'cinematic',
+  'educational',
+  'business',
+  'storytelling',
+  'vlog',
+  'product_promotion',
+] as const;
+export const INTENSITIES = ['low', 'medium', 'high'] as const;
+export const RESOLUTIONS = ['720p', '1080p', '4k'] as const;
+export const CAPTION_POSITIONS = ['top', 'middle', 'bottom'] as const;
 
-export interface IWordTimestamp {
-  word: string;
-  startMs: number;
-  endMs: number;
-  confidence: number;
-  highlight: boolean;
-}
-
-export interface IScene {
-  index: number;
-  startMs: number;
-  endMs: number;
-  scriptChunk: string;
-  brollQuery?: string;
-  brollMediaUrl?: string;
-  brollType?: 'video' | 'image' | 'avatar' | 'raw';
-  transition: 'cut' | 'fade' | 'zoom_in' | 'slide_left' | 'wipe';
-  captionText?: string;
-}
-
-export interface IEditingPreferences {
-  editingStyle: EditingStyle;
-  captionStyle: string;
-  captionPosition: 'top' | 'middle' | 'bottom';
-  highlightKeywords: boolean;
-  removePauses: boolean;
-  silenceThresholdDb: number;
-  minSilenceDurationMs: number;
-  brollIntensity: 'none' | 'low' | 'medium' | 'high';
-  zoomIntensity: 'none' | 'subtle' | 'dynamic';
-  backgroundMusic: string;
-  musicVolume: number;
-  autoDucking: boolean;
-}
-
-export interface IProject extends Document {
-  userId: mongoose.Types.ObjectId;
-  workspaceId: mongoose.Types.ObjectId;
-  title: string;
-  creationMode: CreationMode;
-  status: ProjectStatus;
-  progress: number;
-  aspectRatio: AspectRatio;
-  resolution: Resolution;
-  rawVideoUrl?: string;
-  outputVideoUrl?: string;
-  thumbnailUrl?: string;
-  duration: number;
-  script?: string;
-  editingPreferences: IEditingPreferences;
-  scenes: IScene[];
-  transcription: IWordTimestamp[];
-  creditsCost: number;
-  renderJobId?: string;
-  renderError?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const ProjectSchema = new Schema<IProject>(
+const settingsSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    workspaceId: { type: Schema.Types.ObjectId, required: true, index: true },
-    title: { type: String, required: true, trim: true },
-    creationMode: {
-      type: String,
-      enum: ['ai_editor', 'ai_avatar', 'faceless'],
-      default: 'ai_editor',
-      index: true,
-    },
-    status: {
-      type: String,
-      enum: ['draft', 'queued', 'transcribing', 'analyzing', 'rendering', 'ready', 'failed'],
-      default: 'draft',
-      index: true,
-    },
-    progress: { type: Number, default: 0, min: 0, max: 100 },
-    aspectRatio: {
-      type: String,
-      enum: ['9:16', '16:9', '1:1', '4:5'],
-      default: '9:16',
-    },
-    resolution: {
-      type: String,
-      enum: ['720p', '1080p', '4k'],
-      default: '1080p',
-    },
-    rawVideoUrl: { type: String },
-    outputVideoUrl: { type: String },
-    thumbnailUrl: { type: String },
-    duration: { type: Number, default: 0 },
-    script: { type: String },
-    editingPreferences: {
-      editingStyle: {
-        type: String,
-        enum: ['Podcast', 'Cinematic', 'Viral', 'Educational', 'Business', 'Storytelling', 'Vlog'],
-        default: 'Viral',
-      },
-      captionStyle: { type: String, default: 'karaoke_neon' },
-      captionPosition: { type: String, enum: ['top', 'middle', 'bottom'], default: 'middle' },
-      highlightKeywords: { type: Boolean, default: true },
-      removePauses: { type: Boolean, default: true },
-      silenceThresholdDb: { type: Number, default: -30 },
-      minSilenceDurationMs: { type: Number, default: 450 },
-      brollIntensity: { type: String, enum: ['none', 'low', 'medium', 'high'], default: 'medium' },
-      zoomIntensity: { type: String, enum: ['none', 'subtle', 'dynamic'], default: 'subtle' },
-      backgroundMusic: { type: String, default: 'energetic_lofi' },
-      musicVolume: { type: Number, default: 15 },
-      autoDucking: { type: Boolean, default: true },
-    },
-    scenes: [
-      {
-        index: Number,
-        startMs: Number,
-        endMs: Number,
-        scriptChunk: String,
-        brollQuery: String,
-        brollMediaUrl: String,
-        brollType: { type: String, enum: ['video', 'image', 'avatar', 'raw'], default: 'raw' },
-        transition: {
-          type: String,
-          enum: ['cut', 'fade', 'zoom_in', 'slide_left', 'wipe'],
-          default: 'cut',
-        },
-        captionText: String,
-      },
-    ],
-    transcription: [
-      {
-        word: String,
-        startMs: Number,
-        endMs: Number,
-        confidence: Number,
-        highlight: Boolean,
-      },
-    ],
-    creditsCost: { type: Number, default: 1 },
-    renderJobId: { type: String },
-    renderError: { type: String },
+    captionsEnabled: { type: Boolean, default: true },
+    captionStyle: { type: String, default: 'bold_pop', maxlength: 40 },
+    captionPosition: { type: String, enum: CAPTION_POSITIONS, default: 'bottom' },
+    highlightColor: { type: String, default: '#A78BFA', match: /^#[0-9a-fA-F]{6}$/ },
+    musicMood: { type: String, default: 'auto', maxlength: 40 },
+    bRollIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
+    editingIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
+    language: { type: String, default: 'en', maxlength: 10 },
+    targetDurationSec: { type: Number, min: 5, max: 3600, default: 60 },
+    resolution: { type: String, enum: RESOLUTIONS, default: '1080p' },
   },
-  {
-    timestamps: true,
-  }
+  { _id: false },
 );
 
-// Compound index for querying user projects ordered by recency
-ProjectSchema.index({ userId: 1, createdAt: -1 });
-ProjectSchema.index({ workspaceId: 1, status: 1 });
+const projectSchema = new Schema(
+  {
+    workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true, trim: true, maxlength: 120 },
+    mode: { type: String, enum: PROJECT_MODES, required: true },
+    status: { type: String, enum: PROJECT_STATUSES, default: 'draft', required: true },
+    aspectRatio: { type: String, enum: ASPECT_RATIOS, default: '9:16', required: true },
+    style: { type: String, enum: EDITING_STYLES, default: 'viral', required: true },
+    script: { type: String, default: '', maxlength: 20000 },
+    topic: { type: String, default: '', maxlength: 300 },
+    settings: { type: settingsSchema, default: () => ({}) },
+    deletedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
 
-export const Project = mongoose.model<IProject>('Project', ProjectSchema);
+projectSchema.index({ workspaceId: 1, deletedAt: 1, updatedAt: -1 });
+projectSchema.index({ workspaceId: 1, deletedAt: 1, status: 1 });
 
+export type ProjectDoc = HydratedDocument<InferSchemaType<typeof projectSchema>>;
+export const Project = model('Project', projectSchema);
+
+export function toPublicProject(p: ProjectDoc) {
+  return {
+    id: (p._id as Types.ObjectId).toString(),
+    title: p.title,
+    mode: p.mode,
+    status: p.status,
+    aspectRatio: p.aspectRatio,
+    style: p.style,
+    script: p.script,
+    topic: p.topic,
+    settings: p.settings,
+    createdAt: p.get('createdAt') as Date,
+    updatedAt: p.get('updatedAt') as Date,
+  };
+}

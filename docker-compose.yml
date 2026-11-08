@@ -1,0 +1,17 @@
+# Local development services. The API and web app run with `npm run dev`.
+# Production images and orchestration are delivered in Phase 7.
+services:
+  mongo:
+    image: mongo:7.0
+    ports:
+      - '127.0.0.1:27017:27017'   # bound to localhost only
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo-data:

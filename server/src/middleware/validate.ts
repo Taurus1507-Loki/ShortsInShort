@@ -1,23 +1,24 @@
-import { Request, Response, NextFunction } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
-import { sendError } from '../utils/response.js';
+import type { NextFunction, Request, Response } from 'express';
+import type { ZodType } from 'zod';
 
-export const validateRequest = (schema: AnyZodObject) => {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+type WithQuery = Request & { validatedQuery?: unknown };
+
+/**
+ * Validates and replaces req.body / req.params with the parsed (typed, stripped) value; the parsed
+ * query is stored on `validatedQuery` (Express 4's req.query is a getter). Body schemas should be
+ * `.strict()` so unknown fields (e.g. `role`, `creditBalance`) are rejected — no mass-assignment.
+ */
+export const validate =
+  (schemas: { body?: ZodType; query?: ZodType; params?: ZodType }) =>
+  (req: Request, _res: Response, next: NextFunction) => {
     try {
-      req.body = await schema.parseAsync(req.body);
+      if (schemas.body) req.body = schemas.body.parse(req.body ?? {});
+      if (schemas.params) req.params = schemas.params.parse(req.params) as Request['params'];
+      if (schemas.query) (req as WithQuery).validatedQuery = schemas.query.parse(req.query);
       next();
-    } catch (error) {
-      if (error instanceof ZodError) {
-        const validationIssues = error.errors.map((err) => ({
-          field: err.path.join('.'),
-          message: err.message,
-        }));
-        sendError(res, 'Validation failed for request payload', 422, validationIssues);
-        return;
-      }
-      sendError(res, 'Malformed request data', 400);
+    } catch (err) {
+      next(err);
     }
   };
-};
 
+export const validatedQuery = <T>(req: Request): T => (req as WithQuery).validatedQuery as T;

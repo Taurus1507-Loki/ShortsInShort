@@ -1,7 +1,14 @@
 node_modules/
 dist/
+coverage/
 .env
-data/
+.env.*
+!.env.example
 *.log
+*.tsbuildinfo
 .DS_Store
-
+# local uploads / media (never commit user media)
+uploads/
+legacy/uploads/
+legacy/server/uploads/
+legacy/server/data/

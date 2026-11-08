@@ -1,64 +1,63 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
+import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import morgan from 'morgan';
-import path from 'path';
-import { config } from './config/env.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { pinoHttp } from 'pino-http';
+import { randomUUID } from 'node:crypto';
+import { env } from './config/env.js';
+import { logger } from './config/logger.js';
+import { apiLimiter, originCheck } from './middleware/security.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { authRouter } from './modules/auth/auth.routes.js';
+import { usersRouter } from './modules/users/users.routes.js';
+import { projectsRouter } from './modules/projects/projects.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { metaRouter } from './modules/meta/meta.routes.js';
 
-import authRoutes from './routes/authRoutes.js';
-import userRoutes from './routes/userRoutes.js';
-import projectRoutes from './routes/projectRoutes.js';
-import creditRoutes from './routes/creditRoutes.js';
-import templateRoutes from './routes/templateRoutes.js';
-import videoRoutes from './routes/videoRoutes.js';
-import healthRoutes from './routes/healthRoutes.js';
-
-export const createApp = () => {
+export function createApp() {
   const app = express();
+  app.disable('x-powered-by');
+  if (env.trustProxy > 0) app.set('trust proxy', env.trustProxy);
 
-  // Security & HTTP Headers
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId: (req, res) => {
+        const id = (req.headers['x-request-id'] as string | undefined)?.slice(0, 64) ?? randomUUID();
+        res.setHeader('x-request-id', id);
+        return id;
+      },
+      autoLogging: { ignore: (req) => req.url === '/api/health' },
+    }),
+  );
   app.use(
     helmet({
-      crossOriginResourcePolicy: { policy: 'cross-origin' },
-    })
+      // API returns JSON only; the SPA's CSP is set by the web server that serves it.
+      contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
+      crossOriginResourcePolicy: { policy: 'same-site' },
+    }),
   );
-
-  // CORS Configuration
   app.use(
     cors({
-      origin: [config.clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+      origin: (origin, cb) => cb(null, !origin || env.corsOrigins.includes(origin)),
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    })
+      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+      maxAge: 600,
+    }),
   );
-
-  // Request Parsers
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
+  app.use(originCheck);
 
-  // Static File Serving for Media Uploads, Processed Videos & Thumbnails
-  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+  app.use('/api', metaRouter);
+  app.use('/api/auth', authRouter);
+  app.use('/api', apiLimiter);
+  app.use('/api/users', usersRouter);
+  app.use('/api/projects', projectsRouter);
+  app.use('/api/dashboard', dashboardRouter);
 
-  // Logging (in non-test environments)
-  if (config.env !== 'test') {
-    app.use(morgan('dev'));
-  }
-
-  // API Routes
-  app.use('/api', healthRoutes);
-  app.use('/api/auth', authRoutes);
-  app.use('/api/users', userRoutes);
-  app.use('/api/projects', projectRoutes);
-  app.use('/api/credits', creditRoutes);
-  app.use('/api/templates', templateRoutes);
-  app.use('/api/videos', videoRoutes);
-
-  // Centralized Error Handling
+  app.use(notFoundHandler);
   app.use(errorHandler);
-
   return app;
-};
+}

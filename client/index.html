@@ -2,17 +2,26 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23d946ef'><polygon points='5 3 19 12 5 21 5 3'/></svg>" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080B14" />
+    <meta name="description" content="ShortsInShort turns your footage, scripts and ideas into professional Reels, Shorts and videos with AI-powered editing." />
     <title>ShortsInShort — Your Script. Your AI Editor. Your Video. Done.</title>
-    <meta name="description" content="AI video creator for high-converting Instagram Reels, TikToks, and YouTube Shorts. Silence removal, karaoke captions, B-roll, motion graphics and AI avatars." />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Cabinet+Grotesk:wght@700;800;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      // Apply saved theme before paint to avoid a flash.
+      try {
+        var t = localStorage.getItem('sis-theme');
+        if (t === 'light' || (t === 'system' && matchMedia('(prefers-color-scheme: light)').matches)) {
+          document.documentElement.classList.remove('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
-  <body class="bg-dark-900 text-slate-100 antialiased selection:bg-brand-500 selection:text-white min-h-screen">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # MongoDB Multi-Tenant Database
+  mongo:
+    image: mongo:7.0
+    container_name: shortsinshort-mongo
+    restart: always
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=shortsinshort
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Render & Job Queue Cache
+  redis:
+    image: redis:7.2-alpine
+    container_name: shortsinshort-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js + Express Backend API & FFmpeg Worker
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: shortsinshort-server
+    restart: always
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '5000:5000'
+    volumes:
+      - media-uploads:/app/uploads
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - CLIENT_URL=http://localhost
+      - MONGODB_URI=mongodb://mongo:27017/shortsinshort
+      - REDIS_URL=redis://redis:6379
+      - JWT_ACCESS_SECRET=production_jwt_access_secret_super_secure_key_12345
+      - JWT_REFRESH_SECRET=production_jwt_refresh_secret_super_secure_key_67890
+      - STORAGE_PROVIDER=local
+
+  # React 18 + Vite Frontend with Nginx Reverse Proxy
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: shortsinshort-client
+    restart: always
+    depends_on:
+      - server
+    ports:
+      - '80:80'
+
+volumes:
+  mongo-data:
+  redis-data:
+  media-uploads:
+

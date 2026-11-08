@@ -1,35 +1,31 @@
+import { env } from './config/env.js';
+import { logger } from './config/logger.js';
+import { connectDB, disconnectDB } from './config/db.js';
 import { createApp } from './app.js';
-import { connectDB } from './config/db.js';
-import { config } from './config/env.js';
 
-const startServer = async () => {
-  try {
-    console.log('⚡ Starting ShortsInShort API Server...');
-    await connectDB();
+async function main() {
+  // Fail fast: the API never serves traffic without its database.
+  await connectDB(env.mongodbUri);
+  const server = createApp().listen(env.port, () => {
+    logger.info(
+      { port: env.port, env: env.nodeEnv, email: env.smtp ? 'smtp' : 'dev-log', google: Boolean(env.google) },
+      `ShortsInShort API listening on http://localhost:${env.port}`,
+    );
+  });
 
-    const app = createApp();
-
-    const server = app.listen(config.port, () => {
-      console.log(`🚀 ShortsInShort Backend running on http://localhost:${config.port}`);
-      console.log(`🌐 Environment: ${config.env}`);
+  const shutdown = (signal: string) => {
+    logger.info({ signal }, 'Shutting down');
+    server.close(async () => {
+      await disconnectDB();
+      process.exit(0);
     });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
 
-    // Graceful Shutdown
-    const signals = ['SIGINT', 'SIGTERM'] as const;
-    signals.forEach((signal) => {
-      process.on(signal, () => {
-        console.log(`\n🛑 Received ${signal}, closing server gracefully...`);
-        server.close(() => {
-          console.log('💤 HTTP server closed.');
-          process.exit(0);
-        });
-      });
-    });
-  } catch (error) {
-    console.error('💥 Failed to start server:', error);
-    process.exit(1);
-  }
-};
-
-startServer();
-
+main().catch((err) => {
+  logger.fatal({ err }, 'Failed to start server');
+  process.exit(1);
+});

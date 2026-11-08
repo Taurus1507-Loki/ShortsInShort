@@ -1,28 +1,18 @@
 {
-  "name": "shorts-in-short-platform",
-  "version": "1.0.0",
-  "description": "ShortsInShort — Production-Ready AI Video Creation SaaS Platform",
+  "name": "shortsinshort",
+  "version": "0.1.0",
   "private": true,
+  "description": "ShortsInShort — AI video creation SaaS",
   "scripts": {
-    "server:install": "cd server && npm install",
-    "client:install": "cd client && npm install",
-    "install:all": "npm run server:install && npm run client:install",
-    "server:dev": "cd server && npm run dev",
-    "client:dev": "cd client && npm run dev",
-    "server:build": "cd server && npm run build",
-    "client:build": "cd client && npm run build",
-    "build": "npm run server:build && npm run client:build",
-    "test": "cd server && npm test"
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix client run typecheck"
   },
-  "keywords": [
-    "ai-video",
-    "reels",
-    "shorts",
-    "submagic-alternative",
-    "ffmpeg",
-    "saas"
-  ],
-  "author": "ShortsInShort Team",
-  "license": "UNLICENSED"
+  "devDependencies": {
+    "concurrently": "^10.0.7"
+  }
 }
-
