@@ -6,7 +6,7 @@ before it is.
 | Step | Scope | Status |
 |---|---|---|
 | **2.1 Core edit** | Uploads, storage, job queue + worker, silence/pause removal, aspect-ratio reframing, loudness normalisation, H.264 render, thumbnail, credit charging with refunds, Media Library | ✅ Implemented, tested (unit + integration with real FFmpeg) and verified in the browser |
-| 2.2 Transcription & captions | Word-timestamp STT adapter (Deepgram / Whisper), filler-word removal, animated ASS captions with keyword highlights | Needs an STT key |
+| **2.2 Transcription & captions** | Provider interface + Deepgram adapter, transcript cache, filler-word removal, captions re-timed through cuts, 5 styles (bold pop, karaoke, boxed, clean, cinematic), rule-based keyword highlights, Indic-script captions, burn-in | ✅ Verified live with Deepgram (nova-3) on English speech: accurate transcript, captions in sync, keyword highlights. Deepgram accepts `hi`/`te`/`ta`/`mr`, but accuracy in those languages and filler-word detection still need testing with real recordings. |
 | 2.3 AI analysis & B-roll | LLM adapter (hooks, keywords, B-roll queries), Pixabay/Pexels adapter, B-roll overlays | Needs LLM + stock-media keys |
 | 2.4 Music & polish | Licensed music bed with ducking, zooms on key moments, Brand Kit (logo/colours/fonts, watermark for Free) | Needs a licensed music library |
 | 2.5 Editor & infra | Caption editing, scene tweaks, Redis/BullMQ queue driver, R2 verification | Needs Redis + R2 credentials |
@@ -64,3 +64,18 @@ npm --prefix server run worker   # (production) run workers as separate processe
 - Centre crop only (no face tracking) when converting landscape → vertical.
 - Storage `s3` driver unverified; the local driver is single-server.
 - Bundled FFprobe is a 2023 build; use distro FFmpeg/FFprobe in production (`FFMPEG_PATH`, `FFPROBE_PATH`).
+
+## Step 2.2 — captions
+
+- **Transcription** runs only when a provider key is set and the project wants captions or filler
+  removal (editing intensity medium/high). The source audio is sent as compact 16 kHz mono MP3.
+  Transcripts are cached per (video, provider, language): re-renders never pay twice.
+- **Failures are non-fatal:** if transcription fails (bad key, unsupported language), the video still
+  renders and the result notes say exactly why captions are missing.
+- **Filler words** ("um", "uh") reported by the provider are cut together with pauses.
+- **Captions** are re-timed onto the edited timeline, grouped into short lines per style, and burned
+  in with libass after reframing. Keyword highlighting is rule-based (numbers first, then the longest
+  meaningful word) until the LLM step (2.3) picks keywords.
+- **Languages:** Latin captions use Segoe UI (Windows) / Noto Sans (Linux); Hindi, Marathi, Telugu
+  and Tamil use Nirmala UI / Noto Sans Devanagari, Telugu, Tamil with HarfBuzz shaping.
+  Whether Deepgram supports each Indian language must be confirmed with a live key.

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -15,6 +15,8 @@ import { Project } from '../models/Project.js';
 import { Workspace } from '../models/Workspace.js';
 import { CreditTransaction } from '../models/CreditTransaction.js';
 import { claim, enqueue, fail, sweepExpired } from '../services/queue/queue.js';
+import { Transcript } from '../models/Transcript.js';
+import { setTranscriptionProvider, TranscriptionError, type TranscriptionProvider, type Word } from '../services/ai/transcription.js';
 
 let fixture: Buffer;
 const worker = new Worker(1, 10);
@@ -236,6 +238,107 @@ describe('render pipeline', () => {
     const { auth } = await registerUser({ verify: true });
     const res = await request(app).post('/api/projects').set(auth).send({ title: 'Avatar', mode: 'avatar' }).expect(201);
     await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(501);
+  });
+});
+
+describe('captions (with a stand-in transcription provider)', () => {
+  // Words aligned to the fixture: tone 0–2.5s, silence 2.5–4.5s, tone 4.5–7s. "um" is a filler.
+  const WORDS: Word[] = [
+    { text: 'Consistency', start: 0.2, end: 0.9 },
+    { text: 'beats', start: 0.95, end: 1.4 },
+    { text: 'talent.', start: 1.45, end: 2.2 },
+    { text: 'um', start: 4.6, end: 4.95, filler: true },
+    { text: 'Every', start: 5.0, end: 5.5 },
+    { text: 'single', start: 5.55, end: 6.0 },
+    { text: 'time.', start: 6.05, end: 6.7 },
+  ];
+  let calls = 0;
+  const fake: TranscriptionProvider = {
+    name: 'fake-test',
+    async transcribe(_audio, opts) {
+      calls++;
+      return { provider: 'fake-test', language: opts.language, words: WORDS };
+    },
+  };
+  afterEach(() => {
+    setTranscriptionProvider(undefined);
+    calls = 0;
+  });
+
+  /** Mean absolute luminance difference of the lower-middle band of two frames. */
+  async function frameAt(assetId: string, sec: number) {
+    const out = await Asset.findById(assetId);
+    const dir = await mkdtemp(path.join(tmpdir(), 'sis-frame-'));
+    const file = path.join(dir, 'f.gray');
+    await runFfmpeg(['-ss', String(sec), '-i', localStorage.resolve(out!.storageKey), '-frames:v', '1', '-vf', 'crop=iw:ih*0.3:0:ih*0.55,scale=144:-2,format=gray', '-f', 'rawvideo', file]);
+    return readFile(file);
+  }
+  const diff = (a: Buffer, b: Buffer) => {
+    let sum = 0;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) sum += Math.abs(a[i]! - b[i]!);
+    return sum / Math.min(a.length, b.length);
+  };
+
+  async function renderProject(auth: Record<string, string>, projectId: string) {
+    await request(app).post(`/api/projects/${projectId}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    return (await request(app).get(`/api/projects/${projectId}`).set(auth).expect(200)).body.data;
+  }
+
+  it('transcribes once, removes filler words and burns real captions into the video', async () => {
+    setTranscriptionProvider(fake);
+    const { auth, user } = await registerUser({ verify: true });
+    await setBalance(user.defaultWorkspaceId, 10);
+    const asset = await readyVideo(auth);
+    const res = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ title: 'Caps', mode: 'editor', aspectRatio: '9:16', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: false, captionStyle: 'boxed' } })
+      .expect(201);
+
+    const plain = await renderProject(auth, res.body.data.id);
+    expect(plain.renderStats).toMatchObject({ captionsAdded: false, fillerWordsRemoved: 1 });
+    const plainFrame = await frameAt(plain.outputAsset.id, 0.6);
+
+    await request(app).patch(`/api/projects/${res.body.data.id}`).set(auth).send({ settings: { captionsEnabled: true } }).expect(200);
+    const captioned = await renderProject(auth, res.body.data.id);
+    expect(captioned.renderStats).toMatchObject({ captionsAdded: true, fillerWordsRemoved: 1 });
+    expect(captioned.renderStats.warnings.join(' ')).not.toMatch(/Captions were not added/);
+    expect(captioned.renderStats.outputDurationSec).toBeCloseTo(plain.renderStats.outputDurationSec, 1);
+
+    // Same source, same cut: the only visual difference is the burned-in caption box.
+    const capFrame = await frameAt(captioned.outputAsset.id, 0.6);
+    expect(diff(plainFrame, capFrame)).toBeGreaterThan(8);
+
+    expect(calls).toBe(1); // second render reused the cached transcript
+    expect(await Transcript.countDocuments()).toBe(1);
+  }, 180_000);
+
+  it('still renders, with an honest note, when transcription fails', async () => {
+    setTranscriptionProvider({
+      name: 'broken',
+      async transcribe() {
+        throw new TranscriptionError("Transcription isn't available for this language or audio.");
+      },
+    });
+    const { auth } = await registerUser({ verify: true });
+    const asset = await readyVideo(auth);
+    const res = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ title: 'NoCaps', mode: 'editor', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: true } })
+      .expect(201);
+    const p = await renderProject(auth, res.body.data.id);
+    expect(p.status).toBe('completed');
+    expect(p.renderStats.captionsAdded).toBe(false);
+    expect(p.renderStats.warnings.join(' ')).toMatch(/Captions were not added: Transcription isn't available/);
+  }, 120_000);
+
+  it('reports captions as enabled in /meta only when a provider is configured', async () => {
+    setTranscriptionProvider(null);
+    expect((await request(app).get('/api/meta')).body.data.features.captions).toBe(false);
+    setTranscriptionProvider(fake);
+    expect((await request(app).get('/api/meta')).body.data.features.captions).toBe(true);
   });
 });
 

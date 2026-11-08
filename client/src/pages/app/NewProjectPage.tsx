@@ -189,7 +189,7 @@ export default function NewProjectPage() {
                 ['Language', LANGUAGES.find((l) => l.id === effectiveCustom.settings.language)?.name],
                 ['Resolution', effectiveCustom.settings.resolution],
                 ['Footage', mode === 'editor' ? (sourceAsset?.originalName ?? 'Not uploaded yet') : '—'],
-                ['Captions', effectiveCustom.settings.captionsEnabled ? 'On (coming soon)' : 'Off'],
+                ['Captions', effectiveCustom.settings.captionsEnabled ? (meta?.features.captions ? 'On' : 'On (needs transcription key)') : 'Off'],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4 border-b border-border/60 pb-2">
                   <dt className="text-muted-foreground">{k}</dt>
@@ -199,7 +199,7 @@ export default function NewProjectPage() {
             </dl>
             {mode === 'editor' ? (
               <Notice tone="info" title="What this render does today">
-                Removes pauses, reframes to {effectiveCustom.aspectRatio}, balances loudness and exports an MP4. Captions, B-roll and music are coming next. You’ll see the exact credit cost before anything is charged.
+                {meta?.features.captions ? 'Removes pauses and filler words, adds animated captions, reframes' : 'Removes pauses, reframes'} to {effectiveCustom.aspectRatio}, balances loudness and exports an MP4. {meta?.features.captions ? 'B-roll and music are coming next.' : 'Captions, B-roll and music are coming next.'} You’ll see the exact credit cost before anything is charged.
               </Notice>
             ) : (
               <Notice tone="info" title={`${modeName(mode)} generation isn’t available yet`}>

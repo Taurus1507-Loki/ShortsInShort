@@ -24,6 +24,7 @@ import { Button } from '../ui/button';
 import { Dialog, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, SheetContent } from '../ui/overlays';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api, errorMessage } from '@/lib/api';
+import { useMeta } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -174,12 +175,22 @@ function UserMenu() {
 
 function VerifyEmailBanner() {
   const { user } = useAuth();
+  const { data: meta } = useMeta();
   const [sending, setSending] = useState(false);
   if (!user || user.emailVerified) return null;
+  // Without SMTP (development), emails are written to the API server's log instead of being sent.
+  const devLog = meta?.emailDelivery === 'dev-log';
   return (
     <div className="border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-sm sm:px-6" role="status">
       <span className="font-medium">Verify your email</span>
-      <span className="text-muted-foreground"> — we sent a link to {user.email}. Verifying unlocks project creation and your free credits. </span>
+      {devLog ? (
+        <span className="text-muted-foreground">
+          {' '}
+          — email delivery isn’t configured on this server yet, so the verification link for {user.email} is printed in the API server’s terminal (look for “DEV EMAIL”).{' '}
+        </span>
+      ) : (
+        <span className="text-muted-foreground"> — we sent a link to {user.email}. Verifying unlocks project creation and your free credits. </span>
+      )}
       <button
         className="font-semibold text-highlight underline-offset-2 hover:underline disabled:opacity-50"
         disabled={sending}
@@ -187,7 +198,7 @@ function VerifyEmailBanner() {
           setSending(true);
           try {
             await api('/auth/resend-verification', { method: 'POST' });
-            toast.success('Verification email sent.');
+            toast.success(devLog ? 'New link created — check the API server terminal.' : 'Verification email sent.');
           } catch (e) {
             toast.error(errorMessage(e));
           } finally {

@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, CheckCircle2, Coins, Download, Info, Loader2, RotateCcw, Scissors, Sparkles, Timer } from 'lucide-react';
+import { AlertTriangle, Captions, CheckCircle2, Coins, Download, Info, Loader2, RotateCcw, Scissors, Sparkles, Timer } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle, Notice, Skeleton } from '../ui/primitives';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/overlays';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { keys, queryClient, useAssetUrl, useEstimate, useJob } from '@/lib/queries';
+import { keys, queryClient, useAssetUrl, useEstimate, useJob, useMeta } from '@/lib/queries';
 import { formatDuration } from '@/lib/upload';
 import type { Project } from '@/types/api';
 
@@ -15,6 +15,7 @@ const STAGES: Record<string, string> = {
   queued: 'Waiting in queue',
   starting: 'Starting',
   analyzing: 'Analysing your video',
+  transcribing: 'Transcribing speech',
   removing_silence: 'Detecting and removing pauses',
   rendering: 'Rendering your edit',
   finalizing: 'Running quality checks',
@@ -28,6 +29,9 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
   const estimate = useEstimate(project.id, canQuote);
   const job = useJob(project.id, busy);
   const [confirm, setConfirm] = useState(false);
+  const { data: meta } = useMeta();
+  const captionsLive = Boolean(meta?.features.captions);
+  const wantsCaptions = project.settings.captionsEnabled;
 
   useEffect(() => {
     if (autoOpen && canQuote) setConfirm(true);
@@ -180,7 +184,9 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               )}
               <p className="flex gap-2">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                This version removes pauses, reframes to {project.aspectRatio} and balances loudness. Captions, B-roll and music are coming next and won’t be added yet.
+                {captionsLive
+                  ? `Removes pauses and filler words, reframes to ${project.aspectRatio}, balances loudness${wantsCaptions ? ' and adds animated captions' : ''}. B-roll and music are coming next and won’t be added yet.`
+                  : `Removes pauses, reframes to ${project.aspectRatio} and balances loudness. Captions, B-roll and music are coming next and won’t be added yet.`}
               </p>
               <p>If the render fails, your credits are refunded automatically.</p>
             </div>
@@ -235,6 +241,8 @@ function RenderResult({ project }: { project: Project }) {
             {[
               { icon: Timer, label: 'Length', value: `${formatDuration(s.sourceDurationSec)} → ${formatDuration(s.outputDurationSec)}` },
               { icon: Scissors, label: 'Pauses removed', value: `${s.silenceRemovedSec ?? 0}s · ${s.cuts ?? 0} cuts` },
+              ...(s.fillerWordsRemoved ? [{ icon: Scissors, label: 'Filler words cut', value: String(s.fillerWordsRemoved) }] : []),
+              ...(s.captionsAdded ? [{ icon: Captions, label: 'Captions', value: 'Added' }] : []),
             ].map((x) => (
               <div key={x.label} className="rounded-lg bg-muted/50 p-3">
                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">

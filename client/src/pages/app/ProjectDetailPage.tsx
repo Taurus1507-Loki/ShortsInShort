@@ -191,7 +191,7 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>Settings</CardTitle>
-              <CardDescription>Format, resolution and editing intensity are used by the current renderer. Caption, music and B-roll settings are saved for upcoming releases.</CardDescription>
+              <CardDescription>Format, resolution, editing intensity and captions are used when you render (captions need transcription to be enabled on the server). Music and B-roll settings are saved for upcoming releases.</CardDescription>
             </CardHeader>
             <CardContent>
               <CustomizeForm value={custom} onChange={setCustom} />

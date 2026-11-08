@@ -65,6 +65,12 @@ const schema = z.object({
   WORKER_MODE: z.enum(['embedded', 'off']).optional(),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(1),
   JOB_TIMEOUT_MIN: z.coerce.number().int().min(1).max(240).default(30),
+
+  // ── AI providers ──
+  DEEPGRAM_API_KEY: z.string().optional(),
+  DEEPGRAM_MODEL: z.string().default('nova-3'),
+  /** Directory of TTF/OTF fonts for burned-in captions (defaults to the OS font folder). */
+  CAPTION_FONTS_DIR: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -155,5 +161,11 @@ export const env = {
     workerMode: e.WORKER_MODE ?? (isProd ? 'off' : e.NODE_ENV === 'test' ? 'off' : 'embedded'),
     workerConcurrency: e.WORKER_CONCURRENCY,
     jobTimeoutMs: e.JOB_TIMEOUT_MIN * 60_000,
+  },
+  ai: {
+    deepgram: e.DEEPGRAM_API_KEY ? { apiKey: e.DEEPGRAM_API_KEY, model: e.DEEPGRAM_MODEL } : null,
+  },
+  captions: {
+    fontsDir: path.resolve(e.CAPTION_FONTS_DIR ?? (process.platform === 'win32' ? 'C:/Windows/Fonts' : '/usr/share/fonts')),
   },
 } as const;

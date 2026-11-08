@@ -39,7 +39,13 @@ const SOON: { path: string; title: string; phase: number; description: string; b
     title: 'Faceless Videos',
     phase: 4,
     description: 'Turn a topic or script into a narrated video with licensed visuals.',
-    bullets: ['AI script improvement', 'Scene planning & visual prompts', 'Narration in 5 Indian languages', 'Licensed stock media'],
+    bullets: [
+      'AI script improvement',
+      'Scene planning & visual prompts',
+      'Narration in 5 Indian languages',
+      'Licensed stock media',
+      'Motion Explainer style: fully animated scenes from a topic',
+    ],
   },
   {
     path: 'templates',

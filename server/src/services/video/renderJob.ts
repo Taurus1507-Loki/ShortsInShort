@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Types } from 'mongoose';
@@ -13,20 +13,66 @@ import { PermanentJobError } from '../queue/queue.js';
 import { registerHandler, type JobContext } from '../queue/worker.js';
 import { FfmpegError, probe } from './ffmpeg.js';
 import { computeKeepSegments, detectSilences, SILENCE_PRESETS, totalDuration, type Intensity } from './silence.js';
-import { extractThumbnail, outputSize, renderVideo, type AspectRatio, type Resolution } from './render.js';
+import { extractSpeechAudio, extractThumbnail, outputSize, renderVideo, type AspectRatio, type Resolution } from './render.js';
+import { env } from '../../config/env.js';
+import { Transcript } from '../../models/Transcript.js';
+import { getTranscriptionProvider, TranscriptionError, type Word } from '../ai/transcription.js';
+import { fillerIntervals, mergeIntervals, remapWords } from './transcriptMap.js';
+import { buildAss, type CaptionPosition, type CaptionStyle } from './captions.js';
+import type { AssetDoc } from '../../models/Asset.js';
 
 export interface RenderPayload {
   projectId: string;
   credits: number;
 }
 
-/** Features configured on the project that this pipeline version does not apply yet. */
-function pendingFeatureWarnings(settings: { captionsEnabled?: boolean; musicMood?: string; bRollIntensity?: string }) {
+/** Honest notes about requested features that were not applied to this render. */
+function pendingFeatureWarnings(
+  settings: { captionsEnabled?: boolean; musicMood?: string; bRollIntensity?: string },
+  captions: { added: boolean; error: string | null; providerConfigured: boolean; hasAudio: boolean },
+) {
   const w: string[] = [];
-  if (settings.captionsEnabled) w.push('Captions were not added: transcription is not enabled on this server yet.');
+  if (settings.captionsEnabled && !captions.added) {
+    if (!captions.hasAudio) w.push('Captions were not added: the video has no audio track.');
+    else if (!captions.providerConfigured) w.push('Captions were not added: transcription is not enabled on this server yet.');
+    else if (captions.error) w.push(`Captions were not added: ${captions.error}`);
+    else w.push('Captions were not added: no speech was detected.');
+  }
   if (settings.musicMood && settings.musicMood !== 'none') w.push('Background music was not added: no licensed music library is configured yet.');
   w.push('B-roll was not added: stock media search is not enabled on this server yet.');
   return w;
+}
+
+/**
+ * Word-level transcript for the source, reused from cache when available so re-renders never pay
+ * for transcription twice. Failures are non-fatal: the render continues without captions.
+ */
+async function loadTranscript(
+  source: AssetDoc,
+  input: string,
+  language: string,
+  workDir: string,
+  signal: AbortSignal,
+): Promise<{ words: Word[] | null; error: string | null }> {
+  const provider = getTranscriptionProvider();
+  if (!provider) return { words: null, error: null };
+  const cached = await Transcript.findOne({ assetId: source._id, provider: provider.name, language }).lean();
+  if (cached) return { words: cached.words as Word[], error: null };
+  try {
+    const audio = path.join(workDir, 'speech.mp3');
+    await extractSpeechAudio(input, audio, { signal });
+    const result = await provider.transcribe(audio, { language, signal });
+    await Transcript.updateOne(
+      { assetId: source._id, provider: provider.name, language },
+      { $set: { workspaceId: source.workspaceId, words: result.words, durationSec: source.durationSec } },
+      { upsert: true },
+    );
+    return { words: result.words, error: null };
+  } catch (err) {
+    if (signal.aborted) throw err;
+    logger.warn({ err, assetId: source._id.toString() }, 'Transcription failed; rendering without captions');
+    return { words: null, error: err instanceof TranscriptionError ? err.message : 'transcription failed.' };
+  }
 }
 
 async function run({ job, signal, progress }: JobContext) {
@@ -49,24 +95,59 @@ async function run({ job, signal, progress }: JobContext) {
     if (!info.video) throw new PermanentJobError('The source file has no video track.');
     const duration = info.durationSec;
 
-    // 2. Silence & pause removal
-    const intensity = (project.settings?.editingIntensity ?? 'medium') as Intensity;
+    // 2. Transcription (when a provider is configured): powers captions and filler-word removal
+    const settings = project.settings ?? {};
+    const intensity = (settings.editingIntensity ?? 'medium') as Intensity;
+    const language = settings.language ?? 'en';
+    const providerConfigured = Boolean(getTranscriptionProvider());
+    let transcript: { words: Word[] | null; error: string | null } = { words: null, error: null };
+    if (info.audio && providerConfigured && (settings.captionsEnabled || intensity !== 'low')) {
+      await progress(6, 'transcribing');
+      transcript = await loadTranscript(source, input, language, workDir, signal);
+    }
+
+    // 3. Silence, pause & filler-word removal
     let segments = [{ start: 0, end: duration }];
+    let fillerWordsRemoved = 0;
     if (info.audio) {
-      await progress(8, 'removing_silence');
+      await progress(12, 'removing_silence');
       const silences = await detectSilences(input, duration, intensity, { signal, timeoutMs: Math.max(120_000, duration * 4000) });
-      segments = computeKeepSegments(duration, silences, { padSec: SILENCE_PRESETS[intensity].padSec });
+      const fillers = transcript.words && intensity !== 'low' ? fillerIntervals(transcript.words) : [];
+      fillerWordsRemoved = fillers.length;
+      segments = computeKeepSegments(duration, mergeIntervals([...silences, ...fillers]), { padSec: SILENCE_PRESETS[intensity].padSec });
     }
     const keptSec = totalDuration(segments);
 
-    // 3. Render (cut + reframe + loudness) — the long step, 15% → 88%
+    // 4. Captions, timed to the edited timeline
+    const aspectForCaptions = project.aspectRatio as AspectRatio;
+    const size = outputSize(aspectForCaptions, (settings.resolution ?? '1080p') as Resolution);
+    let captions: { assPath: string; fontsDir: string } | undefined;
+    if (settings.captionsEnabled && transcript.words?.length) {
+      const words = remapWords(transcript.words, segments);
+      if (words.length) {
+        const { ass } = buildAss({
+          words,
+          style: (settings.captionStyle ?? 'bold_pop') as CaptionStyle,
+          position: (settings.captionPosition ?? 'bottom') as CaptionPosition,
+          highlightColor: settings.highlightColor ?? '#A78BFA',
+          width: size.width,
+          height: size.height,
+          language,
+        });
+        const assPath = path.join(workDir, 'captions.ass');
+        await writeFile(assPath, ass, 'utf8');
+        captions = { assPath, fontsDir: env.captions.fontsDir };
+      }
+    }
+
+    // 5. Render (cut + reframe + captions + loudness) — the long step, 15% → 88%
     await progress(15, 'rendering');
     const aspect = project.aspectRatio as AspectRatio;
     const resolution = (project.settings?.resolution ?? '1080p') as Resolution;
     const outFile = path.join(workDir, 'output.mp4');
     let lastReported = 15;
     await renderVideo(
-      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution },
+      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions },
       {
         signal,
         timeoutMs: Math.max(5 * 60_000, keptSec * 20_000),
@@ -136,7 +217,14 @@ async function run({ job, signal, progress }: JobContext) {
       silenceRemovedSec: Math.round((duration - keptSec) * 10) / 10,
       cuts: Math.max(0, segments.length - 1),
       creditsCharged: (job.payload as RenderPayload).credits,
-      warnings: pendingFeatureWarnings(project.settings ?? {}),
+      captionsAdded: Boolean(captions),
+      fillerWordsRemoved,
+      warnings: pendingFeatureWarnings(settings, {
+        added: Boolean(captions),
+        error: transcript.error,
+        providerConfigured,
+        hasAudio: Boolean(info.audio),
+      }),
     };
     await Project.updateOne(
       { _id: project._id },

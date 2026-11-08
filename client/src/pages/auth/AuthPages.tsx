@@ -159,6 +159,7 @@ const registerSchema = z.object({
 
 export function RegisterPage() {
   const { register: signUp } = useAuth();
+  const { data: meta } = useMeta();
   const navigate = useNavigate();
   const [formError, setFormError] = useState<string | null>(null);
   const { register, handleSubmit, formState } = useForm<z.infer<typeof registerSchema>>({ resolver: zodResolver(registerSchema) });
@@ -167,7 +168,11 @@ export function RegisterPage() {
     setFormError(null);
     try {
       await signUp(v);
-      toast.success('Account created. Check your inbox to verify your email.');
+      toast.success(
+        meta?.emailDelivery === 'dev-log'
+          ? 'Account created. Email isn’t configured on this server — your verification link is in the API terminal.'
+          : 'Account created. Check your inbox to verify your email.',
+      );
       navigate('/app', { replace: true });
     } catch (e) {
       setFormError(e instanceof ApiError && e.code === 'EMAIL_TAKEN' ? 'An account with this email already exists. Try logging in.' : errorMessage(e));
@@ -298,6 +303,21 @@ export function VerifyEmailPage() {
   const [state, setState] = useState<'pending' | 'ok' | 'error'>(token ? 'pending' : 'error');
   const [message, setMessage] = useState(token ? '' : 'This verification link is missing its token.');
   const ran = useRef(false);
+  const navigate = useNavigate();
+  const [rateLimited, setRateLimited] = useState(false);
+  const [countdown, setCountdown] = useState(3);
+  const destination = status === 'authenticated' ? '/app' : '/login';
+
+  // After a successful verification, take the user into the website automatically.
+  useEffect(() => {
+    if (state !== 'ok' || status === 'loading') return;
+    if (countdown <= 0) {
+      navigate(destination, { replace: true });
+      return;
+    }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [state, status, countdown, destination, navigate]);
 
   useEffect(() => {
     if (!token || ran.current) return; // StrictMode double-invoke would burn the single-use token
@@ -309,7 +329,12 @@ export function VerifyEmailPage() {
       })
       .catch((e) => {
         setState('error');
-        setMessage(errorMessage(e));
+        setMessage(
+          e instanceof ApiError && e.code === 'RATE_LIMITED'
+            ? 'Too many attempts right now. Wait a few minutes, then reload this page — your link will still work.'
+            : errorMessage(e),
+        );
+        setRateLimited(e instanceof ApiError && e.code === 'RATE_LIMITED');
       });
   }, [token, status, reload]);
 
@@ -324,14 +349,20 @@ export function VerifyEmailPage() {
       {state === 'ok' && (
         <>
           <CheckCircle2 className="mx-auto h-12 w-12 text-success" />
-          <Heading title="Email verified" subtitle="Your free starter credits have been added. You can now create projects." />
-          <Button asChild className="w-full"><Link to={status === 'authenticated' ? '/app' : '/login'}>{status === 'authenticated' ? 'Go to dashboard' : 'Log in'}</Link></Button>
+          <Heading
+            title="Email verified"
+            subtitle={`Your free starter credits have been added. Taking you to ${status === 'authenticated' ? 'your dashboard' : 'log in'} in ${Math.max(countdown, 0)}…`}
+          />
+          <Button asChild className="w-full"><Link to={destination} replace>{status === 'authenticated' ? 'Go to dashboard now' : 'Log in now'}</Link></Button>
         </>
       )}
       {state === 'error' && (
         <>
           <XCircle className="mx-auto h-12 w-12 text-destructive" />
-          <Heading title="Link not valid" subtitle={`${message} Sign in and use “Resend email” on your dashboard to get a fresh link.`} />
+          <Heading
+            title={rateLimited ? 'Please wait a moment' : 'Link not valid'}
+            subtitle={rateLimited ? message : `${message} Sign in and use “Resend email” on your dashboard to get a fresh link.`}
+          />
           <Button asChild variant="outline" className="w-full"><Link to="/app">Go to dashboard</Link></Button>
         </>
       )}

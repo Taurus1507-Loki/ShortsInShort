@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { env } from '../../config/env.js';
 import { PLANS, PLAN_IDS } from '../../config/plans.js';
 import { dbState } from '../../config/db.js';
+import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 
 export const metaRouter = Router();
 
@@ -16,8 +17,9 @@ metaRouter.get('/meta', (_req, res) => {
       features: {
         // Flip to true only when the module is implemented and verified.
         videoRendering: true, // upload → silence removal → reframe → render (Phase 2, step 1)
-        transcription: false,
-        captions: false,
+        // Live only when a speech-to-text provider key is configured.
+        transcription: Boolean(getTranscriptionProvider()),
+        captions: Boolean(getTranscriptionProvider()),
         broll: false,
         music: false,
         avatarStudio: false,

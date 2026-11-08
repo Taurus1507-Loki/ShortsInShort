@@ -47,7 +47,7 @@ npm --prefix server run seed:admin -- you@example.com super_admin
 ## Tests
 
 ```bash
-npm test             # 54 API tests (incl. real FFmpeg renders) against a throwaway mongod
+npm test             # 74 API tests (incl. real FFmpeg renders and caption burn-in) against a throwaway mongod
 npm run typecheck    # server + client
 npm run build        # production builds
 ```

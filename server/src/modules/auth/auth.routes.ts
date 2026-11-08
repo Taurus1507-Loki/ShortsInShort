@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { asyncHandler, unauthorized } from '../../utils/errors.js';
 import { validate } from '../../middleware/validate.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { emailActionLimiter, loginLimiter, refreshLimiter, registerLimiter } from '../../middleware/security.js';
+import { forgotPasswordLimiter, loginLimiter, refreshLimiter, registerLimiter, resendVerificationLimiter, resetPasswordLimiter, verifyEmailLimiter } from '../../middleware/security.js';
 import { User, toPublicUser } from '../../models/User.js';
 import { Workspace } from '../../models/Workspace.js';
 import {
@@ -97,7 +97,7 @@ authRouter.get(
 
 authRouter.post(
   '/verify-email',
-  emailActionLimiter,
+  verifyEmailLimiter,
   validate({ body: tokenSchema }),
   asyncHandler(async (req, res) => {
     const user = await auth.verifyEmail(req, req.body.token);
@@ -108,7 +108,7 @@ authRouter.post(
 authRouter.post(
   '/resend-verification',
   requireAuth,
-  emailActionLimiter,
+  resendVerificationLimiter,
   asyncHandler(async (req, res) => {
     const { user } = req.auth!;
     if (!user.emailVerifiedAt) {
@@ -121,7 +121,7 @@ authRouter.post(
 
 authRouter.post(
   '/forgot-password',
-  emailActionLimiter,
+  forgotPasswordLimiter,
   validate({ body: emailOnlySchema }),
   asyncHandler(async (req, res) => {
     await auth.requestPasswordReset(req, req.body.email);
@@ -131,7 +131,7 @@ authRouter.post(
 
 authRouter.post(
   '/reset-password',
-  emailActionLimiter,
+  resetPasswordLimiter,
   validate({ body: resetPasswordSchema }),
   asyncHandler(async (req, res) => {
     await auth.resetPassword(req, req.body.token, req.body.password);

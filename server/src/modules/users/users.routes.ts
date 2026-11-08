@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Types } from 'mongoose';
 import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
-import { emailActionLimiter } from '../../middleware/security.js';
+import { sensitiveActionLimiter } from '../../middleware/security.js';
 import { asyncHandler, badRequest, notFound, unauthorized } from '../../utils/errors.js';
 import { hashPassword, verifyPassword } from '../../utils/crypto.js';
 import { toPublicUser } from '../../models/User.js';
@@ -31,7 +31,7 @@ usersRouter.patch(
 
 usersRouter.post(
   '/me/password',
-  emailActionLimiter,
+  sensitiveActionLimiter,
   validate({ body: z.object({ currentPassword: z.string().max(128).optional(), newPassword: passwordSchema }).strict() }),
   asyncHandler(async (req, res) => {
     const { user, sessionId } = req.auth!;
@@ -102,7 +102,7 @@ usersRouter.post(
  */
 usersRouter.delete(
   '/me',
-  emailActionLimiter,
+  sensitiveActionLimiter,
   validate({ body: z.object({ password: z.string().max(128).optional(), confirm: z.literal('DELETE') }).strict() }),
   asyncHandler(async (req, res) => {
     const { user, workspaceId } = req.auth!;

@@ -174,7 +174,9 @@ template marketplace publishing, team workspaces, 4K, WhatsApp/push notification
 2. **Core AI Video Editor** — R2 uploads, BullMQ + Redis, STT adapter, silence detection, captions
    (ASS), B-roll adapter, music bed, FFmpeg render worker, export, editor UI.
 3. **Avatar Studio** — consent records, provider adapter, avatar/voice management.
-4. **Faceless Creator** — script → scenes → TTS → media → render; templates.
+4. **Faceless Creator** — script → scenes → TTS → media → render; templates. Includes the
+   **Motion Explainer** style (AI-planned animated scenes rendered with Remotion) — see
+   [PHASE4_MOTION_EXPLAINER.md](PHASE4_MOTION_EXPLAINER.md).
 5. **Monetization** — Razorpay subscriptions/top-ups, webhooks, invoices, credit reservation.
 6. **Admin & security** — admin panel, analytics, audit review, pen-test checklist.
 7. **Launch** — Docker images, CI/CD, staging, backups, load tests, monitoring.

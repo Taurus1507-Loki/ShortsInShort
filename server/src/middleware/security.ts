@@ -17,7 +17,12 @@ export function originCheck(req: Request, _res: Response, next: NextFunction) {
   next();
 }
 
-const limiter = (windowMs: number, limit: number, keyByEmail = false) =>
+/**
+ * Each exported limiter is its own instance with its own counter, so one action (e.g. clicking
+ * "Resend email") can never use up the allowance of another (e.g. opening the verification link).
+ * Keys combine the client IP with the signed-in user or submitted email where relevant.
+ */
+const limiter = (windowMs: number, limit: number, opts: { byEmail?: boolean; byUser?: boolean } = {}) =>
   rateLimit({
     windowMs,
     limit,
@@ -26,17 +31,26 @@ const limiter = (windowMs: number, limit: number, keyByEmail = false) =>
     skip: () => env.isTest && process.env.RATE_LIMIT_TESTS !== '1',
     keyGenerator: (req) => {
       const ip = ipKeyGenerator(req.ip ?? 'unknown'); // groups IPv6 by /56 so users can't rotate addresses
-      const email = keyByEmail && typeof req.body?.email === 'string' ? req.body.email.toLowerCase() : '';
-      return `${ip}|${email}`;
+      const email = opts.byEmail && typeof req.body?.email === 'string' ? req.body.email.toLowerCase() : '';
+      const user = opts.byUser ? (req.auth?.user._id.toString() ?? '') : '';
+      return `${ip}|${email}|${user}`;
     },
     handler: (_req, res) =>
-      res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please wait and try again.' } }),
+      res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please wait a few minutes and try again.' } }),
   });
 
-// In-memory stores for Phase 1 (single instance). Phase 2 switches to a Redis store so limits
-// hold across horizontally scaled API instances.
-export const loginLimiter = limiter(15 * 60_000, 10, true);
-export const registerLimiter = limiter(60 * 60_000, 10);
-export const emailActionLimiter = limiter(15 * 60_000, 5, true);
-export const refreshLimiter = limiter(60_000, 30);
-export const apiLimiter = limiter(60_000, 300);
+// In-memory stores (single instance). Switch to a Redis store when the API runs on several
+// servers so limits hold across instances.
+const MIN = 60_000;
+export const loginLimiter = limiter(15 * MIN, 10, { byEmail: true });
+export const registerLimiter = limiter(60 * MIN, 10);
+/** Verification tokens carry 256 bits of entropy, so this only needs to stop floods. */
+export const verifyEmailLimiter = limiter(15 * MIN, 30);
+/** Limits how many verification emails one account can trigger. */
+export const resendVerificationLimiter = limiter(15 * MIN, 5, { byUser: true });
+export const forgotPasswordLimiter = limiter(15 * MIN, 5, { byEmail: true });
+export const resetPasswordLimiter = limiter(15 * MIN, 10);
+/** Sensitive signed-in actions (change password, delete account): per user. */
+export const sensitiveActionLimiter = limiter(15 * MIN, 10, { byUser: true });
+export const refreshLimiter = limiter(MIN, 30);
+export const apiLimiter = limiter(MIN, 300);

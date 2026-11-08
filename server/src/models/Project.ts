@@ -57,6 +57,8 @@ const projectSchema = new Schema(
       silenceRemovedSec: { type: Number, default: null },
       cuts: { type: Number, default: null },
       creditsCharged: { type: Number, default: null },
+      captionsAdded: { type: Boolean, default: false },
+      fillerWordsRemoved: { type: Number, default: 0 },
       warnings: { type: [String], default: [] },
     },
     deletedAt: { type: Date, default: null },

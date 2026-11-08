@@ -7,7 +7,7 @@ export const MODES: { id: ProjectMode; name: string; description: string; icon: 
   {
     id: 'editor',
     name: 'AI Video Editor',
-    description: 'Upload raw footage. AI trims silences, adds captions, B-roll, music and zooms.',
+    description: 'Upload raw footage. AI cuts pauses and filler words, adds captions (when enabled), reframes it for every platform and balances the audio. B-roll and music are coming soon.',
     icon: Wand2,
     phase: 2,
   },

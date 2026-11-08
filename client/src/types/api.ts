@@ -90,6 +90,8 @@ export interface RenderStats {
   silenceRemovedSec: number | null;
   cuts: number | null;
   creditsCharged: number | null;
+  captionsAdded?: boolean;
+  fillerWordsRemoved?: number;
   warnings: string[];
 }
 

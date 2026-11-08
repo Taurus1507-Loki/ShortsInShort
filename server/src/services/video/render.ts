@@ -23,6 +23,16 @@ export interface RenderInput {
   aspect: AspectRatio;
   resolution: Resolution;
   fps?: number;
+  /** ASS subtitle file to burn in (already timed to the edited timeline). */
+  captions?: { assPath: string; fontsDir: string };
+}
+
+/**
+ * Quotes a filesystem path for use as an FFmpeg filter option value. Backslashes become forward
+ * slashes and `:`/`'` are escaped, so Windows drive letters (C:) survive filtergraph parsing.
+ */
+export function filterPath(p: string): string {
+  return `'${p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}'`;
 }
 
 const selectExpr = (segs: Interval[]) => segs.map((s) => `between(t,${s.start},${s.end})`).join('+');
@@ -45,6 +55,8 @@ export function buildRenderArgs(r: RenderInput): string[] {
     `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos`,
     `crop=${width}:${height}`,
     'setsar=1',
+    // Captions are burned in after reframing so they are laid out for the final frame size.
+    ...(r.captions ? [`ass=filename=${filterPath(r.captions.assPath)}:fontsdir=${filterPath(r.captions.fontsDir)}`] : []),
     'format=yuv420p',
   ].join(',');
   const graph = [`[0:v:0]${v}[v]`];
@@ -83,6 +95,14 @@ export async function renderVideo(r: RenderInput, opts: RunOptions & { onFractio
     onProgress: (t) => opts.onFraction?.(Math.min(1, t / Math.max(expected, 0.1))),
   });
   return { expectedDurationSec: expected };
+}
+
+/** Compact mono speech track for transcription (smaller upload, same accuracy). */
+export async function extractSpeechAudio(input: string, output: string, opts: RunOptions = {}) {
+  await runFfmpeg(['-i', input, '-vn', '-sn', '-dn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', output], {
+    timeoutMs: 10 * 60_000,
+    ...opts,
+  });
 }
 
 export async function extractThumbnail(input: string, output: string, atSec: number, opts: RunOptions = {}) {
