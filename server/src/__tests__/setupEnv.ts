@@ -1,4 +1,7 @@
 import { inject } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Runs before any test module imports src/config/env.ts.
 process.env.NODE_ENV = 'test';
@@ -10,3 +13,7 @@ process.env.FREE_PLAN_CREDITS = '3';
 delete process.env.SMTP_HOST;
 delete process.env.GOOGLE_CLIENT_ID;
 delete process.env.GOOGLE_CLIENT_SECRET;
+process.env.STORAGE_DRIVER = 'local';
+process.env.STORAGE_LOCAL_DIR = mkdtempSync(path.join(tmpdir(), 'sis-test-storage-'));
+process.env.WORKER_MODE = 'off';
+process.env.MAX_UPLOAD_MB = '50';

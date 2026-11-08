@@ -37,6 +37,11 @@ export const createProjectSchema = z
     script: z.string().max(20000).default(''),
     topic: z.string().trim().max(300).default(''),
     settings: settingsSchema.default({}),
+    sourceAssetId: z
+      .string()
+      .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
+      .nullable()
+      .optional(),
   })
   .strict();
 

@@ -2,28 +2,33 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Check, Lock, Save, UploadCloud } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Lock, Save, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
 import { CustomizeForm, DEFAULT_SETTINGS, type CustomizeValue } from '@/components/app/projects';
+import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Card, Field, Notice } from '@/components/ui/primitives';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { MODES, modeName, styleName, LANGUAGES } from '@/config/options';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { queryClient } from '@/lib/queries';
+import { queryClient, useMeta } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import type { Project, ProjectMode } from '@/types/api';
+import type { Asset, Project, ProjectMode, ProjectSettings } from '@/types/api';
 
-const STEPS = ['Choose mode', 'Content', 'Customize', 'Generate', 'Preview & export'];
-/** Steps 4–5 need the rendering pipeline (Phase 2). */
+const STEPS = ['Choose mode', 'Content', 'Customize', 'Review & generate', 'Preview & export'];
+/** Step 5 (preview/export) happens on the project page once rendering finishes. */
 const AVAILABLE_STEPS = 3;
+const RES_RANK = { '720p': 1, '1080p': 2, '4k': 3 } as const;
 
 export default function NewProjectPage() {
   const [params] = useSearchParams();
   const initialMode = MODES.some((m) => m.id === params.get('mode')) ? (params.get('mode') as ProjectMode) : null;
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, workspace } = useAuth();
+  const { data: meta } = useMeta();
+  const planMax = (meta?.plans.find((p) => p.id === workspace?.plan)?.maxResolution ?? '720p') as ProjectSettings['resolution'];
+  const [sourceAsset, setSourceAsset] = useState<Asset | null>(null);
 
   const [step, setStep] = useState(initialMode ? 1 : 0);
   const [mode, setMode] = useState<ProjectMode | null>(initialMode);
@@ -33,17 +38,32 @@ export default function NewProjectPage() {
   const [titleError, setTitleError] = useState<string>();
   const [custom, setCustom] = useState<CustomizeValue>({ style: 'viral', aspectRatio: '9:16', settings: DEFAULT_SETTINGS });
 
+  // Default the export resolution to what the plan allows (Free = 720p) so generation isn't blocked.
+  const [resTouched, setResTouched] = useState(false);
+  const effectiveCustom: CustomizeValue = resTouched
+    ? custom
+    : { ...custom, settings: { ...custom.settings, resolution: RES_RANK[planMax] < RES_RANK[custom.settings.resolution] ? planMax : custom.settings.resolution } };
+
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (_opts: { generate: boolean }) =>
       api<{ data: Project }>('/projects', {
         method: 'POST',
-        body: { title: title.trim(), mode, script, topic: topic.trim(), style: custom.style, aspectRatio: custom.aspectRatio, settings: custom.settings },
+        body: {
+          title: title.trim(),
+          mode,
+          script,
+          topic: topic.trim(),
+          style: effectiveCustom.style,
+          aspectRatio: effectiveCustom.aspectRatio,
+          settings: effectiveCustom.settings,
+          ...(mode === 'editor' && sourceAsset ? { sourceAssetId: sourceAsset.id } : {}),
+        },
       }).then((r) => r.data),
-    onSuccess: (p) => {
+    onSuccess: (p, { generate }) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('Draft saved');
-      navigate(`/app/projects/${p.id}`);
+      if (!generate) toast.success('Draft saved');
+      navigate(`/app/projects/${p.id}${generate ? '?generate=1' : ''}`);
     },
   });
 
@@ -104,7 +124,7 @@ export default function NewProjectPage() {
                   </span>
                   <span className="mt-4 font-semibold">{m.name}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{m.description}</span>
-                  <span className="mt-3 text-xs text-muted-foreground">Generation available from Phase {m.phase}</span>
+                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : `Coming in Phase ${m.phase}`}</span>
                 </button>
               ))}
             </div>
@@ -121,11 +141,11 @@ export default function NewProjectPage() {
             {mode === 'editor' && (
               <div className="grid gap-2">
                 <span className="text-sm font-medium">Footage</span>
-                <div className="grid place-items-center rounded-xl border-2 border-dashed border-border px-6 py-10 text-center">
-                  <UploadCloud className="h-8 w-8 text-muted-foreground" />
-                  <p className="mt-3 text-sm font-semibold">Video upload arrives in the next release</p>
-                  <p className="mt-1 max-w-sm text-xs text-muted-foreground">Save this project as a draft now; you’ll be able to upload footage to it once secure cloud uploads are enabled.</p>
-                </div>
+                {unverified ? (
+                  <Notice tone="warning">Verify your email address to upload videos.</Notice>
+                ) : (
+                  <VideoUploader current={sourceAsset} onUploaded={setSourceAsset} />
+                )}
               </div>
             )}
 
@@ -144,7 +164,16 @@ export default function NewProjectPage() {
         {step === 2 && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Customize</h2>
-            <CustomizeForm value={custom} onChange={setCustom} />
+            <CustomizeForm
+              value={effectiveCustom}
+              onChange={(v) => {
+                if (v.settings.resolution !== effectiveCustom.settings.resolution) setResTouched(true);
+                setCustom(v);
+              }}
+            />
+            {RES_RANK[effectiveCustom.settings.resolution] > RES_RANK[planMax] && (
+              <Notice tone="warning">Your plan exports up to {planMax}. You can save this draft, but you’ll need to lower the resolution or upgrade to render it.</Notice>
+            )}
           </div>
         )}
 
@@ -155,12 +184,12 @@ export default function NewProjectPage() {
               {[
                 ['Mode', modeName(mode)],
                 ['Title', title],
-                ['Style', styleName(custom.style)],
-                ['Format', custom.aspectRatio],
-                ['Language', LANGUAGES.find((l) => l.id === custom.settings.language)?.name],
-                ['Resolution', custom.settings.resolution],
-                ['Target length', `${custom.settings.targetDurationSec}s`],
-                ['Captions', custom.settings.captionsEnabled ? 'On' : 'Off'],
+                ['Style', styleName(effectiveCustom.style)],
+                ['Format', effectiveCustom.aspectRatio],
+                ['Language', LANGUAGES.find((l) => l.id === effectiveCustom.settings.language)?.name],
+                ['Resolution', effectiveCustom.settings.resolution],
+                ['Footage', mode === 'editor' ? (sourceAsset?.originalName ?? 'Not uploaded yet') : '—'],
+                ['Captions', effectiveCustom.settings.captionsEnabled ? 'On (coming soon)' : 'Off'],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4 border-b border-border/60 pb-2">
                   <dt className="text-muted-foreground">{k}</dt>
@@ -168,9 +197,15 @@ export default function NewProjectPage() {
                 </div>
               ))}
             </dl>
-            <Notice tone="info" title="AI generation isn’t switched on yet">
-              Transcription, editing and rendering are being built in the next phase. Your project will be saved as a draft with these settings, and you’ll be able to generate it — with the credit cost shown up front — as soon as it’s available.
-            </Notice>
+            {mode === 'editor' ? (
+              <Notice tone="info" title="What this render does today">
+                Removes pauses, reframes to {effectiveCustom.aspectRatio}, balances loudness and exports an MP4. Captions, B-roll and music are coming next. You’ll see the exact credit cost before anything is charged.
+              </Notice>
+            ) : (
+              <Notice tone="info" title={`${modeName(mode)} generation isn’t available yet`}>
+                Your project will be saved as a draft with these settings and can be generated once this mode launches.
+              </Notice>
+            )}
             {unverified && <Notice tone="warning">Verify your email address to save projects. Check your inbox for the link.</Notice>}
             {save.isError && (
               <Notice tone="error">{save.error instanceof ApiError && save.error.code === 'EMAIL_NOT_VERIFIED' ? 'Please verify your email first.' : errorMessage(save.error)}</Notice>
@@ -188,11 +223,17 @@ export default function NewProjectPage() {
             </Button>
           ) : (
             <div className="flex gap-2">
-              <Button variant="outline" disabled title="Available when the rendering pipeline launches">
-                <Lock /> Generate
-              </Button>
-              <Button variant="gradient" onClick={() => save.mutate()} loading={save.isPending} disabled={Boolean(unverified)}>
+              <Button variant="outline" onClick={() => save.mutate({ generate: false })} loading={save.isPending && !save.variables?.generate} disabled={Boolean(unverified) || save.isPending}>
                 <Save /> Save draft
+              </Button>
+              <Button
+                variant="gradient"
+                onClick={() => save.mutate({ generate: true })}
+                loading={save.isPending && save.variables?.generate}
+                disabled={Boolean(unverified) || save.isPending || mode !== 'editor' || !sourceAsset}
+                title={mode !== 'editor' ? 'Not available for this mode yet' : !sourceAsset ? 'Upload a video first' : undefined}
+              >
+                {mode === 'editor' ? <Sparkles /> : <Lock />} Create & generate
               </Button>
             </div>
           )}

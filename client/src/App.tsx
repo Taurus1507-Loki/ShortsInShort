@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { Loader2 } from 'lucide-react';
 import { MarketingLayout } from '@/components/marketing/MarketingLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -24,15 +24,9 @@ const NewProjectPage = lazy(() => import('@/pages/app/NewProjectPage'));
 const ProjectsPage = lazy(() => import('@/pages/app/ProjectsPage'));
 const ProjectDetailPage = lazy(() => import('@/pages/app/ProjectDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/app/SettingsPage'));
+const MediaLibraryPage = lazy(() => import('@/pages/app/MediaLibraryPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
-  {
-    path: 'editor',
-    title: 'AI Video Editor',
-    phase: 2,
-    description: 'Upload raw footage and let AI handle transcription, silence removal, captions, B-roll, music and rendering.',
-    bullets: ['Secure direct-to-cloud uploads', 'Word-level transcription with timestamps', 'Silence & filler removal', 'Animated captions with keyword highlights', 'FFmpeg rendering to 9:16, 16:9, 1:1, 4:5'],
-  },
   {
     path: 'avatar',
     title: 'AI Avatar',
@@ -60,13 +54,6 @@ const SOON: { path: string; title: string; phase: number; description: string; b
     phase: 2,
     description: 'Save your logo, colours, fonts and caption styles so every video is on-brand automatically.',
     bullets: ['Logo & watermark', 'Brand colours & fonts', 'Intro / outro clips', 'Saved editing presets'],
-  },
-  {
-    path: 'media',
-    title: 'Media Library',
-    phase: 2,
-    description: 'All your uploads and exports in one place, stored privately.',
-    bullets: ['Private storage with signed URLs', 'Upload progress & validation', 'Storage usage tracking'],
   },
 ];
 
@@ -107,6 +94,8 @@ export default function App() {
               <Route path="projects" element={<ProjectsPage />} />
               <Route path="projects/:id" element={<ProjectDetailPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="media" element={<MediaLibraryPage />} />
+              <Route path="editor" element={<Navigate to="/app/new?mode=editor" replace />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="help" element={<HelpPage />} />
               {SOON.map(({ path, ...props }) => (

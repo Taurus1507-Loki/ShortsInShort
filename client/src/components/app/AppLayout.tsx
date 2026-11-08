@@ -44,7 +44,7 @@ const NAV: { section?: string; items: NavItem[] }[] = [
   {
     section: 'Create',
     items: [
-      { to: '/app/editor', label: 'AI Video Editor', icon: Wand2, soon: true },
+      { to: '/app/new?mode=editor', label: 'AI Video Editor', icon: Wand2 },
       { to: '/app/avatar', label: 'AI Avatar', icon: UserRound, soon: true },
       { to: '/app/faceless', label: 'Faceless Videos', icon: Clapperboard, soon: true },
     ],
@@ -55,7 +55,7 @@ const NAV: { section?: string; items: NavItem[] }[] = [
       { to: '/app/projects', label: 'My Projects', icon: FolderKanban },
       { to: '/app/templates', label: 'Templates', icon: LayoutTemplate, soon: true },
       { to: '/app/brand-kit', label: 'Brand Kit', icon: Palette, soon: true },
-      { to: '/app/media', label: 'Media Library', icon: Image, soon: true },
+      { to: '/app/media', label: 'Media Library', icon: Image },
     ],
   },
   {

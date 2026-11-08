@@ -1,9 +1,17 @@
 import { Router } from 'express';
 import type { z } from 'zod';
+import { Types } from 'mongoose';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/auth.js';
 import { validate, validatedQuery } from '../../middleware/validate.js';
-import { asyncHandler, conflict, notFound } from '../../utils/errors.js';
-import { Project, toPublicProject } from '../../models/Project.js';
+import { AppError, asyncHandler, badRequest, conflict, notFound } from '../../utils/errors.js';
+import { Project, toPublicProject, type ProjectDoc } from '../../models/Project.js';
+import { Asset, toPublicAsset } from '../../models/Asset.js';
+import { Job, toPublicJob } from '../../models/Job.js';
+import { Workspace } from '../../models/Workspace.js';
+import { PLANS, type PlanId } from '../../config/plans.js';
+import { editorCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { applyCreditChange } from '../../services/credit.service.js';
+import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
 import { createProjectSchema, idParams, listProjectsQuery, updateProjectSchema } from './projects.schemas.js';
 
@@ -13,6 +21,23 @@ projectsRouter.use(requireAuth);
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Every query below is scoped by the caller's workspaceId: that is the tenant-isolation boundary.
+
+async function assertUsableSource(workspaceId: Types.ObjectId, assetId: string) {
+  const asset = await Asset.findOne({ _id: assetId, workspaceId, deletedAt: null, kind: 'source_video', status: 'ready' });
+  if (!asset) throw badRequest('That video is not available. Upload it again.', 'INVALID_ASSET');
+  return asset;
+}
+
+/** Project + its source/output asset summaries. */
+async function withMedia(p: ProjectDoc) {
+  const ids = [p.sourceAssetId, p.outputAssetId].filter(Boolean) as Types.ObjectId[];
+  const assets = ids.length ? await Asset.find({ _id: { $in: ids }, workspaceId: p.workspaceId, deletedAt: null }) : [];
+  const find = (id: Types.ObjectId | null | undefined) => {
+    const a = id && assets.find((x) => x._id.equals(id));
+    return a ? toPublicAsset(a) : null;
+  };
+  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId) };
+}
 
 projectsRouter.get(
   '/',
@@ -41,9 +66,11 @@ projectsRouter.post(
   validate({ body: createProjectSchema }),
   asyncHandler(async (req, res) => {
     const { user, workspaceId } = req.auth!;
-    const project = await Project.create({ ...req.body, workspaceId, createdBy: user._id });
+    const body = req.body as z.infer<typeof createProjectSchema>;
+    if (body.sourceAssetId) await assertUsableSource(workspaceId, body.sourceAssetId);
+    const project = await Project.create({ ...body, workspaceId, createdBy: user._id });
     await audit(req, 'project.created', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString() } });
-    res.status(201).json({ data: toPublicProject(project) });
+    res.status(201).json({ data: await withMedia(project) });
   }),
 );
 
@@ -53,7 +80,7 @@ projectsRouter.get(
   asyncHandler(async (req, res) => {
     const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
     if (!project) throw notFound('Project not found.');
-    res.json({ data: toPublicProject(project) });
+    res.json({ data: await withMedia(project) });
   }),
 );
 
@@ -61,16 +88,19 @@ projectsRouter.patch(
   '/:id',
   validate({ params: idParams, body: updateProjectSchema }),
   asyncHandler(async (req, res) => {
-    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
     if (!project) throw notFound('Project not found.');
     if (project.status === 'queued' || project.status === 'processing') {
       throw conflict('This project is being processed and cannot be edited right now.', 'PROJECT_BUSY');
     }
-    const { settings, ...rest } = req.body as z.infer<typeof updateProjectSchema>;
+    const { settings, sourceAssetId, ...rest } = req.body as z.infer<typeof updateProjectSchema>;
+    if (sourceAssetId) await assertUsableSource(workspaceId, sourceAssetId);
     project.set(rest);
+    if (sourceAssetId !== undefined) project.set('sourceAssetId', sourceAssetId);
     if (settings) project.set('settings', { ...project.toObject().settings, ...settings });
     await project.save();
-    res.json({ data: toPublicProject(project) });
+    res.json({ data: await withMedia(project) });
   }),
 );
 
@@ -86,5 +116,122 @@ projectsRouter.delete(
     if (r.matchedCount === 0) throw notFound('Project not found or currently processing.');
     await audit(req, 'project.deleted', { actorId: user._id, workspaceId, metadata: { projectId: req.params.id } });
     res.status(204).end();
+  }),
+);
+
+/* ── Generation ─────────────────────────────────────────────────────── */
+
+async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  if (project.mode !== 'editor') {
+    throw new AppError(501, 'NOT_AVAILABLE', 'Generation for this project type is not available yet.');
+  }
+  if (!project.sourceAssetId) throw badRequest('Upload a video first.', 'NO_SOURCE');
+  const source = await assertUsableSource(workspaceId, project.sourceAssetId.toString());
+  const ws = await Workspace.findById(workspaceId).select('plan creditBalance').lean();
+  const plan = PLANS[(ws?.plan ?? 'free') as PlanId];
+  const resolution = project.settings?.resolution ?? '1080p';
+  return {
+    credits: editorCreditCost(source.durationSec ?? 0, resolution),
+    balance: ws?.creditBalance ?? 0,
+    sourceDurationSec: source.durationSec ?? 0,
+    resolution,
+    resolutionAllowed: resolutionAllowed(resolution, plan.maxResolution),
+    planMaxResolution: plan.maxResolution,
+  };
+}
+
+/** Cost preview shown before the user confirms. */
+projectsRouter.get(
+  '/:id/estimate',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    res.json({ data: await quote(project, workspaceId) });
+  }),
+);
+
+/**
+ * Starts a render. Order matters for correctness:
+ * 1. atomically move the project into `queued` (prevents double-submits / concurrent renders),
+ * 2. debit credits with an idempotency key bound to the new job id (refunded if the job dies),
+ * 3. enqueue the job.
+ */
+projectsRouter.post(
+  '/:id/generate',
+  requireVerifiedEmail,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { user, workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const q = await quote(project, workspaceId);
+    if (!q.resolutionAllowed) {
+      throw new AppError(403, 'PLAN_LIMIT', `Your plan exports up to ${q.planMaxResolution}. Lower the resolution or upgrade.`);
+    }
+
+    const jobId = new Types.ObjectId();
+    const previousStatus = project.status;
+    const claimed = await Project.findOneAndUpdate(
+      { _id: project._id, workspaceId, status: { $in: ['draft', 'completed', 'failed'] } },
+      { $set: { status: 'queued', lastJobId: jobId, lastError: null } },
+      { new: true },
+    );
+    if (!claimed) throw conflict('This project is already being processed.', 'PROJECT_BUSY');
+
+    try {
+      await applyCreditChange({
+        workspaceId,
+        type: 'consume',
+        amount: -q.credits,
+        idempotencyKey: `job:${jobId.toString()}`,
+        note: `Render: ${project.title}`.slice(0, 300),
+        reference: { kind: 'job', id: jobId.toString() },
+        actorId: user._id,
+      });
+    } catch (err) {
+      await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
+      throw err;
+    }
+
+    let job;
+    try {
+      job = await enqueue({
+        _id: jobId,
+        type: 'render_project',
+        workspaceId,
+        projectId: project._id,
+        payload: { projectId: project._id.toString(), credits: q.credits },
+        maxAttempts: 3,
+      });
+    } catch (err) {
+      // Never leave credits charged for a job that doesn't exist, or a project stuck in `queued`.
+      // The refund key matches the worker's, so even a racing compensation can only refund once.
+      await applyCreditChange({
+        workspaceId,
+        type: 'refund',
+        amount: q.credits,
+        idempotencyKey: `refund:${jobId.toString()}`,
+        note: 'Refund: render could not be queued',
+        reference: { kind: 'job', id: jobId.toString() },
+      });
+      await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
+      throw err;
+    }
+    await audit(req, 'project.generate', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: jobId.toString(), credits: q.credits } });
+    res.status(202).json({ data: { job: toPublicJob(job), credits: q.credits } });
+  }),
+);
+
+/** Latest job status for progress polling. */
+projectsRouter.get(
+  '/:id/job',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null }).select('lastJobId');
+    if (!project) throw notFound('Project not found.');
+    const job = project.lastJobId ? await Job.findOne({ _id: project.lastJobId, workspaceId: req.auth!.workspaceId }) : null;
+    res.json({ data: job ? toPublicJob(job) : null });
   }),
 );

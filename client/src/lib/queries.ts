@@ -1,6 +1,6 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
-import type { DashboardSummary, Meta, Paginated, Project, SessionInfo } from '@/types/api';
+import type { Asset, DashboardSummary, Estimate, Job, Meta, Paginated, Project, SessionInfo } from '@/types/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,6 +19,10 @@ export const keys = {
   projects: (params: Record<string, unknown>) => ['projects', params] as const,
   project: (id: string) => ['project', id] as const,
   sessions: ['sessions'] as const,
+  assets: (page: number) => ['assets', page] as const,
+  assetUrl: (id: string, download: boolean) => ['asset-url', id, download] as const,
+  estimate: (id: string) => ['estimate', id] as const,
+  job: (id: string) => ['job', id] as const,
 };
 
 export const useMeta = () =>
@@ -45,3 +49,41 @@ export const useProject = (id: string) =>
 
 export const useSessions = () =>
   useQuery({ queryKey: keys.sessions, queryFn: () => api<{ data: SessionInfo[] }>('/users/me/sessions').then((r) => r.data) });
+
+const BUSY = new Set(['queued', 'processing']);
+
+/** Polls while the project is rendering so status/progress stay live. */
+export const useProjectLive = (id: string) =>
+  useQuery({
+    queryKey: keys.project(id),
+    queryFn: () => api<{ data: Project }>(`/projects/${id}`).then((r) => r.data),
+    refetchInterval: (q) => (q.state.data && BUSY.has(q.state.data.status) ? 2000 : false),
+  });
+
+export const useJob = (projectId: string, active: boolean) =>
+  useQuery({
+    queryKey: keys.job(projectId),
+    queryFn: () => api<{ data: Job | null }>(`/projects/${projectId}/job`).then((r) => r.data),
+    refetchInterval: active ? 1500 : false,
+  });
+
+export const useEstimate = (projectId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: keys.estimate(projectId),
+    queryFn: () => api<{ data: Estimate }>(`/projects/${projectId}/estimate`).then((r) => r.data),
+    enabled,
+    staleTime: 0,
+  });
+
+/** Signed URLs last 1 hour; refresh well before expiry. */
+export const useAssetUrl = (id: string | null | undefined, download = false) =>
+  useQuery({
+    queryKey: keys.assetUrl(id ?? '', download),
+    queryFn: () => api<{ data: { url: string } }>(`/assets/${id}/url${download ? '?download=1' : ''}`).then((r) => r.data.url),
+    enabled: Boolean(id),
+    staleTime: 40 * 60_000,
+    gcTime: 45 * 60_000,
+  });
+
+export const useAssets = (page: number) =>
+  useQuery({ queryKey: keys.assets(page), queryFn: () => api<Paginated<Asset>>(`/assets?page=${page}`), placeholderData: (p) => p });

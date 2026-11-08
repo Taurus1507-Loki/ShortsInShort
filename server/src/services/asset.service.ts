@@ -1,0 +1,225 @@
+import { Types } from 'mongoose';
+import { fileTypeFromBuffer } from 'file-type';
+import { env } from '../config/env.js';
+import { logger } from '../config/logger.js';
+import { PLANS, type PlanId } from '../config/plans.js';
+import { Asset, type AssetDoc } from '../models/Asset.js';
+import { Workspace } from '../models/Workspace.js';
+import { Project } from '../models/Project.js';
+import { AppError, badRequest, conflict, notFound } from '../utils/errors.js';
+import { keys, storage } from './storage/storage.js';
+import { probe } from './video/ffmpeg.js';
+
+/** Container formats we accept, keyed by extension → detected MIME types. */
+export const VIDEO_TYPES: Record<string, string[]> = {
+  mp4: ['video/mp4'],
+  m4v: ['video/mp4', 'video/x-m4v'],
+  mov: ['video/quicktime'],
+  webm: ['video/webm'],
+  mkv: ['video/x-matroska', 'video/matroska'],
+};
+const ALLOWED_DETECTED = new Set(Object.values(VIDEO_TYPES).flat());
+export const UPLOAD_URL_TTL_SEC = 15 * 60;
+
+export function extensionOf(filename: string): string {
+  return (filename.split('.').pop() ?? '').toLowerCase();
+}
+
+/* ── Storage quota accounting ───────────────────────────────────────── */
+
+/** Atomically adds bytes to the workspace's usage if it stays within the plan limit. */
+export async function reserveStorage(workspaceId: Types.ObjectId, bytes: number): Promise<void> {
+  const ws = await Workspace.findById(workspaceId).select('plan').lean();
+  if (!ws) throw notFound('Workspace not found.');
+  const limit = PLANS[ws.plan as PlanId].storageBytes;
+  const r = await Workspace.updateOne(
+    { _id: workspaceId, storageBytesUsed: { $lte: limit - bytes } },
+    { $inc: { storageBytesUsed: bytes } },
+  );
+  if (r.modifiedCount === 0) {
+    throw new AppError(413, 'STORAGE_FULL', 'Your storage is full. Delete some media or upgrade your plan.');
+  }
+}
+
+export async function releaseStorage(workspaceId: Types.ObjectId, bytes: number) {
+  if (bytes <= 0) return;
+  await Workspace.updateOne({ _id: workspaceId }, [
+    { $set: { storageBytesUsed: { $max: [0, { $subtract: ['$storageBytesUsed', bytes] }] } } },
+  ]);
+}
+
+export async function remainingStorage(workspaceId: Types.ObjectId): Promise<number> {
+  const ws = await Workspace.findById(workspaceId).select('plan storageBytesUsed').lean();
+  if (!ws) return 0;
+  return PLANS[ws.plan as PlanId].storageBytes - ws.storageBytesUsed;
+}
+
+/* ── Upload lifecycle ───────────────────────────────────────────────── */
+
+export async function initiateUpload(input: {
+  workspaceId: Types.ObjectId;
+  userId: Types.ObjectId;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+}) {
+  const ext = extensionOf(input.filename);
+  if (!VIDEO_TYPES[ext]) throw badRequest('Upload an MP4, MOV, WEBM or MKV video.', 'UNSUPPORTED_TYPE');
+  if (!input.contentType.startsWith('video/')) throw badRequest('Upload a video file.', 'UNSUPPORTED_TYPE');
+  if (input.sizeBytes > env.uploads.maxBytes) {
+    throw new AppError(413, 'TOO_LARGE', `Videos can be up to ${Math.round(env.uploads.maxBytes / 1024 / 1024)} MB.`);
+  }
+  if (input.sizeBytes > (await remainingStorage(input.workspaceId))) {
+    throw new AppError(413, 'STORAGE_FULL', 'Not enough storage left for this file. Delete some media or upgrade your plan.');
+  }
+
+  const id = new Types.ObjectId();
+  const storageKey = keys.upload(input.workspaceId.toString(), id.toString(), ext);
+  const asset = await Asset.create({
+    _id: id,
+    workspaceId: input.workspaceId,
+    createdBy: input.userId,
+    kind: 'source_video',
+    status: 'pending',
+    storageKey,
+    originalName: input.filename.slice(0, 255),
+    mimeType: input.contentType.slice(0, 100),
+    declaredSizeBytes: input.sizeBytes,
+  });
+  // Short-lived: the URL only needs to outlive one upload. (On S3/R2 a presigned PUT can't be made
+  // write-once, so the short window plus the render job's own ffprobe re-check is the mitigation.)
+  const upload = await storage.createUploadTarget(storageKey, input.contentType, env.uploads.maxBytes, UPLOAD_URL_TTL_SEC);
+  return { asset, upload };
+}
+
+async function failUpload(asset: AssetDoc, reason: string): Promise<never> {
+  asset.status = 'failed';
+  asset.failureReason = reason;
+  await asset.save();
+  await storage.delete(asset.storageKey).catch(() => undefined);
+  throw badRequest(reason, 'INVALID_UPLOAD');
+}
+
+/**
+ * Validates an uploaded object before it can be used: real size (not the declared one), magic-byte
+ * content type (not the client's Content-Type or extension), and an FFprobe pass confirming it is a
+ * decodable video within the duration limit.
+ */
+export async function completeUpload(workspaceId: Types.ObjectId, assetId: string): Promise<AssetDoc> {
+  const asset = await Asset.findOne({ _id: assetId, workspaceId, deletedAt: null });
+  if (!asset) throw notFound('Upload not found.');
+  if (asset.status === 'ready') return asset;
+  if (asset.status !== 'pending') throw conflict('This upload has already failed. Please upload again.', 'UPLOAD_FAILED');
+
+  const s = await storage.stat(asset.storageKey);
+  if (!s || s.size === 0) throw badRequest('The file has not finished uploading.', 'UPLOAD_INCOMPLETE');
+  if (s.size > env.uploads.maxBytes) return failUpload(asset, 'The file is larger than allowed.');
+
+  const head = await storage.readHead(asset.storageKey, 4100);
+  const detected = await fileTypeFromBuffer(head);
+  if (!detected || !ALLOWED_DETECTED.has(detected.mime)) {
+    return failUpload(asset, 'That file isn’t a supported video (MP4, MOV, WEBM or MKV).');
+  }
+
+  let info;
+  try {
+    info = await probe(await storage.getProcessingInput(asset.storageKey));
+  } catch (err) {
+    logger.warn({ err, assetId }, 'ffprobe rejected upload');
+    return failUpload(asset, 'We couldn’t read that video. It may be corrupted.');
+  }
+  if (!info.video) return failUpload(asset, 'That file has no video track.');
+  if (!(info.durationSec > 0.5)) return failUpload(asset, 'That video is too short.');
+  if (info.durationSec > env.uploads.maxSourceDurationSec) {
+    return failUpload(asset, `Videos can be up to ${Math.round(env.uploads.maxSourceDurationSec / 60)} minutes long.`);
+  }
+
+  try {
+    await reserveStorage(workspaceId, s.size);
+  } catch (err) {
+    await failUpload(asset, 'Your storage is full. Delete some media or upgrade your plan.').catch(() => undefined);
+    throw err;
+  }
+
+  asset.set({
+    status: 'ready',
+    sizeBytes: s.size,
+    countedBytes: s.size,
+    mimeType: detected.mime,
+    durationSec: Math.round(info.durationSec * 1000) / 1000,
+    width: info.video.width,
+    height: info.video.height,
+    hasAudio: Boolean(info.audio),
+  });
+  await asset.save();
+  return asset;
+}
+
+/** Records a worker-produced file (render/thumbnail) and counts it against storage. */
+export async function registerGeneratedAsset(input: {
+  id: Types.ObjectId;
+  workspaceId: Types.ObjectId;
+  projectId: Types.ObjectId;
+  kind: 'render' | 'thumbnail';
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  originalName: string;
+  durationSec?: number;
+  width?: number;
+  height?: number;
+  hasAudio?: boolean;
+  thumbnailAssetId?: Types.ObjectId | null;
+}) {
+  // Outputs are counted but never blocked: the user already paid credits for this render.
+  await Workspace.updateOne({ _id: input.workspaceId }, { $inc: { storageBytesUsed: input.sizeBytes } });
+  return Asset.create({ ...input, _id: input.id, status: 'ready', countedBytes: input.sizeBytes });
+}
+
+export async function deleteAsset(workspaceId: Types.ObjectId, assetId: string) {
+  const asset = await Asset.findOne({ _id: assetId, workspaceId, deletedAt: null });
+  if (!asset) throw notFound('File not found.');
+  const busy = await Project.exists({
+    workspaceId,
+    deletedAt: null,
+    status: { $in: ['queued', 'processing'] },
+    $or: [{ sourceAssetId: asset._id }],
+  });
+  if (busy) throw conflict('This video is being processed. Try again when it finishes.', 'ASSET_BUSY');
+  await purgeAsset(asset);
+}
+
+/** Soft-deletes an asset (and its thumbnail), frees its storage and removes the bytes. */
+export async function purgeAsset(asset: AssetDoc) {
+  const workspaceId = asset.workspaceId as Types.ObjectId;
+  const assetId = asset._id.toString();
+  asset.deletedAt = new Date();
+  await asset.save();
+  await releaseStorage(workspaceId, asset.countedBytes);
+  await storage.delete(asset.storageKey).catch((err) => logger.warn({ err, assetId }, 'Storage delete failed'));
+  await Project.updateMany({ workspaceId, sourceAssetId: asset._id }, { $set: { sourceAssetId: null } });
+  await Project.updateMany({ workspaceId, outputAssetId: asset._id }, { $set: { outputAssetId: null } });
+
+  if (asset.thumbnailAssetId) {
+    const thumb = await Asset.findOne({ _id: asset.thumbnailAssetId, workspaceId, deletedAt: null });
+    if (thumb) {
+      thumb.deletedAt = new Date();
+      await thumb.save();
+      await releaseStorage(workspaceId, thumb.countedBytes);
+      await storage.delete(thumb.storageKey).catch(() => undefined);
+    }
+  }
+}
+
+/** Removes pending uploads abandoned for more than a day. */
+export async function sweepAbandonedUploads() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const stale = await Asset.find({ status: 'pending', createdAt: { $lt: cutoff } }).limit(100);
+  for (const a of stale) {
+    await storage.delete(a.storageKey).catch(() => undefined);
+    a.status = 'failed';
+    a.failureReason = 'Upload was not completed.';
+    a.deletedAt = new Date();
+    await a.save();
+  }
+}

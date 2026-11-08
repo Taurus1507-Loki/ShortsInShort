@@ -13,6 +13,8 @@ import { usersRouter } from './modules/users/users.routes.js';
 import { projectsRouter } from './modules/projects/projects.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { metaRouter } from './modules/meta/meta.routes.js';
+import { assetsRouter } from './modules/assets/assets.routes.js';
+import { storageRouter } from './modules/storage/storage.routes.js';
 
 export function createApp() {
   const app = express();
@@ -28,6 +30,11 @@ export function createApp() {
         return id;
       },
       autoLogging: { ignore: (req) => req.url === '/api/health' },
+      // Log the essentials only. Query strings are dropped: signed storage URLs carry signatures.
+      serializers: {
+        req: (req: { id: string; method: string; url: string }) => ({ id: req.id, method: req.method, path: req.url.split('?')[0] }),
+        res: (res: { statusCode: number }) => ({ status: res.statusCode }),
+      },
     }),
   );
   app.use(
@@ -50,12 +57,16 @@ export function createApp() {
   app.use(cookieParser());
   app.use(originCheck);
 
+  // Signed local-storage URLs (dev/single-server). Mounted before the JSON limiter-heavy API so
+  // video range requests aren't throttled; the HMAC signature is the access control.
+  if (env.storage.driver === 'local') app.use('/api/storage', storageRouter);
   app.use('/api', metaRouter);
   app.use('/api/auth', authRouter);
   app.use('/api', apiLimiter);
   app.use('/api/users', usersRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/dashboard', dashboardRouter);
+  app.use('/api/assets', assetsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

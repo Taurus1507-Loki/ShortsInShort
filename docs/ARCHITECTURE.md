@@ -1,6 +1,6 @@
 # ShortsInShort — Architecture & Delivery Plan
 
-Status: **Phase 1 (Foundation) in progress.** Nothing in this document should be read as
+Status: **Phase 1 done; Phase 2 in progress.** Nothing in this document should be read as
 "already working" unless the Phase status table at the bottom says it is verified.
 
 ---
@@ -185,5 +185,6 @@ template marketplace publishing, team workspaces, 4K, WhatsApp/push notification
 
 | Phase | Status |
 |---|---|
-| 1 Foundation | In progress |
-| 2–7 | Not started (legacy prototype code exists in `legacy/` but is not trusted or wired in) |
+| 1 Foundation | Done |
+| 2 AI Video Editor | Step 2.1 done (core edit); 2.2–2.5 pending keys — see PHASE2.md |
+| 3–7 | Not started (legacy prototype code exists in `legacy/` but is not trusted or wired in) |

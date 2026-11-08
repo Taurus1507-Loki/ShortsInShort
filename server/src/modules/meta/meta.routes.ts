@@ -15,11 +15,16 @@ metaRouter.get('/meta', (_req, res) => {
       emailDelivery: env.smtp ? 'smtp' : 'dev-log',
       features: {
         // Flip to true only when the module is implemented and verified.
-        aiVideoEditor: false,
+        videoRendering: true, // upload → silence removal → reframe → render (Phase 2, step 1)
+        transcription: false,
+        captions: false,
+        broll: false,
+        music: false,
         avatarStudio: false,
         facelessCreator: false,
         payments: false,
       },
+      uploads: { maxBytes: env.uploads.maxBytes, maxSourceDurationSec: env.uploads.maxSourceDurationSec, storage: env.storage.driver },
     },
   });
 });

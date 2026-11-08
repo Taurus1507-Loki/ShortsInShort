@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 const bool = (def: boolean) =>
@@ -39,6 +41,30 @@ const schema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.url().optional(),
+
+  // ── Media storage ──
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  STORAGE_LOCAL_DIR: z.string().default('./storage'),
+  /** HMAC key for local signed URLs. Derived from JWT_ACCESS_SECRET if unset. */
+  STORAGE_SIGNING_SECRET: z.string().min(32).optional(),
+  S3_ENDPOINT: z.url().optional(), // e.g. https://<account>.r2.cloudflarestorage.com
+  S3_REGION: z.string().default('auto'),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: bool(false),
+
+  // ── Uploads ──
+  MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(10_000).default(500),
+  MAX_SOURCE_DURATION_SEC: z.coerce.number().int().min(10).default(900),
+
+  // ── Video processing ──
+  FFMPEG_PATH: z.string().optional(),
+  FFPROBE_PATH: z.string().optional(),
+  /** embedded = the API process also runs a worker (dev); off = run `npm run worker` separately. */
+  WORKER_MODE: z.enum(['embedded', 'off']).optional(),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(1),
+  JOB_TIMEOUT_MIN: z.coerce.number().int().min(1).max(240).default(30),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -52,6 +78,11 @@ const e = parsed.data;
 const isProd = e.NODE_ENV === 'production';
 const smtpConfigured = Boolean(e.SMTP_HOST);
 const googleConfigured = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET);
+
+if (e.STORAGE_DRIVER === 's3' && !(e.S3_BUCKET && e.S3_ACCESS_KEY_ID && e.S3_SECRET_ACCESS_KEY)) {
+  console.error('STORAGE_DRIVER=s3 requires S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY.');
+  process.exit(1);
+}
 
 if (isProd && !smtpConfigured) {
   console.error('SMTP_HOST must be configured in production (verification and reset emails).');
@@ -98,4 +129,31 @@ export const env = {
         redirectUri: e.GOOGLE_REDIRECT_URI ?? `${e.APP_URL.replace(/\/$/, '')}/api/auth/google/callback`,
       }
     : null,
+  storage: {
+    driver: e.STORAGE_DRIVER,
+    localDir: path.resolve(e.STORAGE_LOCAL_DIR),
+    signingSecret: e.STORAGE_SIGNING_SECRET ?? createHash('sha256').update(`storage:${e.JWT_ACCESS_SECRET}`).digest('hex'),
+    s3:
+      e.STORAGE_DRIVER === 's3'
+        ? {
+            endpoint: e.S3_ENDPOINT,
+            region: e.S3_REGION,
+            bucket: e.S3_BUCKET!,
+            accessKeyId: e.S3_ACCESS_KEY_ID!,
+            secretAccessKey: e.S3_SECRET_ACCESS_KEY!,
+            forcePathStyle: e.S3_FORCE_PATH_STYLE,
+          }
+        : null,
+  },
+  uploads: {
+    maxBytes: e.MAX_UPLOAD_MB * 1024 * 1024,
+    maxSourceDurationSec: e.MAX_SOURCE_DURATION_SEC,
+  },
+  video: {
+    ffmpegPath: e.FFMPEG_PATH,
+    ffprobePath: e.FFPROBE_PATH,
+    workerMode: e.WORKER_MODE ?? (isProd ? 'off' : e.NODE_ENV === 'test' ? 'off' : 'embedded'),
+    workerConcurrency: e.WORKER_CONCURRENCY,
+    jobTimeoutMs: e.JOB_TIMEOUT_MIN * 60_000,
+  },
 } as const;

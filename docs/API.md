@@ -60,3 +60,25 @@ resolution (720p|1080p|4k)`.
 
 | GET | `/summary` | Plan, credit balance, credits used this month, project counts by status, storage, 5 recent projects |
 |---|---|---|
+
+## Assets — `/assets` (auth; scoped to caller's workspace)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/uploads` | `{filename, contentType, sizeBytes}` → `{asset, upload:{method:'PUT', url, headers, expiresAt}}`. Requires verified email. MP4/MOV/M4V/WEBM/MKV, ≤ `MAX_UPLOAD_MB`, within storage quota |
+| PUT | *(signed `upload.url`)* | Send the raw file bytes with the given headers |
+| POST | `/:id/complete` | Verifies real size, magic bytes and ffprobe (video track, ≤ `MAX_SOURCE_DURATION_SEC`); counts storage. 400 `INVALID_UPLOAD` |
+| GET | `/?kind&page&limit` | Ready uploads and renders |
+| GET | `/:id/url?download=1` | Signed URL (1 h) for playback or download |
+| DELETE | `/:id` | Removes bytes, frees storage. 409 if a render using it is in progress |
+
+## Generation — `/projects/:id` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/estimate` | `{credits, balance, sourceDurationSec, resolution, resolutionAllowed, planMaxResolution}` |
+| POST | `/generate` | 202 `{job, credits}`. 402 `INSUFFICIENT_CREDITS`, 403 `PLAN_LIMIT`, 409 `PROJECT_BUSY`, 501 for avatar/faceless |
+| GET | `/job` | Latest job `{status, stage, progress, attempts, error}` for polling |
+
+Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, `outputAsset`,
+`renderStats`, `lastError`.

@@ -11,10 +11,10 @@ strategy, cost estimates, MVP scope and roadmap, and [docs/API.md](docs/API.md) 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 Foundation | Landing page, design system, auth (email/password, verification, reset, Google OAuth, sessions), workspaces, dashboard, project drafts | ✅ Implemented & tested locally |
-| 2 AI Video Editor | Uploads, transcription, silence removal, captions, B-roll, music, FFmpeg render | Not started |
+| 2 AI Video Editor | **2.1 done:** uploads, job queue + worker, pause removal, reframing, loudness, FFmpeg render, credits + refunds, Media Library. 2.2–2.5 (captions, B-roll, music, editor) need API keys — see [docs/PHASE2.md](docs/PHASE2.md) | 🟡 In progress |
 | 3 Avatar Studio · 4 Faceless · 5 Billing · 6 Admin · 7 Launch | | Not started |
 
-**Not production-ready.** AI generation, payments, uploads and deployment are not built yet; the UI
+**Not production-ready.** Captions/B-roll/music, payments and deployment are not built yet; the UI
 marks those areas "Soon" and no feature pretends to work. The previous prototype is archived,
 untouched and not built, in [`legacy/`](legacy/).
 
@@ -47,7 +47,7 @@ npm --prefix server run seed:admin -- you@example.com super_admin
 ## Tests
 
 ```bash
-npm test             # 31 API integration tests against a throwaway mongod
+npm test             # 54 API tests (incl. real FFmpeg renders) against a throwaway mongod
 npm run typecheck    # server + client
 npm run build        # production builds
 ```

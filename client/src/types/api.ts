@@ -41,7 +41,56 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'aiVideoEditor' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
+}
+
+export interface Asset {
+  id: string;
+  kind: 'source_video' | 'render' | 'thumbnail';
+  status: 'pending' | 'ready' | 'failed';
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  hasAudio: boolean | null;
+  projectId: string | null;
+  thumbnailAssetId: string | null;
+  createdAt: string;
+}
+
+export interface Job {
+  id: string;
+  type: string;
+  status: 'queued' | 'active' | 'completed' | 'dead' | 'cancelled';
+  stage: string;
+  progress: number;
+  attempts: number;
+  maxAttempts: number;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface Estimate {
+  credits: number;
+  balance: number;
+  sourceDurationSec: number;
+  resolution: string;
+  resolutionAllowed: boolean;
+  planMaxResolution: string;
+}
+
+export interface RenderStats {
+  sourceDurationSec: number | null;
+  outputDurationSec: number | null;
+  silenceRemovedSec: number | null;
+  cuts: number | null;
+  creditsCharged: number | null;
+  warnings: string[];
 }
 
 export type ProjectMode = 'editor' | 'avatar' | 'faceless';
@@ -81,6 +130,14 @@ export interface Project {
   script: string;
   topic: string;
   settings: ProjectSettings;
+  sourceAssetId: string | null;
+  outputAssetId: string | null;
+  lastJobId: string | null;
+  lastError: string | null;
+  lastRenderedAt: string | null;
+  renderStats?: RenderStats;
+  sourceAsset?: Asset | null;
+  outputAsset?: Asset | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,35 +1,60 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Lock, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import { CustomizeForm, StatusBadge, type CustomizeValue } from '@/components/app/projects';
+import { RenderPanel } from '@/components/app/RenderPanel';
+import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, Field, Notice, Skeleton } from '@/components/ui/primitives';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Field, Skeleton } from '@/components/ui/primitives';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/overlays';
-import { keys, queryClient, useProject } from '@/lib/queries';
+import { keys, queryClient, useProjectLive } from '@/lib/queries';
 import { api, errorMessage } from '@/lib/api';
 import { modeName } from '@/config/options';
 import { timeAgo } from '@/lib/utils';
-import type { Project } from '@/types/api';
+import type { Asset, Project } from '@/types/api';
 
 export default function ProjectDetailPage() {
   const { id = '' } = useParams();
+  const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const { data: project, isLoading, isError, error } = useProject(id);
+  const { data: project, isLoading, isError, error } = useProjectLive(id);
 
   const [title, setTitle] = useState('');
   const [script, setScript] = useState('');
   const [custom, setCustom] = useState<CustomizeValue | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const autoGenerate = params.get('generate') === '1';
 
+  // Sync the form from the server, but don't clobber unsaved edits during status polling.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   useEffect(() => {
     if (!project) return;
-    setTitle(project.title);
-    setScript(project.script);
-    setCustom({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings });
+    const stamp = `${project.id}:${project.updatedAt}`;
+    if (loadedFor === null || (loadedFor !== stamp && !isDirty())) {
+      setTitle(project.title);
+      setScript(project.script);
+      setCustom({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings });
+      setLoadedFor(stamp);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
+
+  const isDirty = () =>
+    !!project &&
+    !!custom &&
+    (title !== project.title ||
+      script !== project.script ||
+      JSON.stringify(custom) !== JSON.stringify({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings }));
+
+  const onSaved = (p: Project) => {
+    queryClient.setQueryData(keys.project(id), p);
+    queryClient.invalidateQueries({ queryKey: ['projects'] });
+    queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    queryClient.invalidateQueries({ queryKey: keys.estimate(id) });
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -38,10 +63,22 @@ export default function ProjectDetailPage() {
         body: { title: title.trim(), script, style: custom!.style, aspectRatio: custom!.aspectRatio, settings: custom!.settings },
       }).then((r) => r.data),
     onSuccess: (p) => {
-      queryClient.setQueryData(keys.project(id), p);
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+      onSaved(p);
+      setTitle(p.title);
+      setScript(p.script);
+      setCustom({ style: p.style, aspectRatio: p.aspectRatio, settings: p.settings });
+      setLoadedFor(`${p.id}:${p.updatedAt}`);
       toast.success('Changes saved');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const attach = useMutation({
+    mutationFn: (asset: Asset) => api<{ data: Project }>(`/projects/${id}`, { method: 'PATCH', body: { sourceAssetId: asset.id } }).then((r) => r.data),
+    onSuccess: (p) => {
+      onSaved(p);
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+      toast.success('Video attached');
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -56,6 +93,14 @@ export default function ProjectDetailPage() {
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
+
+  useEffect(() => {
+    // Consume the one-shot ?generate=1 flag so a refresh doesn't reopen the dialog.
+    if (autoGenerate) {
+      const t = setTimeout(() => setParams({}, { replace: true }), 500);
+      return () => clearTimeout(t);
+    }
+  }, [autoGenerate, setParams]);
 
   if (isLoading) {
     return (
@@ -77,10 +122,8 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const dirty =
-    title !== project.title ||
-    script !== project.script ||
-    JSON.stringify(custom) !== JSON.stringify({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings });
+  const busy = project.status === 'queued' || project.status === 'processing';
+  const dirty = isDirty();
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -98,51 +141,69 @@ export default function ProjectDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setConfirmDelete(true)}>
+          <Button variant="outline" onClick={() => setConfirmDelete(true)} disabled={busy}>
             <Trash2 /> Delete
           </Button>
-          <Button variant="gradient" onClick={() => save.mutate()} loading={save.isPending} disabled={!dirty || !title.trim()}>
+          <Button variant="gradient" onClick={() => save.mutate()} loading={save.isPending} disabled={!dirty || !title.trim() || busy}>
             <Save /> Save
           </Button>
         </div>
       </div>
 
-      <Notice tone="info" title="Draft" className="mb-6">
-        Generation (transcription, editing and rendering) is coming in the next release. Everything you set here will be used when you generate.
-        <Button variant="outline" size="sm" disabled className="ml-0 mt-3 block sm:ml-3 sm:mt-0 sm:inline-flex">
-          <Lock /> Generate
-        </Button>
-      </Notice>
-
       <div className="grid gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Content</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-5">
-            <Field id="title" label="Title" error={!title.trim() ? 'Title is required.' : undefined}>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
-            </Field>
-            {project.topic && <p className="text-sm"><span className="text-muted-foreground">Topic:</span> {project.topic}</p>}
-            <Field id="script" label="Script / notes" hint={`${script.length.toLocaleString()} / 20,000`}>
-              <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} />
-            </Field>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Settings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CustomizeForm value={custom} onChange={setCustom} />
-          </CardContent>
-        </Card>
+        {project.mode === 'editor' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Source video</CardTitle>
+              <CardDescription>The raw footage the AI editor works from.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {busy ? (
+                <p className="text-sm text-muted-foreground">{project.sourceAsset?.originalName ?? 'Video'} — locked while rendering.</p>
+              ) : (
+                <VideoUploader current={project.sourceAsset ?? null} onUploaded={(a) => attach.mutate(a)} />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />
+
+        <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
+          <Card>
+            <CardHeader>
+              <CardTitle>Content</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-5">
+              <Field id="title" label="Title" error={!title.trim() ? 'Title is required.' : undefined}>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
+              </Field>
+              {project.topic && (
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Topic:</span> {project.topic}
+                </p>
+              )}
+              <Field id="script" label="Script / notes" hint={`${script.length.toLocaleString()} / 20,000`}>
+                <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={6} />
+              </Field>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Settings</CardTitle>
+              <CardDescription>Format, resolution and editing intensity are used by the current renderer. Caption, music and B-roll settings are saved for upcoming releases.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CustomizeForm value={custom} onChange={setCustom} />
+            </CardContent>
+          </Card>
+        </fieldset>
       </div>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogTitle className="text-lg font-semibold">Delete “{project.title}”?</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">The project will be removed from your workspace.</DialogDescription>
+          <DialogDescription className="text-sm text-muted-foreground">The project will be removed from your workspace. Uploaded and rendered videos stay in your Media Library.</DialogDescription>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
               Cancel
