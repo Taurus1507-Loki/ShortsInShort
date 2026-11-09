@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Save, Trash2 } from 'lucide-react';
-import { CustomizeForm, StatusBadge, type CustomizeValue } from '@/components/app/projects';
+import { CustomizeForm, DEFAULT_SETTINGS, StatusBadge, type CustomizeValue } from '@/components/app/projects';
+import { CaptionEditor } from '@/components/app/CaptionEditor';
+import { LivePreview } from '@/components/app/LivePreview';
 import { RenderPanel } from '@/components/app/RenderPanel';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
@@ -169,6 +171,8 @@ export default function ProjectDetailPage() {
 
         <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />
 
+        {project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
+
         <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
           <Card>
             <CardHeader>
@@ -191,10 +195,13 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>Settings</CardTitle>
-              <CardDescription>Format, resolution, editing intensity and captions are used when you render (captions need transcription to be enabled on the server). Music and B-roll settings are saved for upcoming releases.</CardDescription>
+              <CardDescription>Each setting says what it changes and whether it applies today. The preview updates as you edit.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="grid gap-8 lg:grid-cols-[1fr_280px]">
               <CustomizeForm value={custom} onChange={setCustom} />
+              <div className="lg:sticky lg:top-24 lg:self-start">
+                <LivePreview aspect={custom.aspectRatio} settings={{ ...DEFAULT_SETTINGS, ...custom.settings }} source={project.sourceAsset} sampleText={project.captionLines?.[0]?.text} />
+              </div>
             </CardContent>
           </Card>
         </fieldset>

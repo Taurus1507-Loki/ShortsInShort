@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Check, Lock, Save, Sparkles } from 'lucide-react
 import { PageHeader } from '@/components/app/AppLayout';
 import { CustomizeForm, DEFAULT_SETTINGS, type CustomizeValue } from '@/components/app/projects';
 import { VideoUploader } from '@/components/app/VideoUploader';
+import { LivePreview } from '@/components/app/LivePreview';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { Card, Field, Notice } from '@/components/ui/primitives';
@@ -176,13 +177,18 @@ export default function NewProjectPage() {
         {step === 2 && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Customize</h2>
-            <CustomizeForm
-              value={effectiveCustom}
-              onChange={(v) => {
-                if (v.settings.resolution !== effectiveCustom.settings.resolution) setResTouched(true);
-                setCustom(v);
-              }}
-            />
+            <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
+              <CustomizeForm
+                value={effectiveCustom}
+                onChange={(v) => {
+                  if (v.settings.resolution !== effectiveCustom.settings.resolution) setResTouched(true);
+                  setCustom(v);
+                }}
+              />
+              <div className="lg:sticky lg:top-24 lg:self-start">
+                <LivePreview aspect={effectiveCustom.aspectRatio} settings={effectiveCustom.settings} source={sourceAsset} sampleText={title || undefined} />
+              </div>
+            </div>
             {RES_RANK[effectiveCustom.settings.resolution] > RES_RANK[planMax] && (
               <Notice tone="warning">Your plan exports up to {planMax}. You can save this draft, but you’ll need to lower the resolution or upgrade to render it.</Notice>
             )}

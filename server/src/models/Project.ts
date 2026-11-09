@@ -46,6 +46,16 @@ const settingsSchema = new Schema(
   { _id: false },
 );
 
+const captionLineSchema = new Schema(
+  {
+    start: { type: Number, required: true },
+    end: { type: Number, required: true },
+    text: { type: String, required: true, maxlength: 160 },
+    keyword: { type: String, default: '', maxlength: 60 },
+  },
+  { _id: false },
+);
+
 const projectSchema = new Schema(
   {
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
@@ -63,6 +73,13 @@ const projectSchema = new Schema(
     lastJobId: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
     lastError: { type: String, default: null, maxlength: 500 },
     lastRenderedAt: { type: Date, default: null },
+    /** Caption lines of the last render, on the edited timeline. */
+    captionLines: { type: [captionLineSchema], default: [] },
+    /** Fingerprint of the cut those lines are timed against. */
+    captionTimelineKey: { type: String, default: null },
+    /** User-edited captions; applied on the next render only if the cut is unchanged. */
+    captionOverrides: { type: [captionLineSchema], default: null },
+    captionOverridesKey: { type: String, default: null },
     /** Facts about the last successful render (shown to the user). */
     renderStats: {
       sourceDurationSec: { type: Number, default: null },
@@ -80,6 +97,7 @@ const projectSchema = new Schema(
       },
       aiKeywords: { type: Boolean, default: false },
       captionsTranslatedTo: { type: String, default: null },
+      captionsFromEdits: { type: Boolean, default: false },
       zoomCount: { type: Number, default: 0 },
       logoApplied: { type: Boolean, default: false },
       watermark: { type: Boolean, default: false },
@@ -114,6 +132,10 @@ export function toPublicProject(p: ProjectDoc) {
     lastError: p.lastError,
     lastRenderedAt: p.lastRenderedAt,
     renderStats: p.renderStats,
+    captionLines: p.captionLines ?? [],
+    captionsEdited: Boolean(p.captionOverrides?.length),
+    /** The saved edits (shown in the editor instead of the generated lines). */
+    captionOverrides: p.captionOverrides?.length ? p.captionOverrides : null,
     createdAt: p.get('createdAt') as Date,
     updatedAt: p.get('updatedAt') as Date,
   };

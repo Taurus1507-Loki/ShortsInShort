@@ -21,7 +21,8 @@ import { fillerIntervals, mergeIntervals, remapWords } from './transcriptMap.js'
 import { buildAss, layoutLines, STYLE_SPECS, type CaptionLine, type CaptionPosition, type CaptionSize, type CaptionStyle } from './captions.js';
 import { getLLMProvider, LLMError, type LLMProvider } from '../ai/llm.js';
 import { getStockProvider, rankClips, relevance, type StockClip, type StockVideoProvider } from '../ai/stock.js';
-import { aiKeywords, planBroll, toSentences, translateLines } from '../ai/creative.js';
+import { aiKeywords, matchKeyword, planBroll, timeTokens, toSentences, translateLines } from '../ai/creative.js';
+import { createHash } from 'node:crypto';
 import { loadLibrary, pickTrack } from '../ai/music.js';
 import { planZooms, type ZoomIntensity } from './zooms.js';
 import { buildWatermarkAss } from './captions.js';
@@ -190,6 +191,10 @@ async function run({ job, signal, progress }: JobContext) {
     const notes: string[] = [];
     let captions: { assPath: string; fontsDir: string } | undefined;
     let captionLines: CaptionLine[] | undefined;
+    // The cut the captions are timed against; edits are only valid for the same cut.
+    const timelineKey = createHash('sha1').update(JSON.stringify(segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)]))).digest('hex').slice(0, 16);
+    let captionsFromEdits = false;
+    let clearOverrides = false;
     let aiKeywordsUsed = false;
     let translatedTo: string | null = null;
     if (settings.captionsEnabled && editedWords.length) {
@@ -197,7 +202,20 @@ async function run({ job, signal, progress }: JobContext) {
       const captionSize = (settings.captionSize ?? 'medium') as CaptionSize;
       let lines: CaptionLine[] = layoutLines({ words: editedWords, style, width: size.width, height: size.height, size: captionSize });
       const target = settings.captionLanguage && settings.captionLanguage !== 'same' && settings.captionLanguage !== language ? settings.captionLanguage : null;
-      if (llm && (target || STYLE_SPECS[style].highlight)) {
+      const overrides = project.captionOverrides?.length ? project.captionOverrides : null;
+      if (overrides && project.captionOverridesKey === timelineKey) {
+        // The user's edited captions, exactly as they wrote them (no AI rewriting).
+        lines = overrides.map((o) => {
+          const words = timeTokens(o.text, o.start, o.end);
+          const k = o.keyword ? matchKeyword(words.map((w) => w.text), o.keyword) : -1;
+          return { words, start: o.start, end: o.end, keywords: k >= 0 ? [k] : [] };
+        });
+        captionsFromEdits = true;
+      } else if (overrides) {
+        notes.push('Your caption edits were not used because the cut changed (for example a different editing intensity). Captions were regenerated — edit them again if needed.');
+        clearOverrides = true;
+      }
+      if (!captionsFromEdits && llm && (target || STYLE_SPECS[style].highlight)) {
         await progress(13, 'styling_captions');
         try {
           if (target) {
@@ -223,7 +241,8 @@ async function run({ job, signal, progress }: JobContext) {
         size: captionSize,
         width: size.width,
         height: size.height,
-        language: translatedTo ?? language,
+        // Edited translated captions keep the caption language's font.
+        language: translatedTo ?? (captionsFromEdits && target ? target : language),
       });
       const assPath = path.join(workDir, 'captions.ass');
       await writeFile(assPath, ass, 'utf8');
@@ -367,6 +386,7 @@ async function run({ job, signal, progress }: JobContext) {
       broll: broll.map(({ path: _p, ...b }) => b),
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
+      captionsFromEdits,
       zoomCount: zooms.length,
       logoApplied: Boolean(logo),
       watermark: Boolean(watermark),
@@ -385,7 +405,18 @@ async function run({ job, signal, progress }: JobContext) {
     };
     await Project.updateOne(
       { _id: project._id },
-      { $set: { status: 'completed', outputAssetId: renderId, lastRenderedAt: new Date(), lastError: null, renderStats: stats } },
+      {
+        $set: {
+          status: 'completed',
+          outputAssetId: renderId,
+          lastRenderedAt: new Date(),
+          lastError: null,
+          renderStats: stats,
+          captionLines: (captionLines ?? []).map((l) => ({ start: l.start, end: l.end, text: l.words.map((w) => w.text).join(' ').slice(0, 160), keyword: l.keywords[0] !== undefined ? (l.words[l.keywords[0]]?.text ?? '') : '' })),
+          captionTimelineKey: timelineKey,
+          ...(clearOverrides ? { captionOverrides: null, captionOverridesKey: null } : {}),
+        },
+      },
     );
     if (previousOutput && !previousOutput.equals(renderId)) {
       const prev = await Asset.findOne({ _id: previousOutput, deletedAt: null });

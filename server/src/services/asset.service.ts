@@ -9,6 +9,10 @@ import { Project } from '../models/Project.js';
 import { AppError, badRequest, conflict, notFound } from '../utils/errors.js';
 import { keys, storage } from './storage/storage.js';
 import { probe } from './video/ffmpeg.js';
+import { extractThumbnail } from './video/render.js';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 /** Container formats we accept, keyed by extension → detected MIME types. */
 export const VIDEO_TYPES: Record<string, string[]> = {
@@ -165,7 +169,37 @@ export async function completeUpload(workspaceId: Types.ObjectId, assetId: strin
     hasAudio: Boolean(info.audio),
   });
   await asset.save();
+  await attachThumbnail(asset, info.durationSec).catch((err) => logger.warn({ err, assetId }, 'Source thumbnail failed'));
   return asset;
+}
+
+/**
+ * Poster frame for an uploaded video (used by the live preview and the Media Library). Taken a
+ * second in (or a third of the way into very short clips). Never blocks the upload.
+ */
+async function attachThumbnail(asset: AssetDoc, durationSec: number) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'sis-thumb-'));
+  try {
+    const file = path.join(dir, 'thumb.jpg');
+    await extractThumbnail(await storage.getProcessingInput(asset.storageKey), file, Math.min(1, durationSec / 3));
+    const id = new Types.ObjectId();
+    const key = keys.thumbnail(asset.workspaceId.toString(), id.toString());
+    await storage.uploadFile(key, file, 'image/jpeg');
+    await registerGeneratedAsset({
+      id,
+      workspaceId: asset.workspaceId as Types.ObjectId,
+      projectId: null,
+      kind: 'thumbnail',
+      storageKey: key,
+      mimeType: 'image/jpeg',
+      sizeBytes: (await stat(file)).size,
+      originalName: `${asset.originalName.replace(/\.[^.]+$/, '')}.jpg`,
+    });
+    asset.thumbnailAssetId = id;
+    await asset.save();
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 /** Logo validation: real image type, decodable, sensible dimensions. */
@@ -191,7 +225,7 @@ async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: 
 export async function registerGeneratedAsset(input: {
   id: Types.ObjectId;
   workspaceId: Types.ObjectId;
-  projectId: Types.ObjectId;
+  projectId: Types.ObjectId | null;
   kind: 'render' | 'thumbnail';
   storageKey: string;
   mimeType: string;

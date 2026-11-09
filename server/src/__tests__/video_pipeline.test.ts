@@ -65,7 +65,12 @@ describe('uploads', () => {
     expect(asset).toMatchObject({ status: 'ready', mimeType: 'video/mp4', width: 320, height: 240, hasAudio: true });
     expect(asset.durationSec).toBeGreaterThan(6.5);
     const me = await request(app).get('/api/auth/me').set(auth).expect(200);
-    expect(me.body.data.workspace.storageBytesUsed).toBe(fixture.length);
+    // The upload plus its poster thumbnail (generated for the live preview).
+    const stored = await Asset.findById(asset.id);
+    expect(stored!.thumbnailAssetId).toBeTruthy();
+    const thumb = await Asset.findById(stored!.thumbnailAssetId);
+    expect(thumb).toMatchObject({ kind: 'thumbnail', status: 'ready', mimeType: 'image/jpeg' });
+    expect(me.body.data.workspace.storageBytesUsed).toBe(fixture.length + thumb!.sizeBytes);
 
     const list = await request(app).get('/api/assets').set(auth).expect(200);
     expect(list.body.meta.total).toBe(1);
@@ -363,6 +368,50 @@ describe('captions (with a stand-in transcription provider)', () => {
     expect(calls).toBe(1); // second render reused the cached transcript
     expect(await Transcript.countDocuments()).toBe(1);
   }, 180_000);
+
+  it('applies edited captions on re-render, and sets them aside if the cut changes', async () => {
+    setTranscriptionProvider(fake);
+    const { auth, user } = await registerUser({ verify: true });
+    await setBalance(user.defaultWorkspaceId, 10);
+    const asset = await readyVideo(auth);
+    const res = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ title: 'Edit me', mode: 'editor', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: true, captionStyle: 'clean_minimal', bRollIntensity: 'none' } })
+      .expect(201);
+    const id = res.body.data.id;
+
+    // Editing before any render is refused.
+    await request(app).put(`/api/projects/${id}/captions`).set(auth).send({ lines: [{ start: 0, end: 1, text: 'x' }] }).expect(400);
+
+    const first = await renderProject(auth, id);
+    expect(first.captionLines.length).toBeGreaterThan(0);
+    expect(first.captionsEdited).toBe(false);
+    const original = first.captionLines as Array<{ start: number; end: number; text: string; keyword: string }>;
+
+    // Validation: overlapping lines, keyword not in the text, empty text.
+    const bad = (lines: unknown) => request(app).put(`/api/projects/${id}/captions`).set(auth).send({ lines }).expect(400);
+    await bad([{ start: 0, end: 2, text: 'a' }, { start: 1, end: 3, text: 'b' }]);
+    await bad([{ start: 0, end: 1, text: 'hello there', keyword: 'nope' }]);
+    await bad([{ start: 0, end: 1, text: '   ' }]);
+
+    const edited = original.map((l, i) => (i === 0 ? { ...l, text: 'Discipline beats motivation', keyword: 'Discipline' } : l));
+    const saved = await request(app).put(`/api/projects/${id}/captions`).set(auth).send({ lines: edited }).expect(200);
+    expect(saved.body.data.captionsEdited).toBe(true);
+
+    const second = await renderProject(auth, id);
+    expect(second.renderStats.captionsFromEdits).toBe(true);
+    expect(second.captionLines[0]).toMatchObject({ text: 'Discipline beats motivation', keyword: 'Discipline' });
+    expect(second.captionLines.slice(1).map((l: { text: string }) => l.text)).toEqual(original.slice(1).map((l) => l.text));
+    expect(calls).toBe(1); // transcript reused, no new transcription
+
+    // A different editing intensity changes the cut → edits are set aside, with a note.
+    await request(app).patch(`/api/projects/${id}`).set(auth).send({ settings: { editingIntensity: 'high' } }).expect(200);
+    const third = await renderProject(auth, id);
+    expect(third.renderStats.captionsFromEdits).toBe(false);
+    expect(third.captionsEdited).toBe(false);
+    expect(third.renderStats.warnings.join(' ')).toMatch(/caption edits were not used because the cut changed/);
+  }, 240_000);
 
   it('still renders, with an honest note, when transcription fails', async () => {
     setTranscriptionProvider({

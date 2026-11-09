@@ -9,7 +9,7 @@ before it is.
 | **2.2 Transcription & captions** | Provider interface + Deepgram adapter, transcript cache, filler-word removal, captions re-timed through cuts, 5 styles (bold pop, karaoke, boxed, clean, cinematic), rule-based keyword highlights, Indic-script captions, burn-in | ✅ Verified live with Deepgram (nova-3) on English speech: accurate transcript, captions in sync, keyword highlights. Deepgram accepts `hi`/`te`/`ta`/`mr`, but accuracy in those languages and filler-word detection still need testing with real recordings. |
 | **2.3 AI analysis & B-roll** | Gemini adapter (structured JSON), AI keyword highlights, caption translation (EN/HI/TE/TA/MR), B-roll planning + Pixabay search with tag-relevance filtering, B-roll overlays under captions, attribution | ✅ Verified live (Gemini 3.5 Flash + Pixabay) on an English test clip; translation verified with a stand-in provider and in tests |
 | **2.4 Music & polish** | Zoom punch-ins (Off/Subtle/Dynamic), Free-plan watermark, Brand Kit (logo corner/size/opacity, colours, default caption look applied to new projects), music engine (mood pick, ducking under speech, fade-out) | ✅ Built and verified in real renders. **Music needs your licensed library** (`MUSIC_LIBRARY_DIR` + `music.json`); until then renders say no music was added. Custom fonts and intro/outro clips not yet built. |
-| 2.5 Editor & infra | Caption editing, scene tweaks, Redis/BullMQ queue driver, R2 verification | Needs Redis + R2 credentials |
+| **2.5 Editor & infra** | Caption editing after a render (wording, highlight, timing, add/delete lines) applied on re-render; live preview from a real frame (framing, captions, logo, watermark); source thumbnails | ✅ Editing + preview verified in the browser and in tests. **Redis/BullMQ queue and Cloudflare R2 storage: waiting for accounts** (Upstash Redis URL, R2 bucket + keys) so they can be tested against the real services. |
 
 ## How a render works (2.1)
 
@@ -108,3 +108,15 @@ npm --prefix server run worker   # (production) run workers as separate processe
   speech and is ducked a further ~13 dB while someone talks (measured in tests: −21 dB in pauses vs −35 dB
   under speech), then fades out at the end.
 - Render layer order: reframe → zoom → B-roll → logo → captions → watermark; audio: speech + ducked music → −14 LUFS.
+
+## Step 2.5 — caption editing and live preview
+
+- **Caption editing:** after a render, the final caption lines are stored with a fingerprint of the cut.
+  Edits (text, highlighted word, start/end, add/delete) are validated (order, no overlap, keyword present)
+  and used exactly as written on the next render — no AI rewriting, no new transcription. If a later change
+  alters the cut (e.g. editing intensity), edits are set aside with a note instead of drifting out of sync.
+- **Live preview:** a frame from the uploaded video (thumbnail taken at upload) shown in the chosen format and
+  framing, with captions (style, size, position, highlight), Brand Kit logo and Free watermark, updating as
+  settings change. It is an approximation of the final render.
+- **Pending:** Redis/BullMQ queue driver and verified R2 storage — need an Upstash Redis URL and a Cloudflare R2
+  bucket with API keys.

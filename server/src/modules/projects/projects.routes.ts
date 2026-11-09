@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Types } from 'mongoose';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/auth.js';
 import { validate, validatedQuery } from '../../middleware/validate.js';
@@ -221,6 +221,54 @@ projectsRouter.post(
     }
     await audit(req, 'project.generate', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: jobId.toString(), credits: q.credits } });
     res.status(202).json({ data: { job: toPublicJob(job), credits: q.credits } });
+  }),
+);
+
+const captionLineInput = z.object({
+  start: z.number().min(0),
+  end: z.number().positive(),
+  text: z.string().trim().min(1, 'Caption text can’t be empty.').max(160),
+  keyword: z.string().trim().max(60).default(''),
+});
+
+/**
+ * Saves edited captions for the next render. Lines must be in order, not overlap, and fit the
+ * rendered video; they are tied to the current cut so they never drift out of sync.
+ */
+projectsRouter.put(
+  '/:id/captions',
+  validate({ params: idParams, body: z.object({ lines: z.array(captionLineInput).min(1).max(1000) }).strict() }),
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+    if (!project.captionTimelineKey || !project.captionLines?.length) throw badRequest('Render the video with captions first, then edit them.', 'NO_CAPTIONS');
+    const lines = (req.body as { lines: Array<z.infer<typeof captionLineInput>> }).lines;
+    const maxEnd = (project.renderStats?.outputDurationSec ?? Infinity) + 0.5;
+    lines.forEach((l, i) => {
+      if (l.end <= l.start) throw badRequest(`Line ${i + 1} ends before it starts.`, 'INVALID_CAPTIONS');
+      if (l.end > maxEnd) throw badRequest(`Line ${i + 1} runs past the end of the video.`, 'INVALID_CAPTIONS');
+      const prev = lines[i - 1];
+      if (prev && l.start < prev.end - 0.001) throw badRequest(`Line ${i + 1} overlaps the line before it.`, 'INVALID_CAPTIONS');
+      if (l.keyword && !l.text.toLowerCase().includes(l.keyword.toLowerCase())) throw badRequest(`Line ${i + 1}: the highlighted word must appear in the line.`, 'INVALID_CAPTIONS');
+    });
+    project.set({ captionOverrides: lines, captionOverridesKey: project.captionTimelineKey });
+    await project.save();
+    res.json({ data: await withMedia(project) });
+  }),
+);
+
+/** Discards caption edits; the next render generates captions again. */
+projectsRouter.delete(
+  '/:id/captions',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    project.set({ captionOverrides: null, captionOverridesKey: null });
+    await project.save();
+    res.json({ data: await withMedia(project) });
   }),
 );
 

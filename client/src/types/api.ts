@@ -97,6 +97,7 @@ export interface RenderStats {
   broll?: Array<{ start: number; end: number; query: string; provider: string; pageUrl: string; author: string }>;
   aiKeywords?: boolean;
   captionsTranslatedTo?: string | null;
+  captionsFromEdits?: boolean;
   zoomCount?: number;
   logoApplied?: boolean;
   watermark?: boolean;
@@ -155,6 +156,10 @@ export interface Project {
   lastError: string | null;
   lastRenderedAt: string | null;
   renderStats?: RenderStats;
+  captionLines?: CaptionLineData[];
+  /** True when saved caption edits will be used on the next render. */
+  captionsEdited?: boolean;
+  captionOverrides?: CaptionLineData[] | null;
   sourceAsset?: Asset | null;
   outputAsset?: Asset | null;
   createdAt: string;
@@ -198,4 +203,11 @@ export interface BrandKit {
   highlightColor: string;
   applyToNewProjects: boolean;
   updatedAt: string;
+}
+
+export interface CaptionLineData {
+  start: number;
+  end: number;
+  text: string;
+  keyword: string;
 }
