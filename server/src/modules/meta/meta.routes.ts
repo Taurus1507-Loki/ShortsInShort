@@ -6,6 +6,7 @@ import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
 import { getStockProvider } from '../../services/ai/stock.js';
 import { loadLibrary } from '../../services/ai/music.js';
+import { getTtsProvider } from '../../services/ai/tts.js';
 
 export const metaRouter = Router();
 
@@ -31,6 +32,9 @@ metaRouter.get('/meta', (_req, res) => {
         music: loadLibrary().length > 0,
         zooms: true,
         brandKit: true,
+        // Avatar Studio voiceovers (step 3.1): live when a text-to-speech key is configured.
+        voices: Boolean(getTtsProvider()),
+        // Talking-avatar video needs an avatar provider (step 3.4).
         avatarStudio: false,
         facelessCreator: false,
         payments: false,

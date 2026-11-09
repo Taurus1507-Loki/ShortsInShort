@@ -86,6 +86,8 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   useBrandKit: true,
   targetDurationSec: 60,
   resolution: '1080p',
+  voiceId: '',
+  speakingRate: 1,
 };
 
 function Choice<T extends string>({

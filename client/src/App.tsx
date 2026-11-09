@@ -26,15 +26,9 @@ const ProjectDetailPage = lazy(() => import('@/pages/app/ProjectDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/app/SettingsPage'));
 const MediaLibraryPage = lazy(() => import('@/pages/app/MediaLibraryPage'));
 const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
+const VoicesPage = lazy(() => import('@/pages/app/VoicesPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
-  {
-    path: 'avatar',
-    title: 'AI Avatar',
-    phase: 3,
-    description: 'Create videos with your own consented digital avatar and voice.',
-    bullets: ['Identity verification & explicit consent', 'Avatar and voice management', 'Lip-synced multilingual speech', 'Consent revocation & asset deletion'],
-  },
   {
     path: 'faceless',
     title: 'Faceless Videos',
@@ -97,6 +91,8 @@ export default function App() {
               <Route path="media" element={<MediaLibraryPage />} />
               <Route path="brand-kit" element={<BrandKitPage />} />
               <Route path="editor" element={<Navigate to="/app/new?mode=editor" replace />} />
+              <Route path="avatar" element={<Navigate to="/app/new?mode=avatar" replace />} />
+              <Route path="voices" element={<VoicesPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="help" element={<HelpPage />} />
               {SOON.map(({ path, ...props }) => (

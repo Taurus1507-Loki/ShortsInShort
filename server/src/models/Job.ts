@@ -1,6 +1,6 @@
 import { Schema, model, type HydratedDocument, type InferSchemaType, Types } from 'mongoose';
 
-export const JOB_TYPES = ['render_project'] as const;
+export const JOB_TYPES = ['render_project', 'narrate_project'] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 /** queued → active → completed | (retry → queued) | dead (dead-letter: exhausted or permanent failure) */
 export const JOB_STATUSES = ['queued', 'active', 'completed', 'dead', 'cancelled'] as const;

@@ -7,13 +7,14 @@ import { PageHeader } from '@/components/app/AppLayout';
 import { CustomizeForm, DEFAULT_SETTINGS, type CustomizeValue } from '@/components/app/projects';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { LivePreview } from '@/components/app/LivePreview';
+import { VoicePicker } from '@/components/app/VoicePicker';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
 import { Card, Field, Notice } from '@/components/ui/primitives';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { MODES, modeName, styleName, LANGUAGES } from '@/config/options';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { queryClient, useBrandKit, useMeta } from '@/lib/queries';
+import { queryClient, useBrandKit, useMeta, useVoices } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import type { Asset, Project, ProjectMode, ProjectSettings } from '@/types/api';
 
@@ -40,6 +41,7 @@ export default function NewProjectPage() {
   const [custom, setCustom] = useState<CustomizeValue>({ style: 'viral', aspectRatio: '9:16', settings: DEFAULT_SETTINGS });
   // Apply Brand Kit caption defaults once, when the kit says so (the user can still change them).
   const { data: brandKit } = useBrandKit();
+  const { data: voices } = useVoices(mode === 'avatar' && Boolean(meta?.features.voices));
   const [brandApplied, setBrandApplied] = useState(false);
   useEffect(() => {
     if (brandApplied || !brandKit) return;
@@ -137,7 +139,7 @@ export default function NewProjectPage() {
                   </span>
                   <span className="mt-4 font-semibold">{m.name}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{m.description}</span>
-                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : `Coming in Phase ${m.phase}`}</span>
+                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : m.id === 'avatar' ? 'Voiceover available now · presenter video coming' : `Coming in Phase ${m.phase}`}</span>
                 </button>
               ))}
             </div>
@@ -168,13 +170,44 @@ export default function NewProjectPage() {
               </Field>
             )}
 
-            <Field id="script" label={mode === 'editor' ? 'Notes or script (optional)' : 'Script'} hint={`${script.length.toLocaleString()} / 20,000 characters`}>
+            <Field
+              id="script"
+              label={mode === 'editor' ? 'Notes or script (optional)' : 'Script'}
+              error={mode === 'avatar' && script.trim().length > 5000 ? 'One voiceover can be up to 5,000 characters (about 6 minutes).' : undefined}
+              hint={mode === 'avatar' ? `${script.trim().length.toLocaleString()} / 5,000 characters · what the voice will say, word for word` : `${script.length.toLocaleString()} / 20,000 characters`}
+            >
               <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} placeholder={mode === 'avatar' ? 'What should your avatar say?' : 'Write or paste your script…'} />
             </Field>
           </div>
         )}
 
-        {step === 2 && (
+        {step === 2 && mode === 'avatar' && (
+          <div className="grid gap-6">
+            <h2 className="text-lg font-bold">Voice</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field id="language" label="Spoken language" hint="The language your script is written in.">
+                <Select value={custom.settings.language} onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, language: e.target.value as ProjectSettings['language'] } })}>
+                  {LANGUAGES.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field id="rate" label="Speaking speed" hint="How fast the voice talks. Normal suits most shorts.">
+                <Select value={String(custom.settings.speakingRate)} onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, speakingRate: Number(e.target.value) } })}>
+                  <option value="0.85">Slower (0.85×)</option>
+                  <option value="1">Normal (1×)</option>
+                  <option value="1.1">Faster (1.1×)</option>
+                  <option value="1.2">Fastest (1.2×)</option>
+                </Select>
+              </Field>
+            </div>
+            <VoicePicker value={custom.settings.voiceId} onChange={(v) => setCustom({ ...custom, settings: { ...custom.settings, voiceId: v.id } })} />
+          </div>
+        )}
+
+        {step === 2 && mode !== 'avatar' && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Customize</h2>
             <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
@@ -199,7 +232,16 @@ export default function NewProjectPage() {
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Review & generate</h2>
             <dl className="grid gap-x-8 gap-y-3 rounded-xl bg-muted/40 p-5 text-sm sm:grid-cols-2">
-              {[
+              {(mode === 'avatar'
+                ? [
+                    ['Mode', modeName(mode)],
+                    ['Title', title],
+                    ['Spoken language', LANGUAGES.find((l) => l.id === effectiveCustom.settings.language)?.name],
+                    ['Voice', voices?.find((v) => v.id === effectiveCustom.settings.voiceId)?.name ?? (effectiveCustom.settings.voiceId ? 'Selected' : 'Not chosen yet')],
+                    ['Speaking speed', `${effectiveCustom.settings.speakingRate}×`],
+                    ['Script', `${script.trim().length.toLocaleString()} characters`],
+                  ]
+                : [
                 ['Mode', modeName(mode)],
                 ['Title', title],
                 ['Style', styleName(effectiveCustom.style)],
@@ -210,14 +252,18 @@ export default function NewProjectPage() {
                 ['Resolution', effectiveCustom.settings.resolution],
                 ['Footage', mode === 'editor' ? (sourceAsset?.originalName ?? 'Not uploaded yet') : '—'],
                 ['Captions', effectiveCustom.settings.captionsEnabled ? (meta?.features.captions ? 'On' : 'On (needs transcription key)') : 'Off'],
-              ].map(([k, v]) => (
+              ]).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4 border-b border-border/60 pb-2">
                   <dt className="text-muted-foreground">{k}</dt>
                   <dd className="truncate font-medium">{v}</dd>
                 </div>
               ))}
             </dl>
-            {mode === 'editor' ? (
+            {mode === 'avatar' ? (
+              <Notice tone="info" title="What you can make today">
+                After creating the project you can generate the AI voiceover (you’ll see the credit cost first — 1 credit per started 400 characters). The talking-presenter video arrives once an avatar provider is connected.
+              </Notice>
+            ) : mode === 'editor' ? (
               <Notice tone="info" title="What this render does today">
                 {meta?.features.captions ? 'Removes pauses and filler words, adds animated captions, reframes' : 'Removes pauses, reframes'} to {effectiveCustom.aspectRatio}, balances loudness and exports an MP4. {meta?.features.captions ? 'B-roll and music are coming next.' : 'Captions, B-roll and music are coming next.'} You’ll see the exact credit cost before anything is charged.
               </Notice>
@@ -248,12 +294,12 @@ export default function NewProjectPage() {
               </Button>
               <Button
                 variant="gradient"
-                onClick={() => save.mutate({ generate: true })}
-                loading={save.isPending && save.variables?.generate}
-                disabled={Boolean(unverified) || save.isPending || mode !== 'editor' || !sourceAsset}
-                title={mode !== 'editor' ? 'Not available for this mode yet' : !sourceAsset ? 'Upload a video first' : undefined}
+                onClick={() => save.mutate({ generate: mode === 'editor' })}
+                loading={save.isPending && (mode === 'avatar' || save.variables?.generate)}
+                disabled={Boolean(unverified) || save.isPending || (mode === 'editor' ? !sourceAsset : mode !== 'avatar') || (mode === 'avatar' && script.trim().length > 5000)}
+                title={mode === 'faceless' ? 'Not available for this mode yet' : mode === 'editor' && !sourceAsset ? 'Upload a video first' : undefined}
               >
-                {mode === 'editor' ? <Sparkles /> : <Lock />} Create & generate
+                {mode === 'faceless' ? <Lock /> : <Sparkles />} {mode === 'avatar' ? 'Create & add voiceover' : 'Create & generate'}
               </Button>
             </div>
           )}

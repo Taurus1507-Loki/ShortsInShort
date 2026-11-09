@@ -226,7 +226,7 @@ export async function registerGeneratedAsset(input: {
   id: Types.ObjectId;
   workspaceId: Types.ObjectId;
   projectId: Types.ObjectId | null;
-  kind: 'render' | 'thumbnail';
+  kind: 'render' | 'thumbnail' | 'narration_audio';
   storageKey: string;
   mimeType: string;
   sizeBytes: number;
@@ -265,6 +265,7 @@ export async function purgeAsset(asset: AssetDoc) {
   await storage.delete(asset.storageKey).catch((err) => logger.warn({ err, assetId }, 'Storage delete failed'));
   await Project.updateMany({ workspaceId, sourceAssetId: asset._id }, { $set: { sourceAssetId: null } });
   await Project.updateMany({ workspaceId, outputAssetId: asset._id }, { $set: { outputAssetId: null } });
+  await Project.updateMany({ workspaceId, narrationAssetId: asset._id }, { $set: { narrationAssetId: null } });
 
   if (asset.thumbnailAssetId) {
     const thumb = await Asset.findOne({ _id: asset.thumbnailAssetId, workspaceId, deletedAt: null });

@@ -41,13 +41,13 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
   uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
 }
 
 export interface Asset {
   id: string;
-  kind: 'source_video' | 'render' | 'thumbnail';
+  kind: 'source_video' | 'render' | 'thumbnail' | 'brand_logo' | 'narration_audio';
   status: 'pending' | 'ready' | 'failed';
   originalName: string;
   mimeType: string;
@@ -138,6 +138,46 @@ export interface ProjectSettings {
   useBrandKit: boolean;
   targetDurationSec: number;
   resolution: '720p' | '1080p' | '4k';
+  /** Avatar Studio: provider voice id ('' = not chosen). */
+  voiceId: string;
+  /** 0.7–1.2, 1 = normal speed. */
+  speakingRate: number;
+}
+
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  category: string;
+  gender: string | null;
+  age: string | null;
+  accent: string | null;
+  description: string | null;
+  useCase: string | null;
+  previewUrl: string | null;
+  languages: string[];
+}
+
+export interface NarrationStats {
+  durationSec: number;
+  characters: number;
+  chunks: number;
+  wordCount: number;
+  timingsAvailable: boolean;
+  voiceId: string;
+  voiceName: string;
+  provider: string;
+  model: string;
+  language: string;
+  creditsCharged: number;
+  scriptHash: string;
+  createdAt: string;
+}
+
+export interface NarrationEstimate {
+  credits: number;
+  balance: number;
+  characters: number;
+  maxCharacters: number;
 }
 
 export interface Project {
@@ -162,6 +202,9 @@ export interface Project {
   captionOverrides?: CaptionLineData[] | null;
   sourceAsset?: Asset | null;
   outputAsset?: Asset | null;
+  narrationAssetId?: string | null;
+  narrationStats?: NarrationStats | null;
+  narrationAsset?: Asset | null;
   createdAt: string;
   updatedAt: string;
 }

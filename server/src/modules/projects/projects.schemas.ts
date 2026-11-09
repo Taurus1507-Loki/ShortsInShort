@@ -33,6 +33,8 @@ const settingsSchema = z
     useBrandKit: z.boolean(),
     targetDurationSec: z.number().int().min(5).max(3600),
     resolution: z.enum(RESOLUTIONS),
+    voiceId: z.string().regex(/^[A-Za-z0-9_-]{0,64}$/, 'Invalid voice'),
+    speakingRate: z.number().min(0.7).max(1.2),
   })
   .strict()
   .partial();

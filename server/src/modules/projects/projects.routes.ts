@@ -9,10 +9,13 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { editorCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { editorCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
+import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
+import type { JobType } from '../../models/Job.js';
+import type { Request } from 'express';
 import { createProjectSchema, idParams, listProjectsQuery, updateProjectSchema } from './projects.schemas.js';
 
 export const projectsRouter = Router();
@@ -30,13 +33,13 @@ async function assertUsableSource(workspaceId: Types.ObjectId, assetId: string) 
 
 /** Project + its source/output asset summaries. */
 async function withMedia(p: ProjectDoc) {
-  const ids = [p.sourceAssetId, p.outputAssetId].filter(Boolean) as Types.ObjectId[];
+  const ids = [p.sourceAssetId, p.outputAssetId, p.narrationAssetId].filter(Boolean) as Types.ObjectId[];
   const assets = ids.length ? await Asset.find({ _id: { $in: ids }, workspaceId: p.workspaceId, deletedAt: null }) : [];
   const find = (id: Types.ObjectId | null | undefined) => {
     const a = id && assets.find((x) => x._id.equals(id));
     return a ? toPublicAsset(a) : null;
   };
-  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId) };
+  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId), narrationAsset: find(p.narrationAssetId) };
 }
 
 projectsRouter.get(
@@ -153,74 +156,143 @@ projectsRouter.get(
 );
 
 /**
- * Starts a render. Order matters for correctness:
- * 1. atomically move the project into `queued` (prevents double-submits / concurrent renders),
+ * Starts a job for a project. Order matters for correctness:
+ * 1. atomically move the project into `queued` (prevents double-submits / concurrent jobs),
  * 2. debit credits with an idempotency key bound to the new job id (refunded if the job dies),
  * 3. enqueue the job.
  */
+async function startProjectJob(
+  req: Request,
+  project: ProjectDoc,
+  opts: { type: JobType; credits: number; note: string; payload?: Record<string, unknown>; auditAction: string },
+) {
+  const { user, workspaceId } = req.auth!;
+  const jobId = new Types.ObjectId();
+  const previousStatus = project.status;
+  const claimed = await Project.findOneAndUpdate(
+    { _id: project._id, workspaceId, status: { $in: ['draft', 'completed', 'failed'] } },
+    { $set: { status: 'queued', lastJobId: jobId, lastError: null } },
+    { new: true },
+  );
+  if (!claimed) throw conflict('This project is already being processed.', 'PROJECT_BUSY');
+
+  try {
+    await applyCreditChange({
+      workspaceId,
+      type: 'consume',
+      amount: -opts.credits,
+      idempotencyKey: `job:${jobId.toString()}`,
+      note: `${opts.note}: ${project.title}`.slice(0, 300),
+      reference: { kind: 'job', id: jobId.toString() },
+      actorId: user._id,
+    });
+  } catch (err) {
+    await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
+    throw err;
+  }
+
+  let job;
+  try {
+    job = await enqueue({
+      _id: jobId,
+      type: opts.type,
+      workspaceId,
+      projectId: project._id,
+      payload: { projectId: project._id.toString(), credits: opts.credits, ...opts.payload },
+      maxAttempts: 3,
+    });
+  } catch (err) {
+    // Never leave credits charged for a job that doesn't exist, or a project stuck in `queued`.
+    // The refund key matches the worker's, so even a racing compensation can only refund once.
+    await applyCreditChange({
+      workspaceId,
+      type: 'refund',
+      amount: opts.credits,
+      idempotencyKey: `refund:${jobId.toString()}`,
+      note: 'Refund: job could not be queued',
+      reference: { kind: 'job', id: jobId.toString() },
+    });
+    await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
+    throw err;
+  }
+  await audit(req, opts.auditAction, { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: jobId.toString(), credits: opts.credits } });
+  return { job: toPublicJob(job), credits: opts.credits };
+}
+
 projectsRouter.post(
   '/:id/generate',
   requireVerifiedEmail,
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
-    const { user, workspaceId } = req.auth!;
+    const { workspaceId } = req.auth!;
     const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
     if (!project) throw notFound('Project not found.');
     const q = await quote(project, workspaceId);
     if (!q.resolutionAllowed) {
       throw new AppError(403, 'PLAN_LIMIT', `Your plan exports up to ${q.planMaxResolution}. Lower the resolution or upgrade.`);
     }
+    const data = await startProjectJob(req, project, { type: 'render_project', credits: q.credits, note: 'Render', auditAction: 'project.generate' });
+    res.status(202).json({ data });
+  }),
+);
 
-    const jobId = new Types.ObjectId();
-    const previousStatus = project.status;
-    const claimed = await Project.findOneAndUpdate(
-      { _id: project._id, workspaceId, status: { $in: ['draft', 'completed', 'failed'] } },
-      { $set: { status: 'queued', lastJobId: jobId, lastError: null } },
-      { new: true },
-    );
-    if (!claimed) throw conflict('This project is already being processed.', 'PROJECT_BUSY');
+/* ── Avatar Studio voiceover (step 3.1) ─────────────────────────────── */
 
+async function narrationQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  if (project.mode !== 'avatar') throw badRequest('Voiceovers are part of Avatar Studio projects.', 'WRONG_MODE');
+  if (!getTtsProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'AI voices are not configured on this server.');
+  const characters = (project.script ?? '').trim().length;
+  const ws = await Workspace.findById(workspaceId).select('creditBalance').lean();
+  return {
+    credits: narrationCreditCost(characters),
+    balance: ws?.creditBalance ?? 0,
+    characters,
+    maxCharacters: MAX_NARRATION_CHARS,
+  };
+}
+
+/** Cost preview for a voiceover of the saved script. */
+projectsRouter.get(
+  '/:id/narration/estimate',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    res.json({ data: await narrationQuote(project, workspaceId) });
+  }),
+);
+
+/** Generates the voiceover for the saved script with the chosen voice. */
+projectsRouter.post(
+  '/:id/narrate',
+  requireVerifiedEmail,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const q = await narrationQuote(project, workspaceId);
+    if (q.characters === 0) throw badRequest('Write a script first.', 'NO_SCRIPT');
+    if (q.characters > MAX_NARRATION_CHARS) throw badRequest(`Scripts can be up to ${MAX_NARRATION_CHARS} characters for one voiceover.`, 'SCRIPT_TOO_LONG');
+    const voiceId = project.settings?.voiceId ?? '';
+    if (!voiceId) throw badRequest('Choose a voice first.', 'NO_VOICE');
+    let voices;
     try {
-      await applyCreditChange({
-        workspaceId,
-        type: 'consume',
-        amount: -q.credits,
-        idempotencyKey: `job:${jobId.toString()}`,
-        note: `Render: ${project.title}`.slice(0, 300),
-        reference: { kind: 'job', id: jobId.toString() },
-        actorId: user._id,
-      });
-    } catch (err) {
-      await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
-      throw err;
+      voices = await listVoicesCached();
+    } catch {
+      throw new AppError(502, 'PROVIDER_ERROR', 'Could not reach the voice provider. Try again shortly.');
     }
-
-    let job;
-    try {
-      job = await enqueue({
-        _id: jobId,
-        type: 'render_project',
-        workspaceId,
-        projectId: project._id,
-        payload: { projectId: project._id.toString(), credits: q.credits },
-        maxAttempts: 3,
-      });
-    } catch (err) {
-      // Never leave credits charged for a job that doesn't exist, or a project stuck in `queued`.
-      // The refund key matches the worker's, so even a racing compensation can only refund once.
-      await applyCreditChange({
-        workspaceId,
-        type: 'refund',
-        amount: q.credits,
-        idempotencyKey: `refund:${jobId.toString()}`,
-        note: 'Refund: render could not be queued',
-        reference: { kind: 'job', id: jobId.toString() },
-      });
-      await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
-      throw err;
-    }
-    await audit(req, 'project.generate', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: jobId.toString(), credits: q.credits } });
-    res.status(202).json({ data: { job: toPublicJob(job), credits: q.credits } });
+    const voice = voices.find((v) => v.id === voiceId);
+    if (!voice) throw badRequest('That voice is no longer available. Choose another one.', 'INVALID_VOICE');
+    const data = await startProjectJob(req, project, {
+      type: 'narrate_project',
+      credits: q.credits,
+      note: 'Voiceover',
+      payload: { voiceId, voiceName: voice.name },
+      auditAction: 'project.narrate',
+    });
+    res.status(202).json({ data });
   }),
 );
 

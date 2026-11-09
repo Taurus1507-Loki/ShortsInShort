@@ -82,3 +82,20 @@ resolution (720p|1080p|4k)`.
 
 Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, `outputAsset`,
 `renderStats`, `lastError`.
+
+## Avatar Studio voiceover — `/projects/:id` (auth, mode `avatar`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/narration/estimate` | `{credits, balance, characters, maxCharacters}` — 1 credit per started 400 characters, max 5,000 |
+| POST | `/narrate` | 202 `{job, credits}`. Uses the saved `script`, `settings.voiceId`, `settings.language`, `settings.speakingRate`. 400 `NO_SCRIPT` / `SCRIPT_TOO_LONG` / `NO_VOICE` / `INVALID_VOICE` / `WRONG_MODE`, 402 `INSUFFICIENT_CREDITS`, 409 `PROJECT_BUSY`, 503 `NOT_CONFIGURED` |
+
+Projects return `narrationAsset` (MP3, kind `narration_audio`) and `narrationStats`
+(`durationSec, characters, chunks, wordCount, timingsAvailable, voiceId, voiceName, model, language, creditsCharged`).
+Word timings are stored server-side for captions (step 3.3) and not returned.
+
+## Voices — `/voices` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/` | Voice list `{id, name, category, gender, age, accent, description, useCase, previewUrl, languages}`; cached 10 min. 503 `NOT_CONFIGURED` without `ELEVENLABS_API_KEY`, 502 `PROVIDER_ERROR` |

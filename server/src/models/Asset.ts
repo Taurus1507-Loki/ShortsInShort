@@ -1,6 +1,6 @@
 import { Schema, model, type HydratedDocument, type InferSchemaType, Types } from 'mongoose';
 
-export const ASSET_KINDS = ['source_video', 'render', 'thumbnail', 'brand_logo'] as const;
+export const ASSET_KINDS = ['source_video', 'render', 'thumbnail', 'brand_logo', 'narration_audio'] as const;
 export const ASSET_STATUSES = ['pending', 'ready', 'failed'] as const;
 
 /** A file in object storage owned by a workspace. Bytes live in storage; this is the index. */

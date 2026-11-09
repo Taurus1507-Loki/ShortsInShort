@@ -72,6 +72,12 @@ const schema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-3.5-flash'),
   PIXABAY_API_KEY: z.string().optional(),
+  /** Text-to-speech (Avatar Studio voiceovers). */
+  ELEVENLABS_API_KEY: z.string().optional(),
+  /** Model for English/Hindi/Tamil (multilingual v2 covers these). */
+  ELEVENLABS_MODEL: z.string().default('eleven_multilingual_v2'),
+  /** Model for languages multilingual v2 lacks (Telugu, Marathi). */
+  ELEVENLABS_MODEL_INDIC: z.string().default('eleven_v3'),
   /** Folder with licensed music + music.json manifest (see services/ai/music.ts). */
   MUSIC_LIBRARY_DIR: z.string().optional(),
   /** Directory of TTF/OTF fonts for burned-in captions (defaults to the OS font folder). */
@@ -171,6 +177,7 @@ export const env = {
     deepgram: e.DEEPGRAM_API_KEY ? { apiKey: e.DEEPGRAM_API_KEY, model: e.DEEPGRAM_MODEL } : null,
     gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL } : null,
     pixabay: e.PIXABAY_API_KEY ? { apiKey: e.PIXABAY_API_KEY } : null,
+    elevenlabs: e.ELEVENLABS_API_KEY ? { apiKey: e.ELEVENLABS_API_KEY, model: e.ELEVENLABS_MODEL, indicModel: e.ELEVENLABS_MODEL_INDIC } : null,
   },
   music: {
     libraryDir: e.MUSIC_LIBRARY_DIR ? path.resolve(e.MUSIC_LIBRARY_DIR) : null,

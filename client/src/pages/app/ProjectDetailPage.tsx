@@ -7,6 +7,7 @@ import { CustomizeForm, DEFAULT_SETTINGS, StatusBadge, type CustomizeValue } fro
 import { CaptionEditor } from '@/components/app/CaptionEditor';
 import { LivePreview } from '@/components/app/LivePreview';
 import { RenderPanel } from '@/components/app/RenderPanel';
+import { VoiceoverPanel } from '@/components/app/VoiceoverPanel';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -169,7 +170,7 @@ export default function ProjectDetailPage() {
           </Card>
         )}
 
-        <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />
+        {project.mode !== 'avatar' && <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />}
 
         {project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
 
@@ -187,11 +188,23 @@ export default function ProjectDetailPage() {
                   <span className="text-muted-foreground">Topic:</span> {project.topic}
                 </p>
               )}
-              <Field id="script" label="Script / notes" hint={`${script.length.toLocaleString()} / 20,000`}>
-                <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={6} />
-              </Field>
+              {project.mode === 'avatar' ? (
+                <Field
+                  id="script"
+                  label="Script"
+                  error={script.trim().length > 5000 ? 'One voiceover can be up to 5,000 characters (about 6 minutes).' : undefined}
+                  hint={`${script.trim().length.toLocaleString()} / 5,000 characters · what the voice will say, word for word`}
+                >
+                  <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} placeholder="What should your presenter say?" />
+                </Field>
+              ) : (
+                <Field id="script" label="Script / notes" hint={`${script.length.toLocaleString()} / 20,000`}>
+                  <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={6} />
+                </Field>
+              )}
             </CardContent>
           </Card>
+          {project.mode !== 'avatar' && (
           <Card>
             <CardHeader>
               <CardTitle>Settings</CardTitle>
@@ -204,7 +217,18 @@ export default function ProjectDetailPage() {
               </div>
             </CardContent>
           </Card>
+          )}
         </fieldset>
+        {project.mode === 'avatar' && (
+          <VoiceoverPanel
+            project={project}
+            settings={{ ...DEFAULT_SETTINGS, ...custom.settings }}
+            onSettingsChange={(settings) => setCustom({ ...custom, settings })}
+            dirty={dirty}
+            saveFirst={() => save.mutateAsync()}
+            scriptLength={script.trim().length}
+          />
+        )}
       </div>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>

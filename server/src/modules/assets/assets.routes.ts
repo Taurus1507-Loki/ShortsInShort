@@ -62,7 +62,7 @@ assetsRouter.get(
       workspaceId: req.auth!.workspaceId,
       deletedAt: null,
       status: 'ready',
-      kind: q.kind ?? { $in: ['source_video', 'render'] },
+      kind: q.kind ?? { $in: ['source_video', 'render', 'narration_audio'] },
     };
     const [items, total] = await Promise.all([
       Asset.find(filter).sort({ createdAt: -1 }).skip((q.page - 1) * q.limit).limit(q.limit),

@@ -1,6 +1,6 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
-import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, Paginated, Project, SessionInfo } from '@/types/api';
+import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, NarrationEstimate, Paginated, Project, SessionInfo, VoiceInfo } from '@/types/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +24,8 @@ export const keys = {
   estimate: (id: string) => ['estimate', id] as const,
   job: (id: string) => ['job', id] as const,
   brandKit: ['brand-kit'] as const,
+  voices: ['voices'] as const,
+  narrationEstimate: (id: string) => ['narration-estimate', id] as const,
 };
 
 export const useMeta = () =>
@@ -91,3 +93,15 @@ export const useAssets = (page: number) =>
 
 export const useBrandKit = () =>
   useQuery({ queryKey: keys.brandKit, queryFn: () => api<{ data: BrandKit }>('/brand-kit').then((r) => r.data) });
+
+/** Voice library (server caches the provider list for 10 minutes). */
+export const useVoices = (enabled = true) =>
+  useQuery({ queryKey: keys.voices, queryFn: () => api<{ data: VoiceInfo[] }>('/voices').then((r) => r.data), enabled, staleTime: 10 * 60_000 });
+
+export const useNarrationEstimate = (projectId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: keys.narrationEstimate(projectId),
+    queryFn: () => api<{ data: NarrationEstimate }>(`/projects/${projectId}/narration/estimate`).then((r) => r.data),
+    enabled,
+    staleTime: 0,
+  });

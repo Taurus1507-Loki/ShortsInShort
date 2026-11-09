@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Download, Film, Play, Trash2, Upload } from 'lucide-react';
+import { AudioLines, ChevronLeft, ChevronRight, Download, Film, Play, Trash2, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ function Thumb({ asset }: { asset: Asset }) {
   const thumb = useAssetUrl(asset.thumbnailAssetId);
   return thumb.data ? (
     <img src={thumb.data} alt="" className="h-full w-full object-cover" loading="lazy" />
+  ) : asset.kind === 'narration_audio' ? (
+    <AudioLines className="h-8 w-8 text-muted-foreground" />
   ) : (
     <Film className="h-8 w-8 text-muted-foreground" />
   );
@@ -32,7 +34,9 @@ function PreviewDialog({ asset, onClose }: { asset: Asset; onClose: () => void }
       <DialogContent className={portrait ? 'max-w-sm' : 'max-w-3xl'}>
         <DialogTitle className="truncate pr-8 text-base font-semibold">{asset.originalName}</DialogTitle>
         <DialogDescription className="sr-only">Video preview</DialogDescription>
-        {url.data ? (
+        {url.data && asset.kind === 'narration_audio' ? (
+          <audio src={url.data} controls autoPlay className="w-full" />
+        ) : url.data ? (
           <video src={url.data} controls autoPlay playsInline className="max-h-[70vh] w-full rounded-lg bg-black" style={{ aspectRatio: `${asset.width} / ${asset.height}` }} />
         ) : (
           <Skeleton className="aspect-video w-full" />
@@ -52,7 +56,7 @@ function AssetCard({ asset, onPreview, onDelete }: { asset: Asset; onPreview: ()
           <Play className="h-8 w-8 text-white opacity-0 transition-opacity group-hover:opacity-100" />
         </span>
         <span className="absolute left-2 top-2">
-          <Badge variant={asset.kind === 'render' ? 'success' : 'muted'}>{asset.kind === 'render' ? 'Rendered' : 'Upload'}</Badge>
+          <Badge variant={asset.kind === 'source_video' ? 'muted' : 'success'}>{asset.kind === 'render' ? 'Rendered' : asset.kind === 'narration_audio' ? 'Voiceover' : 'Upload'}</Badge>
         </span>
         {asset.durationSec != null && (
           <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white">{formatDuration(asset.durationSec)}</span>
@@ -63,7 +67,7 @@ function AssetCard({ asset, onPreview, onDelete }: { asset: Asset; onPreview: ()
           {asset.originalName || 'Untitled'}
         </p>
         <p className="text-xs text-muted-foreground">
-          {asset.width}×{asset.height} · {formatBytes(asset.sizeBytes)} · {timeAgo(asset.createdAt)}
+          {asset.kind === 'narration_audio' ? 'MP3 audio' : `${asset.width}×${asset.height}`} · {formatBytes(asset.sizeBytes)} · {timeAgo(asset.createdAt)}
         </p>
         <div className="mt-2 flex items-center gap-1">
           {asset.projectId && (

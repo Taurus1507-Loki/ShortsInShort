@@ -4,10 +4,12 @@ import { logger } from './config/logger.js';
 import { connectDB, disconnectDB } from './config/db.js';
 import { Worker } from './services/queue/worker.js';
 import { registerRenderJob } from './services/video/renderJob.js';
+import { registerNarrationJob } from './services/audio/narrationJob.js';
 
 async function main() {
   await connectDB(env.mongodbUri);
   registerRenderJob();
+  registerNarrationJob();
   const worker = new Worker();
   worker.start();
   const shutdown = async (signal: string) => {

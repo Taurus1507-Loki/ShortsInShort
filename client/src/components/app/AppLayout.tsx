@@ -17,6 +17,7 @@ import {
   Sparkles,
   UserRound,
   Wand2,
+  Mic,
   type LucideIcon,
 } from 'lucide-react';
 import { Logo, ThemeToggle } from '../brand';
@@ -46,7 +47,8 @@ const NAV: { section?: string; items: NavItem[] }[] = [
     section: 'Create',
     items: [
       { to: '/app/new?mode=editor', label: 'AI Video Editor', icon: Wand2 },
-      { to: '/app/avatar', label: 'AI Avatar', icon: UserRound, soon: true },
+      { to: '/app/new?mode=avatar', label: 'AI Avatar', icon: UserRound },
+      { to: '/app/voices', label: 'AI Voices', icon: Mic },
       { to: '/app/faceless', label: 'Faceless Videos', icon: Clapperboard, soon: true },
     ],
   },
@@ -71,6 +73,15 @@ const NAV: { section?: string; items: NavItem[] }[] = [
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const { workspace } = useAuth();
+  // NavLink ignores the query string, so /app/new?mode=… links need their own check.
+  const { search } = useLocation();
+  const mode = new URLSearchParams(search).get('mode');
+  const active = (to: string, isActive: boolean) => {
+    if (!isActive) return false;
+    const q = to.split('?')[1];
+    if (q) return new URLSearchParams(q).get('mode') === mode;
+    return to !== '/app/new' || !mode;
+  };
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center px-5">
@@ -90,13 +101,13 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                     className={({ isActive }) =>
                       cn(
                         'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                        isActive ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                        active(item.to, isActive) ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                       )
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <item.icon className={cn('h-4 w-4', isActive && 'text-highlight')} />
+                        <item.icon className={cn('h-4 w-4', active(item.to, isActive) && 'text-highlight')} />
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.soon && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Soon</span>}
                       </>

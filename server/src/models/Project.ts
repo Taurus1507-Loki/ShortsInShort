@@ -42,6 +42,10 @@ const settingsSchema = new Schema(
     useBrandKit: { type: Boolean, default: true },
     targetDurationSec: { type: Number, min: 5, max: 3600, default: 60 },
     resolution: { type: String, enum: RESOLUTIONS, default: '1080p' },
+    /** Avatar Studio: provider voice id for the voiceover ('' = not chosen). */
+    voiceId: { type: String, default: '', maxlength: 64 },
+    /** 0.7–1.2, 1 = normal speaking speed. */
+    speakingRate: { type: Number, min: 0.7, max: 1.2, default: 1 },
   },
   { _id: false },
 );
@@ -104,6 +108,29 @@ const projectSchema = new Schema(
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
     },
+    /** Avatar Studio voiceover (step 3.1). */
+    narrationAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
+    /** Word timings of the voiceover (used for captions in 3.3; never sent in full to the client). */
+    narrationWords: { type: [{ _id: false, text: String, start: Number, end: Number }], default: [], select: false },
+    narrationStats: {
+      type: {
+        _id: false,
+        durationSec: Number,
+        characters: Number,
+        chunks: Number,
+        wordCount: Number,
+        timingsAvailable: Boolean,
+        voiceId: String,
+        voiceName: String,
+        provider: String,
+        model: String,
+        language: String,
+        creditsCharged: Number,
+        scriptHash: String,
+        createdAt: Date,
+      },
+      default: null,
+    },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true },
@@ -136,6 +163,8 @@ export function toPublicProject(p: ProjectDoc) {
     captionsEdited: Boolean(p.captionOverrides?.length),
     /** The saved edits (shown in the editor instead of the generated lines). */
     captionOverrides: p.captionOverrides?.length ? p.captionOverrides : null,
+    narrationAssetId: p.narrationAssetId?.toString() ?? null,
+    narrationStats: p.narrationStats ?? null,
     createdAt: p.get('createdAt') as Date,
     updatedAt: p.get('updatedAt') as Date,
   };
