@@ -18,7 +18,10 @@ import { env } from '../../config/env.js';
 import { Transcript } from '../../models/Transcript.js';
 import { getTranscriptionProvider, TranscriptionError, type Word } from '../ai/transcription.js';
 import { fillerIntervals, mergeIntervals, remapWords } from './transcriptMap.js';
-import { buildAss, type CaptionPosition, type CaptionSize, type CaptionStyle } from './captions.js';
+import { buildAss, layoutLines, STYLE_SPECS, type CaptionLine, type CaptionPosition, type CaptionSize, type CaptionStyle } from './captions.js';
+import { getLLMProvider, LLMError, type LLMProvider } from '../ai/llm.js';
+import { getStockProvider, rankClips, relevance, type StockClip, type StockVideoProvider } from '../ai/stock.js';
+import { aiKeywords, planBroll, toSentences, translateLines } from '../ai/creative.js';
 import type { AssetDoc } from '../../models/Asset.js';
 
 export interface RenderPayload {
@@ -27,9 +30,10 @@ export interface RenderPayload {
 }
 
 /** Translated captions need a translation provider (Phase 2.3); say so instead of pretending. */
-function captionLanguageWarning(settings: { language?: string; captionLanguage?: string }, captionsAdded: boolean): string[] {
+function captionLanguageWarning(settings: { language?: string; captionLanguage?: string }, captionsAdded: boolean, llmConfigured: boolean): string[] {
   const target = settings.captionLanguage ?? 'same';
-  if (!captionsAdded || target === 'same' || target === (settings.language ?? 'en')) return [];
+  // With an LLM configured, a failed translation is reported by the pipeline with the actual reason.
+  if (!captionsAdded || llmConfigured || target === 'same' || target === (settings.language ?? 'en')) return [];
   return ['Captions are shown in the spoken language: caption translation is not enabled on this server yet.'];
 }
 
@@ -46,8 +50,54 @@ function pendingFeatureWarnings(
     else w.push('Captions were not added: no speech was detected.');
   }
   if (settings.musicMood && settings.musicMood !== 'none') w.push('Background music was not added: no licensed music library is configured yet.');
-  w.push('B-roll was not added: stock media search is not enabled on this server yet.');
   return w;
+}
+
+export interface UsedBroll {
+  path: string;
+  start: number;
+  end: number;
+  query: string;
+  provider: string;
+  pageUrl: string;
+  author: string;
+}
+
+/**
+ * Plans cutaways with the LLM, then searches and downloads one licensed clip per moment (no clip
+ * reused within a video). Moments without a usable clip are skipped rather than failing the render.
+ */
+async function fetchBroll(
+  llm: LLMProvider,
+  stock: StockVideoProvider,
+  words: Word[],
+  opts: { intensity: 'low' | 'medium' | 'high'; durationSec: number; language: string; workDir: string; signal: AbortSignal },
+): Promise<UsedBroll[]> {
+  const moments = await planBroll(llm, toSentences(words), opts, opts.signal);
+  const used = new Set<string>();
+  const results = await Promise.allSettled(
+    moments.map(async (m, i) => {
+      // Try each search from specific to common; only accept a clip whose tags match the search.
+      // Showing nothing is better than showing something unrelated.
+      let clip: StockClip | undefined;
+      let matchedQuery = m.query;
+      for (const q of [m.query, ...(m.alternatives ?? [])]) {
+        const clips = await stock.searchVideos(q, { perPage: 8, minDurationSec: Math.ceil(m.end - m.start), signal: opts.signal });
+        clip = rankClips(clips, q).find((c) => !used.has(c.id) && relevance(c, q) > 0);
+        if (clip) {
+          matchedQuery = q;
+          break;
+        }
+      }
+      if (!clip) return null;
+      used.add(clip.id);
+      const file = path.join(opts.workDir, `broll-${i}.mp4`);
+      await stock.download(clip, file, { signal: opts.signal });
+      return { path: file, start: m.start, end: m.end, query: matchedQuery, provider: clip.provider, pageUrl: clip.pageUrl, author: clip.author };
+    }),
+  );
+  if (opts.signal.aborted) throw new Error('Processing was cancelled.');
+  return results.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : []));
 }
 
 /**
@@ -125,26 +175,68 @@ async function run({ job, signal, progress }: JobContext) {
     }
     const keptSec = totalDuration(segments);
 
-    // 4. Captions, timed to the edited timeline
+    // 4. Captions (AI keywords or translation) and B-roll, all on the edited timeline
     const aspectForCaptions = project.aspectRatio as AspectRatio;
     const size = outputSize(aspectForCaptions, (settings.resolution ?? '1080p') as Resolution);
+    const editedWords = transcript.words?.length ? remapWords(transcript.words, segments) : [];
+    const llm = getLLMProvider();
+    const notes: string[] = [];
     let captions: { assPath: string; fontsDir: string } | undefined;
-    if (settings.captionsEnabled && transcript.words?.length) {
-      const words = remapWords(transcript.words, segments);
-      if (words.length) {
-        const { ass } = buildAss({
-          words,
-          style: (settings.captionStyle ?? 'bold_pop') as CaptionStyle,
-          position: (settings.captionPosition ?? 'bottom') as CaptionPosition,
-          highlightColor: settings.highlightColor ?? '#A78BFA',
-          size: (settings.captionSize ?? 'medium') as CaptionSize,
-          width: size.width,
-          height: size.height,
-          language,
-        });
-        const assPath = path.join(workDir, 'captions.ass');
-        await writeFile(assPath, ass, 'utf8');
-        captions = { assPath, fontsDir: env.captions.fontsDir };
+    let aiKeywordsUsed = false;
+    let translatedTo: string | null = null;
+    if (settings.captionsEnabled && editedWords.length) {
+      const style = (settings.captionStyle ?? 'bold_pop') as CaptionStyle;
+      const captionSize = (settings.captionSize ?? 'medium') as CaptionSize;
+      let lines: CaptionLine[] = layoutLines({ words: editedWords, style, width: size.width, height: size.height, size: captionSize });
+      const target = settings.captionLanguage && settings.captionLanguage !== 'same' && settings.captionLanguage !== language ? settings.captionLanguage : null;
+      if (llm && (target || STYLE_SPECS[style].highlight)) {
+        await progress(13, 'styling_captions');
+        try {
+          if (target) {
+            lines = await translateLines(llm, lines, language, target, signal);
+            translatedTo = target;
+          } else {
+            lines = await aiKeywords(llm, lines, language, signal);
+            aiKeywordsUsed = true;
+          }
+        } catch (err) {
+          if (signal.aborted) throw err;
+          logger.warn({ err }, target ? 'Caption translation failed' : 'AI keywords failed; using rule-based highlights');
+          if (target) notes.push(`Captions were not translated: ${err instanceof LLMError ? err.message : 'the AI request failed.'} They are shown in the spoken language.`);
+        }
+      }
+      const { ass } = buildAss({
+        words: editedWords,
+        lines,
+        style,
+        position: (settings.captionPosition ?? 'bottom') as CaptionPosition,
+        highlightColor: settings.highlightColor ?? '#A78BFA',
+        size: captionSize,
+        width: size.width,
+        height: size.height,
+        language: translatedTo ?? language,
+      });
+      const assPath = path.join(workDir, 'captions.ass');
+      await writeFile(assPath, ass, 'utf8');
+      captions = { assPath, fontsDir: env.captions.fontsDir };
+    }
+
+    const brollIntensity = (settings.bRollIntensity ?? 'medium') as 'none' | 'low' | 'medium' | 'high';
+    const stock = getStockProvider();
+    let broll: UsedBroll[] = [];
+    if (brollIntensity !== 'none') {
+      if (!stock || !llm) notes.push('B-roll was not added: stock media search is not enabled on this server yet.');
+      else if (!editedWords.length) notes.push('B-roll was not added: it is chosen from what you say, and no transcript was available for this video.');
+      else {
+        await progress(14, 'finding_broll');
+        try {
+          broll = await fetchBroll(llm, stock, editedWords, { intensity: brollIntensity, durationSec: keptSec, language, workDir, signal });
+          if (!broll.length) notes.push('B-roll was not added: no stock clips closely matched what you say, so none were used.');
+        } catch (err) {
+          if (signal.aborted) throw err;
+          logger.warn({ err }, 'B-roll failed; rendering without it');
+          notes.push('B-roll was not added: the stock footage search failed. Try rendering again.');
+        }
       }
     }
 
@@ -156,7 +248,7 @@ async function run({ job, signal, progress }: JobContext) {
     const outFile = path.join(workDir, 'output.mp4');
     let lastReported = 15;
     await renderVideo(
-      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing },
+      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing, broll },
       {
         signal,
         timeoutMs: Math.max(5 * 60_000, keptSec * 20_000),
@@ -229,8 +321,13 @@ async function run({ job, signal, progress }: JobContext) {
       captionsAdded: Boolean(captions),
       fillerWordsRemoved,
       framing,
+      brollCount: broll.length,
+      broll: broll.map(({ path: _p, ...b }) => b),
+      aiKeywords: aiKeywordsUsed,
+      captionsTranslatedTo: translatedTo,
       warnings: [
-        ...captionLanguageWarning(settings, Boolean(captions)),
+        ...(translatedTo ? [] : captionLanguageWarning(settings, Boolean(captions), Boolean(llm))),
+        ...notes,
         ...pendingFeatureWarnings(settings, {
         added: Boolean(captions),
         error: transcript.error,

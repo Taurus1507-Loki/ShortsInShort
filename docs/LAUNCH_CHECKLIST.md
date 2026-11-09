@@ -17,6 +17,11 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Distro FFmpeg/FFprobe via `FFMPEG_PATH` / `FFPROBE_PATH`; workers run separately (`WORKER_MODE=off` + `npm run worker`).
 - [ ] MongoDB replica set (e.g. Atlas) with backups; Redis for rate limits / queue.
 
+## Google sign-in
+- [ ] In Google Cloud Console → Credentials, add the production origin (`https://yourdomain.com`) and
+      redirect URI (`https://yourdomain.com/api/auth/google/callback`) to the OAuth client.
+- [ ] Publish the OAuth consent screen (Testing → In production) so any Google user can sign in.
+
 ## Legal
 - [ ] Policies in `client/src/pages/legal/` reviewed by a lawyer; grievance officer details added.
 - [ ] Remotion Company License purchased if the company has more than 3 people (needed for Motion Explainer).

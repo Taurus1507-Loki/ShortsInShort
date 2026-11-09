@@ -41,7 +41,7 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
   uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
 }
 
@@ -93,6 +93,10 @@ export interface RenderStats {
   captionsAdded?: boolean;
   fillerWordsRemoved?: number;
   framing?: 'crop' | 'blur' | null;
+  brollCount?: number;
+  broll?: Array<{ start: number; end: number; query: string; provider: string; pageUrl: string; author: string }>;
+  aiKeywords?: boolean;
+  captionsTranslatedTo?: string | null;
   warnings: string[];
 }
 
@@ -119,7 +123,7 @@ export interface ProjectSettings {
   captionLanguage: 'same' | 'en' | 'hi' | 'te' | 'ta' | 'mr';
   highlightColor: string;
   musicMood: 'auto' | 'none' | 'upbeat' | 'calm' | 'cinematic' | 'corporate' | 'lofi';
-  bRollIntensity: Intensity;
+  bRollIntensity: 'none' | Intensity;
   editingIntensity: Intensity;
   /** Spoken language of the audio. */
   language: 'en' | 'hi' | 'te' | 'ta' | 'mr';

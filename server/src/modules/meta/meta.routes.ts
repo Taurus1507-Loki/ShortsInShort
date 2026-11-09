@@ -3,6 +3,8 @@ import { env } from '../../config/env.js';
 import { PLANS, PLAN_IDS } from '../../config/plans.js';
 import { dbState } from '../../config/db.js';
 import { getTranscriptionProvider } from '../../services/ai/transcription.js';
+import { getLLMProvider } from '../../services/ai/llm.js';
+import { getStockProvider } from '../../services/ai/stock.js';
 
 export const metaRouter = Router();
 
@@ -20,7 +22,10 @@ metaRouter.get('/meta', (_req, res) => {
         // Live only when a speech-to-text provider key is configured.
         transcription: Boolean(getTranscriptionProvider()),
         captions: Boolean(getTranscriptionProvider()),
-        broll: false,
+        // AI features: each is live only when its provider keys are configured.
+        aiKeywords: Boolean(getLLMProvider()) && Boolean(getTranscriptionProvider()),
+        translation: Boolean(getLLMProvider()) && Boolean(getTranscriptionProvider()),
+        broll: Boolean(getLLMProvider()) && Boolean(getStockProvider()) && Boolean(getTranscriptionProvider()),
         music: false,
         avatarStudio: false,
         facelessCreator: false,

@@ -17,6 +17,8 @@ import { CreditTransaction } from '../models/CreditTransaction.js';
 import { claim, enqueue, fail, sweepExpired } from '../services/queue/queue.js';
 import { Transcript } from '../models/Transcript.js';
 import { setTranscriptionProvider, TranscriptionError, type TranscriptionProvider, type Word } from '../services/ai/transcription.js';
+import { setLLMProvider, type LLMProvider } from '../services/ai/llm.js';
+import { setStockProvider, type StockVideoProvider } from '../services/ai/stock.js';
 
 let fixture: Buffer;
 const worker = new Worker(1, 10);
@@ -388,6 +390,152 @@ describe('captions (with a stand-in transcription provider)', () => {
     setTranscriptionProvider(fake);
     expect((await request(app).get('/api/meta')).body.data.features.captions).toBe(true);
   });
+});
+
+describe('AI keywords, translation and B-roll (stand-in providers)', () => {
+  // 12 s of continuous speech-like tone (no pauses → no cuts), so timings stay predictable.
+  const WORDS: Word[] = [
+    { text: 'Small', start: 0.2, end: 0.6 }, { text: 'habits', start: 0.65, end: 1.1 }, { text: 'win.', start: 1.15, end: 2.8 },
+    { text: 'Drink', start: 3.5, end: 4.2 }, { text: 'coffee', start: 4.3, end: 5.4 }, { text: 'every', start: 5.5, end: 6.4 }, { text: 'morning.', start: 6.5, end: 8.0 },
+    { text: 'Then', start: 8.5, end: 9.2 }, { text: 'go', start: 9.3, end: 9.8 }, { text: 'running.', start: 9.9, end: 11.4 },
+  ];
+  let llmCalls: string[] = [];
+  const llm: LLMProvider = {
+    name: 'fake-llm',
+    async generateJson<T>(prompt: string, schema: { properties?: Record<string, unknown> }) {
+      const key = Object.keys(schema.properties ?? {})[0]!;
+      llmCalls.push(key);
+      // The prompt ends with the caption lines as a JSON array; answer one keyword per line (its last word).
+      if (key === 'keywords') return { keywords: (JSON.parse(prompt.split(String.fromCharCode(10)).at(-1)!) as string[]).map((l) => l.split(' ').at(-1)!) } as T;
+      if (key === 'moments') return { moments: [{ sentence: 1, queries: ['latte art', 'coffee cup'] }] } as T;
+      throw new Error('unexpected');
+    },
+  };
+  let redClip = '';
+  let longFixture: Buffer;
+  const stock: StockVideoProvider = {
+    name: 'fake-stock',
+    license: 'test',
+    async searchVideos(query) {
+      // Only 'coffee cup' has a matching clip; 'latte art' returns an unrelated one that must be rejected.
+      if (query === 'latte art') return [{ id: 'trees', provider: 'fake-stock', downloadUrl: 'local', pageUrl: 'https://example.test/trees', author: 'x', width: 640, height: 360, durationSec: 6, tags: ['trees', 'forest'] }];
+      return [{ id: 'red-1', provider: 'fake-stock', downloadUrl: 'local', pageUrl: `https://example.test/${encodeURIComponent(query)}`, author: 'tester', width: 640, height: 360, durationSec: 6, tags: ['coffee', 'cup'] }];
+    },
+    async download(_clip, dest) {
+      await writeFile(dest, await readFile(redClip));
+    },
+  };
+
+  beforeAll(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'sis-ai-'));
+    redClip = path.join(dir, 'red.mp4');
+    await runFfmpeg(['-f', 'lavfi', '-i', 'color=c=red:s=640x360:r=25:d=6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', redClip]);
+    const long = path.join(dir, 'long.mp4');
+    await runFfmpeg([
+      '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=25:duration=12',
+      '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000:duration=12',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', long,
+    ]);
+    longFixture = await readFile(long);
+  }, 120_000);
+
+  beforeEach(() => {
+    llmCalls = [];
+    setTranscriptionProvider({ name: 'fake-stt', async transcribe(_a, o) { return { provider: 'fake-stt', language: o.language, words: WORDS }; } });
+    setLLMProvider(llm);
+    setStockProvider(stock);
+  });
+  afterEach(() => {
+    setTranscriptionProvider(undefined);
+    setLLMProvider(undefined);
+    setStockProvider(undefined);
+  });
+
+  /** Average RGB of a frame's centre at time `sec`. */
+  async function centreColour(assetId: string, sec: number) {
+    const a = await Asset.findById(assetId);
+    const d = await mkdtemp(path.join(tmpdir(), 'sis-px-'));
+    const file = path.join(d, 'px.rgb');
+    await runFfmpeg(['-ss', String(sec), '-i', localStorage.resolve(a!.storageKey), '-frames:v', '1', '-vf', 'crop=iw*0.3:ih*0.2:iw*0.35:ih*0.3,scale=16:16,format=rgb24', '-f', 'rawvideo', file]);
+    const px = await readFile(file);
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < px.length; i += 3) { r += px[i]!; g += px[i + 1]!; b += px[i + 2]!; }
+    const n = px.length / 3;
+    return { r: r / n, g: g / n, b: b / n };
+  }
+
+  it('shows the stock clip only during its planned slot, with AI keywords on the captions', async () => {
+    const { auth, user } = await registerUser({ verify: true });
+    await setBalance(user.defaultWorkspaceId, 10);
+    const { assetId } = await upload(auth, longFixture, 'long.mp4');
+    await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
+    const res = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ title: 'B-roll', mode: 'editor', aspectRatio: '9:16', sourceAssetId: assetId, settings: { resolution: '720p', framing: 'crop', bRollIntensity: 'high', editingIntensity: 'low' } })
+      .expect(201);
+    await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    const p = (await request(app).get(`/api/projects/${res.body.data.id}`).set(auth).expect(200)).body.data;
+
+    expect(p.status).toBe('completed');
+    expect(p.renderStats).toMatchObject({ captionsAdded: true, aiKeywords: true, brollCount: 1 });
+    expect(p.renderStats.broll[0]).toMatchObject({ query: 'coffee cup', provider: 'fake-stock', author: 'tester' });
+    const { start, end } = p.renderStats.broll[0];
+    expect(start).toBeCloseTo(3.65, 1);
+    expect(end).toBeCloseTo(7.15, 1);
+    expect(p.renderStats.warnings.join(' ')).not.toMatch(/B-roll was not added/);
+    expect(llmCalls.sort()).toEqual(['keywords', 'moments']);
+
+    const during = await centreColour(p.outputAsset.id, 5);
+    expect(during.r).toBeGreaterThan(200);
+    expect(during.g).toBeLessThan(60);
+    const before = await centreColour(p.outputAsset.id, 1);
+    expect(before.r > 200 && before.g < 60 && before.b < 60).toBe(false); // the speaker, not the clip
+    const after = await centreColour(p.outputAsset.id, 9);
+    expect(after.r > 200 && after.g < 60 && after.b < 60).toBe(false);
+  }, 180_000);
+
+  it('translates captions when a different caption language is chosen', async () => {
+    setLLMProvider({
+      name: 'fake-translate',
+      async generateJson<T>(prompt: string, schema: { properties?: Record<string, unknown> }) {
+        const key = Object.keys(schema.properties ?? {})[0]!;
+        llmCalls.push(key);
+        if (key !== 'lines') throw new Error('unexpected');
+        const n = (JSON.parse(prompt.split(String.fromCharCode(10)).at(-1)!) as string[]).length;
+        return { lines: Array.from({ length: n }, (_, i) => ({ text: `अनुवाद ${i + 1}`, keyword: 'अनुवाद' })) } as T;
+      },
+    });
+    const { auth } = await registerUser({ verify: true });
+    const { assetId } = await upload(auth, longFixture, 'long.mp4');
+    await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
+    const res = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ title: 'Translate', mode: 'editor', sourceAssetId: assetId, settings: { resolution: '720p', bRollIntensity: 'none', captionStyle: 'clean_minimal', captionLanguage: 'hi', editingIntensity: 'low' } })
+      .expect(201);
+    await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    const p = (await request(app).get(`/api/projects/${res.body.data.id}`).set(auth).expect(200)).body.data;
+    expect(p.status).toBe('completed');
+    expect(llmCalls).toEqual(['lines']);
+    expect(p.renderStats.captionsTranslatedTo).toBe('hi');
+    expect(p.renderStats.warnings.join(' ')).not.toMatch(/translat/i);
+  }, 120_000);
+
+  it('skips B-roll with an honest note when the stock provider is missing', async () => {
+    setStockProvider(null);
+    const { auth } = await registerUser({ verify: true });
+    const { assetId } = await upload(auth, longFixture, 'long.mp4');
+    await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
+    const res = await request(app).post('/api/projects').set(auth).send({ title: 'NoStock', mode: 'editor', sourceAssetId: assetId, settings: { resolution: '720p', bRollIntensity: 'medium' } }).expect(201);
+    await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    const p = (await request(app).get(`/api/projects/${res.body.data.id}`).set(auth).expect(200)).body.data;
+    expect(p.renderStats.brollCount).toBe(0);
+    expect(p.renderStats.warnings.join(' ')).toMatch(/B-roll was not added: stock media search is not enabled/);
+  }, 120_000);
 });
 
 describe('job queue', () => {

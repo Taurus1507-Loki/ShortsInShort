@@ -134,7 +134,8 @@ describe('video framing', () => {
     expect(graph).toContain('split=2[bgsrc][fgsrc]');
     expect(graph).toContain('boxblur');
     expect(graph).toContain('force_original_aspect_ratio=decrease');
-    expect(graph).toMatch(/overlay=\(W-w\)\/2:\(H-h\)\/2,setsar=1,ass=/);
+    expect(graph).toContain('overlay=(W-w)/2:(H-h)/2[base0]');
+    expect(graph).toContain('[base0]setsar=1,ass='); // captions applied last, on top
     expect(graph).not.toContain('crop=1080:1920'); // the foreground is never cropped
   });
 });

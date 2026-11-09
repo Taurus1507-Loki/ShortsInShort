@@ -7,7 +7,7 @@ before it is.
 |---|---|---|
 | **2.1 Core edit** | Uploads, storage, job queue + worker, silence/pause removal, aspect-ratio reframing, loudness normalisation, H.264 render, thumbnail, credit charging with refunds, Media Library | ✅ Implemented, tested (unit + integration with real FFmpeg) and verified in the browser |
 | **2.2 Transcription & captions** | Provider interface + Deepgram adapter, transcript cache, filler-word removal, captions re-timed through cuts, 5 styles (bold pop, karaoke, boxed, clean, cinematic), rule-based keyword highlights, Indic-script captions, burn-in | ✅ Verified live with Deepgram (nova-3) on English speech: accurate transcript, captions in sync, keyword highlights. Deepgram accepts `hi`/`te`/`ta`/`mr`, but accuracy in those languages and filler-word detection still need testing with real recordings. |
-| 2.3 AI analysis & B-roll | LLM adapter (hooks, keywords, B-roll queries), Pixabay/Pexels adapter, B-roll overlays | Needs LLM + stock-media keys |
+| **2.3 AI analysis & B-roll** | Gemini adapter (structured JSON), AI keyword highlights, caption translation (EN/HI/TE/TA/MR), B-roll planning + Pixabay search with tag-relevance filtering, B-roll overlays under captions, attribution | ✅ Verified live (Gemini 3.5 Flash + Pixabay) on an English test clip; translation verified with a stand-in provider and in tests |
 | 2.4 Music & polish | Licensed music bed with ducking, zooms on key moments, Brand Kit (logo/colours/fonts, watermark for Free) | Needs a licensed music library |
 | 2.5 Editor & infra | Caption editing, scene tweaks, Redis/BullMQ queue driver, R2 verification | Needs Redis + R2 credentials |
 
@@ -79,3 +79,18 @@ npm --prefix server run worker   # (production) run workers as separate processe
 - **Languages:** Latin captions use Segoe UI (Windows) / Noto Sans (Linux); Hindi, Marathi, Telugu
   and Tamil use Nirmala UI / Noto Sans Devanagari, Telugu, Tamil with HarfBuzz shaping.
   Whether Deepgram supports each Indian language must be confirmed with a live key.
+
+## Step 2.3 — AI keywords, translation, B-roll
+
+- **One Gemini call per render feature**, always structured JSON validated before use; any failure
+  falls back (rule-based keywords) or skips with an honest note (translation, B-roll). Render never fails
+  because of AI.
+- **Keywords:** Gemini picks one word per caption line; misses keep the rule-based pick.
+- **Translation:** captions are translated line by line, keeping each line's timing (word timing within
+  a translated line is approximated because languages reorder words).
+- **B-roll:** Gemini picks sentences (never the opening hook) and gives 3 searches per moment, specific →
+  common. A Pixabay clip is used only if its tags match the search (subject word weighted most); otherwise
+  the moment is skipped — no unrelated footage. Code enforces 1.5–3.5 s clips, ≥2.5 s apart, ~1 per
+  20/12/7 s (low/medium/high), and never in the first 2 s or last 1 s. Clips are full-frame hard cuts with
+  the speaker's audio continuing; captions stay on top. Source page + author recorded per clip.
+- Tests use stand-in providers and blank all real keys (no paid calls from the test suite).

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Types } from 'mongoose';
 import {
   ASPECT_RATIOS,
+  BROLL_INTENSITIES,
   CAPTION_POSITIONS,
   CAPTION_SIZES,
   FRAMINGS,
@@ -23,7 +24,7 @@ const settingsSchema = z
     captionLanguage: z.enum(['same', ...SUPPORTED_LANGUAGES]),
     highlightColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour like #A78BFA'),
     musicMood: z.enum(['auto', 'none', 'upbeat', 'calm', 'cinematic', 'corporate', 'lofi']),
-    bRollIntensity: z.enum(INTENSITIES),
+    bRollIntensity: z.enum(BROLL_INTENSITIES),
     editingIntensity: z.enum(INTENSITIES),
     language: z.enum(SUPPORTED_LANGUAGES),
     framing: z.enum(FRAMINGS),

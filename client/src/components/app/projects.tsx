@@ -155,6 +155,13 @@ const INTENSITY: { id: Intensity; label: string }[] = [
   { id: 'high', label: 'High' },
 ];
 
+const BROLL: { id: ProjectSettings['bRollIntensity']; label: string }[] = [
+  { id: 'none', label: 'Off' },
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+];
+
 const FRAMING: { id: ProjectSettings['framing']; label: string; sub: string }[] = [
   { id: 'auto', label: 'Auto', sub: 'Recommended' },
   { id: 'crop', label: 'Fill frame', sub: 'Crops the edges' },
@@ -175,6 +182,8 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
   const s: ProjectSettings = { ...DEFAULT_SETTINGS, ...value.settings };
   const set = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K]) => onChange({ ...value, settings: { ...s, [k]: v } });
   const captionStatus: SettingStatus = captionsLive ? 'applied' : 'needs_key';
+  const brollLive = Boolean(meta?.features.broll);
+  const translationLive = Boolean(meta?.features.translation);
   const spokenName = LANGUAGES.find((l) => l.id === s.language)?.name ?? s.language;
 
   return (
@@ -248,8 +257,16 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
           >
             <Choice name="Editing intensity" value={s.editingIntensity} onChange={(v) => set('editingIntensity', v)} options={INTENSITY} />
           </Setting>
-          <Setting label="B-roll intensity" status="soon" help="How often relevant stock clips cut in over your footage. Saved now; automatic B-roll comes in the next step.">
-            <Choice name="B-roll intensity" value={s.bRollIntensity} onChange={(v) => set('bRollIntensity', v)} options={INTENSITY} />
+          <Setting
+            label="B-roll (stock footage)"
+            status={brollLive ? 'applied' : 'soon'}
+            help={
+              brollLive
+                ? 'Short licensed stock clips (from Pixabay) that cut in over your video to illustrate what you say — AI picks the moments, never during your opening line. Your voice keeps playing. Low ≈ one clip per 20 s, Medium ≈ 12 s, High ≈ 7 s. Off = none.'
+                : 'Short stock clips that cut in to illustrate what you say. Saved now; needs stock-media and AI keys on the server.'
+            }
+          >
+            <Choice name="B-roll" value={s.bRollIntensity} onChange={(v) => set('bRollIntensity', v)} options={BROLL} />
           </Setting>
           <Setting label="Background music" htmlFor="music" status="soon" help="Music mood under your voice (auto-lowered while you speak). Saved now; needs a licensed music library.">
             <Select id="music" value={s.musicMood} onChange={(e) => set('musicMood', e.target.value as ProjectSettings['musicMood'])}>
@@ -285,13 +302,17 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
             label="Caption language"
             htmlFor="captionLanguage"
             status={captionStatus}
-            help={`The language the on-screen captions are written in. “Same as spoken” shows exactly what is said (${spokenName}). Translating captions into another language needs an AI translation key and is coming soon.`}
+            help={
+              translationLive
+                ? `The language the on-screen captions are written in. “Same as spoken” shows exactly what is said (${spokenName}). Choosing another language translates the captions with AI — e.g. Telugu speech with English captions. Timing stays in sync line by line.`
+                : `The language the on-screen captions are written in. “Same as spoken” shows exactly what is said (${spokenName}). Translating captions into another language needs an AI key and is coming soon.`
+            }
           >
             <Select id="captionLanguage" value={s.captionLanguage} onChange={(e) => set('captionLanguage', e.target.value as ProjectSettings['captionLanguage'])}>
               <option value="same">Same as spoken ({spokenName})</option>
               {LANGUAGES.filter((l) => l.id !== s.language).map((l) => (
-                <option key={l.id} value={l.id} disabled>
-                  {l.name} — translation coming soon
+                <option key={l.id} value={l.id} disabled={!translationLive}>
+                  {translationLive ? `${l.name} (translated)` : `${l.name} — translation coming soon`}
                 </option>
               ))}
             </Select>
@@ -334,7 +355,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
                 <option value="bottom">Bottom</option>
               </Select>
             </Setting>
-            <Setting label="Keyword highlight colour" htmlFor="highlight" status={captionStatus} help="Colour used to emphasise one important word per line — numbers first, otherwise the most meaningful word. In Karaoke style it's the colour words fill with as they're spoken.">
+            <Setting label="Keyword highlight colour" htmlFor="highlight" status={captionStatus} help={`Colour used to emphasise one important word per line${meta?.features.aiKeywords ? ', chosen by AI' : ' (numbers first, otherwise the most meaningful word)'}. In Karaoke style it's the colour words fill with as they're spoken.`}>
               <div className="flex gap-2">
                 <input
                   id="highlight"

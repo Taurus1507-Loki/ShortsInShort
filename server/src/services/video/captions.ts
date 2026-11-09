@@ -122,6 +122,24 @@ export interface BuildAssInput {
   language: string;
   size?: CaptionSize;
   platform?: NodeJS.Platform;
+  /** Already-grouped lines (e.g. with AI-picked keywords or translated text). */
+  lines?: CaptionLine[];
+}
+
+/**
+ * Groups words into caption lines for a style/frame/size and applies rule-based keywords.
+ * Bigger text fits fewer characters per line (and vice versa).
+ */
+export function layoutLines(input: { words: Word[]; style: CaptionStyle; width: number; height: number; size?: CaptionSize }): CaptionLine[] {
+  const spec = STYLE_SPECS[input.style];
+  const landscape = input.width > input.height;
+  const scale = CAPTION_SIZE_SCALE[input.size ?? 'medium'];
+  const lines = groupWords(input.words, {
+    maxWords: spec.maxWords,
+    maxChars: Math.max(8, Math.round((spec.maxChars * (landscape ? 1.6 : 1)) / scale)),
+  });
+  if (spec.highlight) lines.forEach((l) => (l.keywords = pickKeyword(l)));
+  return lines;
 }
 
 /** Builds a complete ASS subtitle file for burning into the rendered video. */
@@ -135,12 +153,10 @@ export function buildAss(input: BuildAssInput): { ass: string; lines: CaptionLin
   const font = fontFor(input.language, spec.weight, input.platform);
   const latin = !INDIC.has(input.language);
 
-  // Bigger text fits fewer characters per line (and vice versa).
-  const lines = groupWords(input.words, {
-    maxWords: spec.maxWords,
-    maxChars: Math.max(8, Math.round((spec.maxChars * (landscape ? 1.6 : 1)) / scale)),
-  });
-  if (spec.highlight) lines.forEach((l) => (l.keywords = pickKeyword(l)));
+  // Pre-built lines (AI keywords / translations) are used as-is; otherwise lay them out here.
+  const lines = input.lines
+    ? input.lines.map((l) => (spec.highlight ? l : { ...l, keywords: [] }))
+    : layoutLines({ words: input.words, style: input.style, width: input.width, height: input.height, size: input.size });
 
   const alignment = input.position === 'top' ? 8 : input.position === 'middle' ? 5 : 2;
   const marginV = input.position === 'middle' ? 0 : Math.round(input.height * (input.position === 'top' ? 0.12 : landscape ? 0.1 : 0.22));

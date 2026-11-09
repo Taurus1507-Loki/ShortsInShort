@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, Captions, CheckCircle2, Coins, Download, Info, Loader2, RotateCcw, Scissors, Sparkles, Timer } from 'lucide-react';
+import { AlertTriangle, Captions, Film, CheckCircle2, Coins, Download, Info, Loader2, RotateCcw, Scissors, Sparkles, Timer } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle, Notice, Skeleton } from '../ui/primitives';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/overlays';
@@ -16,6 +16,8 @@ const STAGES: Record<string, string> = {
   starting: 'Starting',
   analyzing: 'Analysing your video',
   transcribing: 'Transcribing speech',
+  styling_captions: 'Styling captions with AI',
+  finding_broll: 'Finding B-roll footage',
   removing_silence: 'Detecting and removing pauses',
   rendering: 'Rendering your edit',
   finalizing: 'Running quality checks',
@@ -184,9 +186,13 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               )}
               <p className="flex gap-2">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                {captionsLive
-                  ? `Removes pauses and filler words, reframes to ${project.aspectRatio}, balances loudness${wantsCaptions ? ' and adds animated captions' : ''}. B-roll and music are coming next and won’t be added yet.`
-                  : `Removes pauses, reframes to ${project.aspectRatio} and balances loudness. Captions, B-roll and music are coming next and won’t be added yet.`}
+                {(() => {
+                  const parts = [captionsLive ? 'removes pauses and filler words' : 'removes pauses', `reframes to ${project.aspectRatio}`, 'balances loudness'];
+                  if (captionsLive && wantsCaptions) parts.push(project.settings.captionLanguage && project.settings.captionLanguage !== 'same' && meta?.features.translation ? 'adds translated captions' : 'adds animated captions');
+                  if (meta?.features.broll && project.settings.bRollIntensity !== 'none') parts.push('adds B-roll cutaways');
+                  const pending = [...(captionsLive ? [] : ['captions']), ...(meta?.features.broll ? [] : ['B-roll']), 'music'];
+                  return `This render ${parts.join(', ')}. ${pending.join(', ').replace(/^./, (c) => c.toUpperCase())} ${pending.length === 1 ? 'is' : 'are'} coming next and won’t be added yet.`;
+                })()}
               </p>
               <p>If the render fails, your credits are refunded automatically.</p>
             </div>
@@ -244,6 +250,8 @@ function RenderResult({ project }: { project: Project }) {
               ...(s.fillerWordsRemoved ? [{ icon: Scissors, label: 'Filler words cut', value: String(s.fillerWordsRemoved) }] : []),
               ...(s.captionsAdded ? [{ icon: Captions, label: 'Captions', value: 'Added' }] : []),
               ...(s.framing ? [{ icon: Timer, label: 'Background', value: s.framing === 'blur' ? 'Blurred fill' : 'Fill frame' }] : []),
+              ...(s.brollCount ? [{ icon: Film, label: 'B-roll clips', value: String(s.brollCount) }] : []),
+              ...(s.captionsTranslatedTo ? [{ icon: Captions, label: 'Captions', value: `Translated (${s.captionsTranslatedTo.toUpperCase()})` }] : s.aiKeywords ? [{ icon: Captions, label: 'Keywords', value: 'Picked by AI' }] : []),
             ].map((x) => (
               <div key={x.label} className="rounded-lg bg-muted/50 p-3">
                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -269,6 +277,21 @@ function RenderResult({ project }: { project: Project }) {
               </li>
             ))}
           </ul>
+        )}
+        {s?.broll && s.broll.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Stock footage used</p>
+            <ul className="mt-1 grid gap-1">
+              {s.broll.map((b) => (
+                <li key={`${b.pageUrl}-${b.start}`}>
+                  {formatDuration(b.start)}–{formatDuration(b.end)} · “{b.query}” ·{' '}
+                  <a href={b.pageUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+                    {b.author} on {b.provider === 'pixabay' ? 'Pixabay' : b.provider}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     </div>

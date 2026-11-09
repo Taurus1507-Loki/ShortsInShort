@@ -27,6 +27,8 @@ export interface RenderInput {
   captions?: { assPath: string; fontsDir: string };
   /** crop = fill the frame (edges cut); blur = whole video over a blurred copy. Default crop. */
   framing?: 'crop' | 'blur';
+  /** Stock clips shown full-frame at [start, end] seconds of the edited timeline. */
+  broll?: Array<{ path: string; start: number; end: number }>;
 }
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -84,11 +86,24 @@ export function buildRenderArgs(r: RenderInput): string[] {
       `[0:v:0]${pre},split=2[bgsrc][fgsrc]`,
       `[bgsrc]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},boxblur=luma_radius=12:luma_power=2,eq=brightness=-0.08:saturation=1.1,scale=${width}:${height}[bg]`,
       `[fgsrc]scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos[fg]`,
-      `[bg][fg]overlay=(W-w)/2:(H-h)/2,${post}[v]`,
+      `[bg][fg]overlay=(W-w)/2:(H-h)/2[base0]`,
     );
   } else {
-    graph.push(`[0:v:0]${pre},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},${post}[v]`);
+    graph.push(`[0:v:0]${pre},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}[base0]`);
   }
+
+  // B-roll cutaways: each clip (input i+1) fills the frame during its slot on the EDITED timeline
+  // while the speaker's audio continues underneath. Hard cuts, as is standard for short-form.
+  const broll = r.broll ?? [];
+  broll.forEach((b, i) => {
+    const d = Math.max(0.1, b.end - b.start);
+    graph.push(
+      `[${i + 1}:v:0]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS+${b.start.toFixed(3)}/TB,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[b${i}]`,
+      `[base${i}][b${i}]overlay=enable='between(t,${b.start.toFixed(3)},${b.end.toFixed(3)})':eof_action=pass[base${i + 1}]`,
+    );
+  });
+  // Captions are applied last so they stay on top of B-roll.
+  graph.push(`[base${broll.length}]${post}[v]`);
   if (r.hasAudio) {
     const a = [
       ...(cutting ? [`aselect='${sel}'`, 'asetpts=N/SR/TB'] : []),
@@ -100,6 +115,7 @@ export function buildRenderArgs(r: RenderInput): string[] {
 
   return [
     '-i', r.input,
+    ...broll.flatMap((b) => ['-i', b.path]),
     '-filter_complex', graph.join(';'),
     '-map', '[v]',
     ...(r.hasAudio ? ['-map', '[a]', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : ['-an']),

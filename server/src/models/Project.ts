@@ -14,6 +14,7 @@ export const EDITING_STYLES = [
   'product_promotion',
 ] as const;
 export const INTENSITIES = ['low', 'medium', 'high'] as const;
+export const BROLL_INTENSITIES = ['none', 'low', 'medium', 'high'] as const;
 export const RESOLUTIONS = ['720p', '1080p', '4k'] as const;
 export const CAPTION_POSITIONS = ['top', 'middle', 'bottom'] as const;
 export const CAPTION_SIZES = ['small', 'medium', 'large', 'xl'] as const;
@@ -30,7 +31,7 @@ const settingsSchema = new Schema(
     captionLanguage: { type: String, default: 'same', maxlength: 10 },
     highlightColor: { type: String, default: '#A78BFA', match: /^#[0-9a-fA-F]{6}$/ },
     musicMood: { type: String, default: 'auto', maxlength: 40 },
-    bRollIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
+    bRollIntensity: { type: String, enum: BROLL_INTENSITIES, default: 'medium' },
     editingIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
     /** Spoken language of the audio (drives transcription). */
     language: { type: String, default: 'en', maxlength: 10 },
@@ -68,6 +69,13 @@ const projectSchema = new Schema(
       captionsAdded: { type: Boolean, default: false },
       fillerWordsRemoved: { type: Number, default: 0 },
       framing: { type: String, default: null },
+      brollCount: { type: Number, default: 0 },
+      broll: {
+        type: [{ _id: false, start: Number, end: Number, query: String, provider: String, pageUrl: String, author: String }],
+        default: [],
+      },
+      aiKeywords: { type: Boolean, default: false },
+      captionsTranslatedTo: { type: String, default: null },
       warnings: { type: [String], default: [] },
     },
     deletedAt: { type: Date, default: null },
