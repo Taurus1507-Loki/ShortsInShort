@@ -2,6 +2,10 @@ import type { Word } from '../ai/transcription.js';
 
 export type CaptionStyle = 'bold_pop' | 'clean_minimal' | 'karaoke' | 'boxed' | 'cinematic';
 export type CaptionPosition = 'top' | 'middle' | 'bottom';
+export type CaptionSize = 'small' | 'medium' | 'large' | 'xl';
+
+/** Font-size multipliers for the user's caption size choice. */
+export const CAPTION_SIZE_SCALE: Record<CaptionSize, number> = { small: 0.8, medium: 1, large: 1.2, xl: 1.4 };
 
 export interface CaptionLine {
   words: Word[];
@@ -116,6 +120,7 @@ export interface BuildAssInput {
   width: number;
   height: number;
   language: string;
+  size?: CaptionSize;
   platform?: NodeJS.Platform;
 }
 
@@ -124,12 +129,17 @@ export function buildAss(input: BuildAssInput): { ass: string; lines: CaptionLin
   const spec = STYLE_SPECS[input.style];
   const landscape = input.width > input.height;
   const short = Math.min(input.width, input.height);
-  const fontSize = Math.round(short * spec.size);
+  const scale = CAPTION_SIZE_SCALE[input.size ?? 'medium'];
+  const fontSize = Math.round(short * spec.size * scale);
   const outline = input.style === 'boxed' ? Math.round(fontSize * 0.28) : Math.max(2, Math.round(fontSize * (input.style === 'clean_minimal' ? 0.05 : 0.09)));
   const font = fontFor(input.language, spec.weight, input.platform);
   const latin = !INDIC.has(input.language);
 
-  const lines = groupWords(input.words, { maxWords: spec.maxWords, maxChars: Math.round(spec.maxChars * (landscape ? 1.6 : 1)) });
+  // Bigger text fits fewer characters per line (and vice versa).
+  const lines = groupWords(input.words, {
+    maxWords: spec.maxWords,
+    maxChars: Math.max(8, Math.round((spec.maxChars * (landscape ? 1.6 : 1)) / scale)),
+  });
   if (spec.highlight) lines.forEach((l) => (l.keywords = pickKeyword(l)));
 
   const alignment = input.position === 'top' ? 8 : input.position === 'middle' ? 5 : 2;

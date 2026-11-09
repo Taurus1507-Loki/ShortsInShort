@@ -138,6 +138,54 @@ describe('render pipeline', () => {
     return res.body.data;
   }
 
+  it('shows the whole picture over a blurred background when framing is "blur" (and auto picks it for landscape → vertical)', async () => {
+    const { auth, user } = await registerUser({ verify: true });
+    await setBalance(user.defaultWorkspaceId, 10);
+    // 16:9 source with yellow bars on its far left/right edges: a vertical crop cuts them off,
+    // a fit-over-blur keeps the whole picture, so the bars stay visible.
+    const dir = await mkdtemp(path.join(tmpdir(), 'sis-edges-'));
+    const src = path.join(dir, 'edges.mp4');
+    await runFfmpeg([
+      '-f', 'lavfi', '-i', 'color=c=black:s=640x360:r=25:d=3,drawbox=x=0:y=0:w=48:h=360:color=yellow:t=fill,drawbox=x=592:y=0:w=48:h=360:color=yellow:t=fill',
+      '-f', 'lavfi', '-i', 'sine=frequency=300:sample_rate=48000:duration=3',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', src,
+    ]);
+    const body = await readFile(src);
+    const { assetId } = await upload(auth, body, 'edges.mp4');
+    await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
+
+    const render = async (framing: string) => {
+      const res = await request(app)
+        .post('/api/projects')
+        .set(auth)
+        .send({ title: `Framing ${framing}`, mode: 'editor', aspectRatio: '9:16', sourceAssetId: assetId, settings: { resolution: '720p', framing, captionsEnabled: false } })
+        .expect(201);
+      await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(202);
+      await worker.runOnce();
+      return (await request(app).get(`/api/projects/${res.body.data.id}`).set(auth).expect(200)).body.data;
+    };
+    /** Fraction of yellow pixels along the frame's middle row. */
+    const yellowInMiddleRow = async (assetId2: string) => {
+      const a = await Asset.findById(assetId2);
+      const d = await mkdtemp(path.join(tmpdir(), 'sis-row-'));
+      const file = path.join(d, 'row.rgb');
+      await runFfmpeg(['-ss', '1', '-i', localStorage.resolve(a!.storageKey), '-frames:v', '1', '-vf', 'crop=iw:2:0:ih/2,format=rgb24', '-f', 'rawvideo', file]);
+      const px = await readFile(file);
+      let yellow = 0;
+      for (let i = 0; i < px.length; i += 3) if (px[i]! > 180 && px[i + 1]! > 180 && px[i + 2]! < 90) yellow++;
+      return yellow / (px.length / 3);
+    };
+
+    const auto = await render('auto');
+    expect(auto.renderStats.framing).toBe('blur'); // 16:9 into 9:16
+    expect(auto.outputAsset).toMatchObject({ width: 720, height: 1280 });
+    const crop = await render('crop');
+    expect(crop.renderStats.framing).toBe('crop');
+
+    expect(await yellowInMiddleRow(crop.outputAsset.id)).toBe(0); // edges cropped away
+    expect(await yellowInMiddleRow(auto.outputAsset.id)).toBeGreaterThan(0.08); // whole picture kept
+  }, 180_000);
+
   it('estimates, charges credits, renders a real 9:16 video with silence removed, and serves it', async () => {
     const { auth } = await registerUser({ verify: true });
     const project = await projectWithVideo(auth);
@@ -293,7 +341,7 @@ describe('captions (with a stand-in transcription provider)', () => {
     const res = await request(app)
       .post('/api/projects')
       .set(auth)
-      .send({ title: 'Caps', mode: 'editor', aspectRatio: '9:16', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: false, captionStyle: 'boxed' } })
+      .send({ title: 'Caps', mode: 'editor', aspectRatio: '9:16', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: false, captionStyle: 'boxed', framing: 'crop' } })
       .expect(201);
 
     const plain = await renderProject(auth, res.body.data.id);

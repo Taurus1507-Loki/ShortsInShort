@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { assColor, assTime, buildAss, escapeAssText, fontFor, groupWords, pickKeyword } from '../services/video/captions.js';
 import { fillerIntervals, mergeIntervals, remapWords } from '../services/video/transcriptMap.js';
 import { isFillerToken, parseDeepgramResponse } from '../services/ai/transcription.js';
-import { buildRenderArgs, filterPath } from '../services/video/render.js';
+import { buildRenderArgs, filterPath, resolveFraming } from '../services/video/render.js';
 import type { Word } from '../services/ai/transcription.js';
 
 const w = (text: string, start: number, end: number, filler = false): Word => ({ text, start, end, filler });
@@ -97,6 +97,45 @@ describe('caption layout', () => {
     expect(ass).toContain('Noto Sans Devanagari');
     expect(ass).toContain('{\\kf70}नमस्ते {\\kf70}दोस्तों');
     expect(fontFor('te', 'black', 'linux').family).toBe('Noto Sans Telugu');
+  });
+});
+
+describe('caption size', () => {
+  it('scales the font and fits fewer characters per line when larger', () => {
+    const words = [w('Consistency', 0, 0.5), w('beats', 0.5, 0.9), w('talent', 0.9, 1.5)];
+    const base = { words, style: 'clean_minimal' as const, position: 'bottom' as const, highlightColor: '#FFFFFF', width: 1080, height: 1920, language: 'en', platform: 'win32' as const };
+    const sizeOf = (ass: string) => Number(/Style: Main,[^,]+,(\d+),/.exec(ass)![1]);
+    const medium = buildAss({ ...base, size: 'medium' });
+    const xl = buildAss({ ...base, size: 'xl' });
+    const small = buildAss({ ...base, size: 'small' });
+    expect(sizeOf(medium.ass)).toBe(Math.round(1080 * 0.052));
+    expect(sizeOf(xl.ass)).toBe(Math.round(1080 * 0.052 * 1.4));
+    expect(sizeOf(small.ass)).toBeLessThan(sizeOf(medium.ass));
+    expect(buildAss(base).ass).toBe(medium.ass); // medium is the default
+  });
+});
+
+describe('video framing', () => {
+  it('auto picks a blurred background only when the shapes differ a lot', () => {
+    expect(resolveFraming('auto', { width: 1920, height: 1080 }, '9:16')).toBe('blur'); // landscape → vertical
+    expect(resolveFraming('auto', { width: 1080, height: 1920 }, '9:16')).toBe('crop'); // vertical → vertical
+    expect(resolveFraming('auto', { width: 1080, height: 1350 }, '9:16')).toBe('crop'); // 4:5 → 9:16, small trim
+    expect(resolveFraming('auto', { width: 1920, height: 1080 }, '1:1')).toBe('blur');
+    expect(resolveFraming('crop', { width: 1920, height: 1080 }, '9:16')).toBe('crop'); // explicit choice wins
+    expect(resolveFraming('blur', { width: 1080, height: 1920 }, '9:16')).toBe('blur');
+  });
+
+  it('builds a fit-over-blurred-copy graph, with captions on top', () => {
+    const args = buildRenderArgs({
+      input: 'in.mp4', output: 'out.mp4', sourceDurationSec: 5, hasAudio: false, aspect: '9:16', resolution: '1080p',
+      segments: [{ start: 0, end: 5 }], framing: 'blur', captions: { assPath: 'C:/w/c.ass', fontsDir: 'C:/Fonts' },
+    });
+    const graph = args[args.indexOf('-filter_complex') + 1]!;
+    expect(graph).toContain('split=2[bgsrc][fgsrc]');
+    expect(graph).toContain('boxblur');
+    expect(graph).toContain('force_original_aspect_ratio=decrease');
+    expect(graph).toMatch(/overlay=\(W-w\)\/2:\(H-h\)\/2,setsar=1,ass=/);
+    expect(graph).not.toContain('crop=1080:1920'); // the foreground is never cropped
   });
 });
 

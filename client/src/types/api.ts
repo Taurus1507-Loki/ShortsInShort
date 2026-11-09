@@ -92,6 +92,7 @@ export interface RenderStats {
   creditsCharged: number | null;
   captionsAdded?: boolean;
   fillerWordsRemoved?: number;
+  framing?: 'crop' | 'blur' | null;
   warnings: string[];
 }
 
@@ -113,11 +114,16 @@ export interface ProjectSettings {
   captionsEnabled: boolean;
   captionStyle: 'bold_pop' | 'clean_minimal' | 'karaoke' | 'boxed' | 'cinematic';
   captionPosition: 'top' | 'middle' | 'bottom';
+  captionSize: 'small' | 'medium' | 'large' | 'xl';
+  /** 'same' = captions in the spoken language. */
+  captionLanguage: 'same' | 'en' | 'hi' | 'te' | 'ta' | 'mr';
   highlightColor: string;
   musicMood: 'auto' | 'none' | 'upbeat' | 'calm' | 'cinematic' | 'corporate' | 'lofi';
   bRollIntensity: Intensity;
   editingIntensity: Intensity;
+  /** Spoken language of the audio. */
   language: 'en' | 'hi' | 'te' | 'ta' | 'mr';
+  framing: 'auto' | 'crop' | 'blur';
   targetDurationSec: number;
   resolution: '720p' | '1080p' | '4k';
 }

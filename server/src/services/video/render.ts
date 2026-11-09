@@ -25,6 +25,23 @@ export interface RenderInput {
   fps?: number;
   /** ASS subtitle file to burn in (already timed to the edited timeline). */
   captions?: { assPath: string; fontsDir: string };
+  /** crop = fill the frame (edges cut); blur = whole video over a blurred copy. Default crop. */
+  framing?: 'crop' | 'blur';
+}
+
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+
+/**
+ * Resolves the user's framing choice for a given source. "auto" keeps the crop when the shapes are
+ * close (little is lost) and switches to a blurred background when they differ a lot, e.g. landscape
+ * footage into a vertical Reel, where cropping would cut off most of the picture.
+ */
+export function resolveFraming(setting: 'auto' | 'crop' | 'blur', source: { width: number; height: number }, aspect: AspectRatio): 'crop' | 'blur' {
+  if (setting !== 'auto') return setting;
+  const [aw, ah] = aspect.split(':').map(Number) as [number, number];
+  const ratio = source.width / source.height / (aw / ah);
+  // > 1.5× different (e.g. 16:9 → 9:16 is 3.2×) loses too much picture to crop; 4:5 → 9:16 (1.4×) crops fine.
+  return Math.max(ratio, 1 / ratio) > 1.5 ? 'blur' : 'crop';
 }
 
 /**
@@ -49,17 +66,29 @@ export function buildRenderArgs(r: RenderInput): string[] {
   const cutting = !(r.segments.length === 1 && r.segments[0]!.start <= 0.001 && r.segments[0]!.end >= r.sourceDurationSec - 0.001);
   const sel = selectExpr(r.segments);
 
-  const v = [
-    `fps=${fps}`,
-    ...(cutting ? [`select='${sel}'`, 'setpts=N/FRAME_RATE/TB'] : []),
-    `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos`,
-    `crop=${width}:${height}`,
+  const pre = [`fps=${fps}`, ...(cutting ? [`select='${sel}'`, 'setpts=N/FRAME_RATE/TB'] : [])].join(',');
+  // Captions are burned in after reframing so they are laid out for the final frame size.
+  const post = [
     'setsar=1',
-    // Captions are burned in after reframing so they are laid out for the final frame size.
     ...(r.captions ? [`ass=filename=${filterPath(r.captions.assPath)}:fontsdir=${filterPath(r.captions.fontsDir)}`] : []),
     'format=yuv420p',
   ].join(',');
-  const graph = [`[0:v:0]${v}[v]`];
+
+  const graph: string[] = [];
+  if ((r.framing ?? 'crop') === 'blur') {
+    // Whole video, centred, over a blurred + darkened copy of itself. The background is blurred at
+    // quarter size and scaled back up — visually identical to a full-size blur, ~16× cheaper.
+    const bw = even(width / 4);
+    const bh = even(height / 4);
+    graph.push(
+      `[0:v:0]${pre},split=2[bgsrc][fgsrc]`,
+      `[bgsrc]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},boxblur=luma_radius=12:luma_power=2,eq=brightness=-0.08:saturation=1.1,scale=${width}:${height}[bg]`,
+      `[fgsrc]scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos[fg]`,
+      `[bg][fg]overlay=(W-w)/2:(H-h)/2,${post}[v]`,
+    );
+  } else {
+    graph.push(`[0:v:0]${pre},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},${post}[v]`);
+  }
   if (r.hasAudio) {
     const a = [
       ...(cutting ? [`aselect='${sel}'`, 'asetpts=N/SR/TB'] : []),

@@ -16,17 +16,25 @@ export const EDITING_STYLES = [
 export const INTENSITIES = ['low', 'medium', 'high'] as const;
 export const RESOLUTIONS = ['720p', '1080p', '4k'] as const;
 export const CAPTION_POSITIONS = ['top', 'middle', 'bottom'] as const;
+export const CAPTION_SIZES = ['small', 'medium', 'large', 'xl'] as const;
+/** How the source fills a different-shaped frame: auto chooses per video. */
+export const FRAMINGS = ['auto', 'crop', 'blur'] as const;
 
 const settingsSchema = new Schema(
   {
     captionsEnabled: { type: Boolean, default: true },
     captionStyle: { type: String, default: 'bold_pop', maxlength: 40 },
     captionPosition: { type: String, enum: CAPTION_POSITIONS, default: 'bottom' },
+    captionSize: { type: String, enum: CAPTION_SIZES, default: 'medium' },
+    /** 'same' = captions in the spoken language; another code = translated captions. */
+    captionLanguage: { type: String, default: 'same', maxlength: 10 },
     highlightColor: { type: String, default: '#A78BFA', match: /^#[0-9a-fA-F]{6}$/ },
     musicMood: { type: String, default: 'auto', maxlength: 40 },
     bRollIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
     editingIntensity: { type: String, enum: INTENSITIES, default: 'medium' },
+    /** Spoken language of the audio (drives transcription). */
     language: { type: String, default: 'en', maxlength: 10 },
+    framing: { type: String, enum: FRAMINGS, default: 'auto' },
     targetDurationSec: { type: Number, min: 5, max: 3600, default: 60 },
     resolution: { type: String, enum: RESOLUTIONS, default: '1080p' },
   },
@@ -59,6 +67,7 @@ const projectSchema = new Schema(
       creditsCharged: { type: Number, default: null },
       captionsAdded: { type: Boolean, default: false },
       fillerWordsRemoved: { type: Number, default: 0 },
+      framing: { type: String, default: null },
       warnings: { type: [String], default: [] },
     },
     deletedAt: { type: Date, default: null },

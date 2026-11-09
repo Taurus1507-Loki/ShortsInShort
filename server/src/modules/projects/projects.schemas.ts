@@ -3,6 +3,8 @@ import { Types } from 'mongoose';
 import {
   ASPECT_RATIOS,
   CAPTION_POSITIONS,
+  CAPTION_SIZES,
+  FRAMINGS,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -17,11 +19,14 @@ const settingsSchema = z
     captionsEnabled: z.boolean(),
     captionStyle: z.enum(['bold_pop', 'clean_minimal', 'karaoke', 'boxed', 'cinematic']),
     captionPosition: z.enum(CAPTION_POSITIONS),
+    captionSize: z.enum(CAPTION_SIZES),
+    captionLanguage: z.enum(['same', ...SUPPORTED_LANGUAGES]),
     highlightColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour like #A78BFA'),
     musicMood: z.enum(['auto', 'none', 'upbeat', 'calm', 'cinematic', 'corporate', 'lofi']),
     bRollIntensity: z.enum(INTENSITIES),
     editingIntensity: z.enum(INTENSITIES),
     language: z.enum(SUPPORTED_LANGUAGES),
+    framing: z.enum(FRAMINGS),
     targetDurationSec: z.number().int().min(5).max(3600),
     resolution: z.enum(RESOLUTIONS),
   })

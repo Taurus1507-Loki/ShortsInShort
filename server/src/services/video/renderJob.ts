@@ -13,17 +13,24 @@ import { PermanentJobError } from '../queue/queue.js';
 import { registerHandler, type JobContext } from '../queue/worker.js';
 import { FfmpegError, probe } from './ffmpeg.js';
 import { computeKeepSegments, detectSilences, SILENCE_PRESETS, totalDuration, type Intensity } from './silence.js';
-import { extractSpeechAudio, extractThumbnail, outputSize, renderVideo, type AspectRatio, type Resolution } from './render.js';
+import { extractSpeechAudio, extractThumbnail, outputSize, renderVideo, resolveFraming, type AspectRatio, type Resolution } from './render.js';
 import { env } from '../../config/env.js';
 import { Transcript } from '../../models/Transcript.js';
 import { getTranscriptionProvider, TranscriptionError, type Word } from '../ai/transcription.js';
 import { fillerIntervals, mergeIntervals, remapWords } from './transcriptMap.js';
-import { buildAss, type CaptionPosition, type CaptionStyle } from './captions.js';
+import { buildAss, type CaptionPosition, type CaptionSize, type CaptionStyle } from './captions.js';
 import type { AssetDoc } from '../../models/Asset.js';
 
 export interface RenderPayload {
   projectId: string;
   credits: number;
+}
+
+/** Translated captions need a translation provider (Phase 2.3); say so instead of pretending. */
+function captionLanguageWarning(settings: { language?: string; captionLanguage?: string }, captionsAdded: boolean): string[] {
+  const target = settings.captionLanguage ?? 'same';
+  if (!captionsAdded || target === 'same' || target === (settings.language ?? 'en')) return [];
+  return ['Captions are shown in the spoken language: caption translation is not enabled on this server yet.'];
 }
 
 /** Honest notes about requested features that were not applied to this render. */
@@ -130,6 +137,7 @@ async function run({ job, signal, progress }: JobContext) {
           style: (settings.captionStyle ?? 'bold_pop') as CaptionStyle,
           position: (settings.captionPosition ?? 'bottom') as CaptionPosition,
           highlightColor: settings.highlightColor ?? '#A78BFA',
+          size: (settings.captionSize ?? 'medium') as CaptionSize,
           width: size.width,
           height: size.height,
           language,
@@ -144,10 +152,11 @@ async function run({ job, signal, progress }: JobContext) {
     await progress(15, 'rendering');
     const aspect = project.aspectRatio as AspectRatio;
     const resolution = (project.settings?.resolution ?? '1080p') as Resolution;
+    const framing = resolveFraming((settings.framing ?? 'auto') as 'auto' | 'crop' | 'blur', info.video, aspect);
     const outFile = path.join(workDir, 'output.mp4');
     let lastReported = 15;
     await renderVideo(
-      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions },
+      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing },
       {
         signal,
         timeoutMs: Math.max(5 * 60_000, keptSec * 20_000),
@@ -219,12 +228,16 @@ async function run({ job, signal, progress }: JobContext) {
       creditsCharged: (job.payload as RenderPayload).credits,
       captionsAdded: Boolean(captions),
       fillerWordsRemoved,
-      warnings: pendingFeatureWarnings(settings, {
+      framing,
+      warnings: [
+        ...captionLanguageWarning(settings, Boolean(captions)),
+        ...pendingFeatureWarnings(settings, {
         added: Boolean(captions),
         error: transcript.error,
         providerConfigured,
         hasAudio: Boolean(info.audio),
-      }),
+        }),
+      ],
     };
     await Project.updateOne(
       { _id: project._id },

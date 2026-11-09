@@ -243,6 +243,7 @@ function RenderResult({ project }: { project: Project }) {
               { icon: Scissors, label: 'Pauses removed', value: `${s.silenceRemovedSec ?? 0}s · ${s.cuts ?? 0} cuts` },
               ...(s.fillerWordsRemoved ? [{ icon: Scissors, label: 'Filler words cut', value: String(s.fillerWordsRemoved) }] : []),
               ...(s.captionsAdded ? [{ icon: Captions, label: 'Captions', value: 'Added' }] : []),
+              ...(s.framing ? [{ icon: Timer, label: 'Background', value: s.framing === 'blur' ? 'Blurred fill' : 'Fill frame' }] : []),
             ].map((x) => (
               <div key={x.label} className="rounded-lg bg-muted/50 p-3">
                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">

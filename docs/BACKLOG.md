@@ -1,12 +1,12 @@
 # Backlog — user feedback
 
 ## Requested 2026-11-09
-- [ ] **Background image improvement.** Confirm which background: website/app (hero, login,
-      dashboard) or the video (landscape → vertical reframing — e.g. blurred fill instead of crop).
-- [ ] **Editable caption text size** (small / medium / large / extra large), with a preview.
-- [ ] **Separate language settings:**
+- [x] **Video background (framing)** — done 2026-11-09: Auto / Fill frame (crop) / Blurred background.
+      Auto shows the whole video over a blurred copy when shapes differ a lot (e.g. landscape → vertical).
+- [x] **Editable caption text size** (small / medium / large / extra large) — done. A live preview in the editor is still to do.
+- [x] **Separate language settings** — done (caption translation needs an AI key; shown as coming soon):
   - *Spoken language (audio)* — what language is spoken in the video; used for transcription.
   - *Caption language* — what language the captions are shown in; defaults to the spoken language.
     A different caption language means translation (needs an AI translation key).
-- [ ] **Explain every setting:** helper text under each option saying what it changes in the final
-      video, and whether it is active now or saved for an upcoming release.
+- [x] **Explain every setting** — done: each option has helper text and a status label
+      (Applied / Needs transcription key / Coming soon).
