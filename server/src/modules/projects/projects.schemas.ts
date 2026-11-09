@@ -6,6 +6,7 @@ import {
   CAPTION_POSITIONS,
   CAPTION_SIZES,
   FRAMINGS,
+  ZOOM_INTENSITIES,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -28,6 +29,8 @@ const settingsSchema = z
     editingIntensity: z.enum(INTENSITIES),
     language: z.enum(SUPPORTED_LANGUAGES),
     framing: z.enum(FRAMINGS),
+    zoomIntensity: z.enum(ZOOM_INTENSITIES),
+    useBrandKit: z.boolean(),
     targetDurationSec: z.number().int().min(5).max(3600),
     resolution: z.enum(RESOLUTIONS),
   })

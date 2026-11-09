@@ -72,6 +72,8 @@ const schema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-3.5-flash'),
   PIXABAY_API_KEY: z.string().optional(),
+  /** Folder with licensed music + music.json manifest (see services/ai/music.ts). */
+  MUSIC_LIBRARY_DIR: z.string().optional(),
   /** Directory of TTF/OTF fonts for burned-in captions (defaults to the OS font folder). */
   CAPTION_FONTS_DIR: z.string().optional(),
 });
@@ -169,6 +171,9 @@ export const env = {
     deepgram: e.DEEPGRAM_API_KEY ? { apiKey: e.DEEPGRAM_API_KEY, model: e.DEEPGRAM_MODEL } : null,
     gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL } : null,
     pixabay: e.PIXABAY_API_KEY ? { apiKey: e.PIXABAY_API_KEY } : null,
+  },
+  music: {
+    libraryDir: e.MUSIC_LIBRARY_DIR ? path.resolve(e.MUSIC_LIBRARY_DIR) : null,
   },
   captions: {
     fontsDir: path.resolve(e.CAPTION_FONTS_DIR ?? (process.platform === 'win32' ? 'C:/Windows/Fonts' : '/usr/share/fonts')),

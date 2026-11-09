@@ -20,6 +20,7 @@ export const CAPTION_POSITIONS = ['top', 'middle', 'bottom'] as const;
 export const CAPTION_SIZES = ['small', 'medium', 'large', 'xl'] as const;
 /** How the source fills a different-shaped frame: auto chooses per video. */
 export const FRAMINGS = ['auto', 'crop', 'blur'] as const;
+export const ZOOM_INTENSITIES = ['off', 'subtle', 'dynamic'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -36,6 +37,9 @@ const settingsSchema = new Schema(
     /** Spoken language of the audio (drives transcription). */
     language: { type: String, default: 'en', maxlength: 10 },
     framing: { type: String, enum: FRAMINGS, default: 'auto' },
+    zoomIntensity: { type: String, enum: ZOOM_INTENSITIES, default: 'subtle' },
+    /** Overlay the workspace Brand Kit logo on renders. */
+    useBrandKit: { type: Boolean, default: true },
     targetDurationSec: { type: Number, min: 5, max: 3600, default: 60 },
     resolution: { type: String, enum: RESOLUTIONS, default: '1080p' },
   },
@@ -76,6 +80,10 @@ const projectSchema = new Schema(
       },
       aiKeywords: { type: Boolean, default: false },
       captionsTranslatedTo: { type: String, default: null },
+      zoomCount: { type: Number, default: 0 },
+      logoApplied: { type: Boolean, default: false },
+      watermark: { type: Boolean, default: false },
+      music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
     },
     deletedAt: { type: Date, default: null },

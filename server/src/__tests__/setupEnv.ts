@@ -19,3 +19,5 @@ process.env.STORAGE_DRIVER = 'local';
 process.env.STORAGE_LOCAL_DIR = mkdtempSync(path.join(tmpdir(), 'sis-test-storage-'));
 process.env.WORKER_MODE = 'off';
 process.env.MAX_UPLOAD_MB = '50';
+// Empty licensed-music folder; tests that need music write a manifest into it.
+process.env.MUSIC_LIBRARY_DIR = mkdtempSync(path.join(tmpdir(), 'sis-test-music-'));

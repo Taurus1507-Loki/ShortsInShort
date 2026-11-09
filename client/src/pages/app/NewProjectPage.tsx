@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,7 +12,7 @@ import { Card, Field, Notice } from '@/components/ui/primitives';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { MODES, modeName, styleName, LANGUAGES } from '@/config/options';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { queryClient, useMeta } from '@/lib/queries';
+import { queryClient, useBrandKit, useMeta } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import type { Asset, Project, ProjectMode, ProjectSettings } from '@/types/api';
 
@@ -37,6 +37,18 @@ export default function NewProjectPage() {
   const [topic, setTopic] = useState('');
   const [titleError, setTitleError] = useState<string>();
   const [custom, setCustom] = useState<CustomizeValue>({ style: 'viral', aspectRatio: '9:16', settings: DEFAULT_SETTINGS });
+  // Apply Brand Kit caption defaults once, when the kit says so (the user can still change them).
+  const { data: brandKit } = useBrandKit();
+  const [brandApplied, setBrandApplied] = useState(false);
+  useEffect(() => {
+    if (brandApplied || !brandKit) return;
+    setBrandApplied(true);
+    if (!brandKit.applyToNewProjects) return;
+    setCustom((c) => ({
+      ...c,
+      settings: { ...c.settings, captionStyle: brandKit.captionStyle, captionPosition: brandKit.captionPosition, captionSize: brandKit.captionSize, highlightColor: brandKit.highlightColor },
+    }));
+  }, [brandKit, brandApplied]);
 
   // Default the export resolution to what the plan allows (Free = 720p) so generation isn't blocked.
   const [resTouched, setResTouched] = useState(false);

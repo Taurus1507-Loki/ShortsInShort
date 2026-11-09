@@ -1,6 +1,6 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
-import type { Asset, DashboardSummary, Estimate, Job, Meta, Paginated, Project, SessionInfo } from '@/types/api';
+import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, Paginated, Project, SessionInfo } from '@/types/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +23,7 @@ export const keys = {
   assetUrl: (id: string, download: boolean) => ['asset-url', id, download] as const,
   estimate: (id: string) => ['estimate', id] as const,
   job: (id: string) => ['job', id] as const,
+  brandKit: ['brand-kit'] as const,
 };
 
 export const useMeta = () =>
@@ -87,3 +88,6 @@ export const useAssetUrl = (id: string | null | undefined, download = false) =>
 
 export const useAssets = (page: number) =>
   useQuery({ queryKey: keys.assets(page), queryFn: () => api<Paginated<Asset>>(`/assets?page=${page}`), placeholderData: (p) => p });
+
+export const useBrandKit = () =>
+  useQuery({ queryKey: keys.brandKit, queryFn: () => api<{ data: BrandKit }>('/brand-kit').then((r) => r.data) });

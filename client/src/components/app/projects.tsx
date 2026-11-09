@@ -82,6 +82,8 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   editingIntensity: 'medium',
   language: 'en',
   framing: 'auto',
+  zoomIntensity: 'subtle',
+  useBrandKit: true,
   targetDurationSec: 60,
   resolution: '1080p',
 };
@@ -162,6 +164,12 @@ const BROLL: { id: ProjectSettings['bRollIntensity']; label: string }[] = [
   { id: 'high', label: 'High' },
 ];
 
+const ZOOMS: { id: ProjectSettings['zoomIntensity']; label: string; sub: string }[] = [
+  { id: 'off', label: 'Off', sub: 'No zooms' },
+  { id: 'subtle', label: 'Subtle', sub: 'Gentle punch-ins' },
+  { id: 'dynamic', label: 'Dynamic', sub: 'Frequent, stronger' },
+];
+
 const FRAMING: { id: ProjectSettings['framing']; label: string; sub: string }[] = [
   { id: 'auto', label: 'Auto', sub: 'Recommended' },
   { id: 'crop', label: 'Fill frame', sub: 'Crops the edges' },
@@ -184,6 +192,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
   const captionStatus: SettingStatus = captionsLive ? 'applied' : 'needs_key';
   const brollLive = Boolean(meta?.features.broll);
   const translationLive = Boolean(meta?.features.translation);
+  const musicLive = Boolean(meta?.features.music);
   const spokenName = LANGUAGES.find((l) => l.id === s.language)?.name ?? s.language;
 
   return (
@@ -268,7 +277,23 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
           >
             <Choice name="B-roll" value={s.bRollIntensity} onChange={(v) => set('bRollIntensity', v)} options={BROLL} />
           </Setting>
-          <Setting label="Background music" htmlFor="music" status="soon" help="Music mood under your voice (auto-lowered while you speak). Saved now; needs a licensed music library.">
+          <Setting
+            label="Zoom punch-ins"
+            status="applied"
+            help="Quick zoom-ins on the speaker at emphasised moments (lines with a highlighted keyword), a staple of short-form editing. Never during B-roll. Subtle ≈ every 3rd line, Dynamic ≈ every 2nd line and stronger."
+          >
+            <Choice name="Zoom punch-ins" value={s.zoomIntensity} onChange={(v) => set('zoomIntensity', v)} options={ZOOMS} />
+          </Setting>
+          <Setting
+            label="Background music"
+            htmlFor="music"
+            status={musicLive ? 'applied' : 'soon'}
+            help={
+              musicLive
+                ? 'Music mood under your voice. It dips automatically while you speak and fades out at the end. “Match the style” picks a mood from your editing style. Only licensed tracks from your library are used.'
+                : 'Music mood under your voice (dips while you speak). Saved now; the server has no licensed music library configured yet, so no music is added.'
+            }
+          >
             <Select id="music" value={s.musicMood} onChange={(e) => set('musicMood', e.target.value as ProjectSettings['musicMood'])}>
               {MUSIC_MOODS.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -278,6 +303,21 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
             </Select>
           </Setting>
         </div>
+      </section>
+
+      {/* ── Branding ── */}
+      <section className="grid gap-6">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Branding</h3>
+        <Setting
+          label="Brand Kit logo"
+          status="applied"
+          help="Adds your Brand Kit logo in its corner for the whole video. Set up the logo, corner, size and opacity on the Brand Kit page. Free plan exports also carry a small “Made with ShortsInShort” mark."
+        >
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={s.useBrandKit} onChange={(e) => set('useBrandKit', e.target.checked)} className="h-4 w-4 accent-[hsl(var(--primary))]" />
+            Show my logo on this video
+          </label>
+        </Setting>
       </section>
 
       {/* ── Language ── */}

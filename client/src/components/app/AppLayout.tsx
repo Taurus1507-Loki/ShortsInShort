@@ -55,7 +55,7 @@ const NAV: { section?: string; items: NavItem[] }[] = [
     items: [
       { to: '/app/projects', label: 'My Projects', icon: FolderKanban },
       { to: '/app/templates', label: 'Templates', icon: LayoutTemplate, soon: true },
-      { to: '/app/brand-kit', label: 'Brand Kit', icon: Palette, soon: true },
+      { to: '/app/brand-kit', label: 'Brand Kit', icon: Palette },
       { to: '/app/media', label: 'Media Library', icon: Image },
     ],
   },

@@ -225,3 +225,31 @@ export function buildAss(input: BuildAssInput): { ass: string; lines: CaptionLin
 
   return { ass: [...header, ...events, ''].join('\n'), lines };
 }
+
+/**
+ * Free-plan watermark as a tiny ASS file: "Made with ShortsInShort", top-right, semi-transparent,
+ * for the whole video. Burned in last so it sits above captions and B-roll.
+ */
+export function buildWatermarkAss(input: { width: number; height: number; durationSec: number; platform?: NodeJS.Platform }): string {
+  const short = Math.min(input.width, input.height);
+  const font = fontFor('en', 'semibold', input.platform);
+  const size = Math.round(short * 0.03);
+  const margin = Math.round(short * 0.035);
+  return [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${input.width}`,
+    `PlayResY: ${input.height}`,
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    // White at ~60% opacity with a soft dark outline; alignment 9 = top-right.
+    `Style: Mark,${font.family},${size},${assColor('#FFFFFF', 0x66)},${assColor('#FFFFFF', 0x66)},${assColor('#000000', 0x99)},${assColor('#000000', 0xff)},${font.bold ? -1 : 0},0,0,0,100,100,0,0,1,${Math.max(1, Math.round(size * 0.08))},0,9,${margin},${margin},${margin},1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    `Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Mark,,0,0,0,,Made with ShortsInShort`,
+    '',
+  ].join(String.fromCharCode(10));
+}

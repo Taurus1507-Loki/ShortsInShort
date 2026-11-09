@@ -25,6 +25,7 @@ const ProjectsPage = lazy(() => import('@/pages/app/ProjectsPage'));
 const ProjectDetailPage = lazy(() => import('@/pages/app/ProjectDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/app/SettingsPage'));
 const MediaLibraryPage = lazy(() => import('@/pages/app/MediaLibraryPage'));
+const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
   {
@@ -53,13 +54,6 @@ const SOON: { path: string; title: string; phase: number; description: string; b
     phase: 4,
     description: 'Browse, preview and favourite proven video templates for every niche.',
     bullets: ['Search & category filters', 'Video previews', 'Favourites', 'One-click “Use template”'],
-  },
-  {
-    path: 'brand-kit',
-    title: 'Brand Kit',
-    phase: 2,
-    description: 'Save your logo, colours, fonts and caption styles so every video is on-brand automatically.',
-    bullets: ['Logo & watermark', 'Brand colours & fonts', 'Intro / outro clips', 'Saved editing presets'],
   },
 ];
 
@@ -101,6 +95,7 @@ export default function App() {
               <Route path="projects/:id" element={<ProjectDetailPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="media" element={<MediaLibraryPage />} />
+              <Route path="brand-kit" element={<BrandKitPage />} />
               <Route path="editor" element={<Navigate to="/app/new?mode=editor" replace />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="help" element={<HelpPage />} />

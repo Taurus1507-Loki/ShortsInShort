@@ -5,6 +5,7 @@ import { dbState } from '../../config/db.js';
 import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
 import { getStockProvider } from '../../services/ai/stock.js';
+import { loadLibrary } from '../../services/ai/music.js';
 
 export const metaRouter = Router();
 
@@ -26,7 +27,10 @@ metaRouter.get('/meta', (_req, res) => {
         aiKeywords: Boolean(getLLMProvider()) && Boolean(getTranscriptionProvider()),
         translation: Boolean(getLLMProvider()) && Boolean(getTranscriptionProvider()),
         broll: Boolean(getLLMProvider()) && Boolean(getStockProvider()) && Boolean(getTranscriptionProvider()),
-        music: false,
+        // True only when a licensed library with at least one valid track is configured.
+        music: loadLibrary().length > 0,
+        zooms: true,
+        brandKit: true,
         avatarStudio: false,
         facelessCreator: false,
         payments: false,

@@ -41,7 +41,7 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
   uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
 }
 
@@ -97,6 +97,10 @@ export interface RenderStats {
   broll?: Array<{ start: number; end: number; query: string; provider: string; pageUrl: string; author: string }>;
   aiKeywords?: boolean;
   captionsTranslatedTo?: string | null;
+  zoomCount?: number;
+  logoApplied?: boolean;
+  watermark?: boolean;
+  music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
 
@@ -128,6 +132,9 @@ export interface ProjectSettings {
   /** Spoken language of the audio. */
   language: 'en' | 'hi' | 'te' | 'ta' | 'mr';
   framing: 'auto' | 'crop' | 'blur';
+  zoomIntensity: 'off' | 'subtle' | 'dynamic';
+  /** Overlay the Brand Kit logo on renders. */
+  useBrandKit: boolean;
   targetDurationSec: number;
   resolution: '720p' | '1080p' | '4k';
 }
@@ -175,4 +182,20 @@ export interface SessionInfo {
   createdAt: string;
   lastUsedAt: string;
   current: boolean;
+}
+
+export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export interface BrandKit {
+  logo: Asset | null;
+  logoPosition: LogoPosition;
+  logoSize: 'small' | 'medium' | 'large';
+  logoOpacity: number;
+  primaryColor: string;
+  secondaryColor: string;
+  captionStyle: ProjectSettings['captionStyle'];
+  captionPosition: ProjectSettings['captionPosition'];
+  captionSize: ProjectSettings['captionSize'];
+  highlightColor: string;
+  applyToNewProjects: boolean;
+  updatedAt: string;
 }

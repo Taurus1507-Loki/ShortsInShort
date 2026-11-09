@@ -22,6 +22,13 @@ import { buildAss, layoutLines, STYLE_SPECS, type CaptionLine, type CaptionPosit
 import { getLLMProvider, LLMError, type LLMProvider } from '../ai/llm.js';
 import { getStockProvider, rankClips, relevance, type StockClip, type StockVideoProvider } from '../ai/stock.js';
 import { aiKeywords, planBroll, toSentences, translateLines } from '../ai/creative.js';
+import { loadLibrary, pickTrack } from '../ai/music.js';
+import { planZooms, type ZoomIntensity } from './zooms.js';
+import { buildWatermarkAss } from './captions.js';
+import { BrandKit, LOGO_WIDTH } from '../../models/BrandKit.js';
+import { Workspace } from '../../models/Workspace.js';
+import { PLANS, type PlanId } from '../../config/plans.js';
+import type { LogoPosition } from './render.js';
 import type { AssetDoc } from '../../models/Asset.js';
 
 export interface RenderPayload {
@@ -40,7 +47,7 @@ function captionLanguageWarning(settings: { language?: string; captionLanguage?:
 /** Honest notes about requested features that were not applied to this render. */
 function pendingFeatureWarnings(
   settings: { captionsEnabled?: boolean; musicMood?: string; bRollIntensity?: string },
-  captions: { added: boolean; error: string | null; providerConfigured: boolean; hasAudio: boolean },
+  captions: { added: boolean; error: string | null; providerConfigured: boolean; hasAudio: boolean; musicAdded: boolean },
 ) {
   const w: string[] = [];
   if (settings.captionsEnabled && !captions.added) {
@@ -49,7 +56,7 @@ function pendingFeatureWarnings(
     else if (captions.error) w.push(`Captions were not added: ${captions.error}`);
     else w.push('Captions were not added: no speech was detected.');
   }
-  if (settings.musicMood && settings.musicMood !== 'none') w.push('Background music was not added: no licensed music library is configured yet.');
+  if (settings.musicMood && settings.musicMood !== 'none' && !captions.musicAdded) w.push('Background music was not added: no licensed music library is configured yet.');
   return w;
 }
 
@@ -182,6 +189,7 @@ async function run({ job, signal, progress }: JobContext) {
     const llm = getLLMProvider();
     const notes: string[] = [];
     let captions: { assPath: string; fontsDir: string } | undefined;
+    let captionLines: CaptionLine[] | undefined;
     let aiKeywordsUsed = false;
     let translatedTo: string | null = null;
     if (settings.captionsEnabled && editedWords.length) {
@@ -205,6 +213,7 @@ async function run({ job, signal, progress }: JobContext) {
           if (target) notes.push(`Captions were not translated: ${err instanceof LLMError ? err.message : 'the AI request failed.'} They are shown in the spoken language.`);
         }
       }
+      captionLines = lines;
       const { ass } = buildAss({
         words: editedWords,
         lines,
@@ -240,7 +249,40 @@ async function run({ job, signal, progress }: JobContext) {
       }
     }
 
-    // 5. Render (cut + reframe + captions + loudness) — the long step, 15% → 88%
+    // 4b. Zoom punch-ins (on emphasised lines; never during B-roll)
+    const zoomIntensity = (settings.zoomIntensity ?? 'subtle') as ZoomIntensity;
+    const zoomLines =
+      captionLines ??
+      (editedWords.length ? layoutLines({ words: editedWords, style: 'bold_pop', width: size.width, height: size.height }) : undefined);
+    const zooms = planZooms({ intensity: zoomIntensity, durationSec: keptSec, lines: zoomLines, avoid: broll });
+
+    // 4c. Brand Kit logo, Free-plan watermark, licensed music
+    const wsDoc = await Workspace.findById(job.workspaceId).select('plan').lean();
+    const plan = PLANS[(wsDoc?.plan ?? 'free') as PlanId];
+    let watermark: { assPath: string; fontsDir: string } | undefined;
+    if (plan.watermark) {
+      const wmPath = path.join(workDir, 'watermark.ass');
+      await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec }), 'utf8');
+      watermark = { assPath: wmPath, fontsDir: env.captions.fontsDir };
+    }
+    let logo: { path: string; position: LogoPosition; widthFrac: number; opacity: number } | undefined;
+    if (settings.useBrandKit !== false) {
+      const kit = await BrandKit.findOne({ workspaceId: job.workspaceId }).lean();
+      const logoAsset = kit?.logoAssetId ? await Asset.findOne({ _id: kit.logoAssetId, workspaceId: job.workspaceId, deletedAt: null, status: 'ready' }) : null;
+      if (kit && logoAsset) {
+        logo = {
+          path: await storage.getProcessingInput(logoAsset.storageKey),
+          position: kit.logoPosition as LogoPosition,
+          widthFrac: LOGO_WIDTH[kit.logoSize as keyof typeof LOGO_WIDTH] ?? 0.18,
+          opacity: kit.logoOpacity,
+        };
+      }
+    }
+    const track = settings.musicMood && settings.musicMood !== 'none' ? pickTrack(loadLibrary(), settings.musicMood, project.style, project._id.toString()) : null;
+    // ~0.25 sits a mastered track roughly 8 dB under normalised speech; ducking dips it further while talking.
+    const music = track ? { path: track.path, volume: 0.25, duck: true } : undefined;
+
+    // 5. Render (cut + reframe + zooms + B-roll + logo + captions + watermark + audio) — 15% → 88%
     await progress(15, 'rendering');
     const aspect = project.aspectRatio as AspectRatio;
     const resolution = (project.settings?.resolution ?? '1080p') as Resolution;
@@ -248,7 +290,7 @@ async function run({ job, signal, progress }: JobContext) {
     const outFile = path.join(workDir, 'output.mp4');
     let lastReported = 15;
     await renderVideo(
-      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing, broll },
+      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing, broll, zooms, logo, watermark, music },
       {
         signal,
         timeoutMs: Math.max(5 * 60_000, keptSec * 20_000),
@@ -325,6 +367,10 @@ async function run({ job, signal, progress }: JobContext) {
       broll: broll.map(({ path: _p, ...b }) => b),
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
+      zoomCount: zooms.length,
+      logoApplied: Boolean(logo),
+      watermark: Boolean(watermark),
+      music: track ? { title: track.title, artist: track.artist, license: track.license } : null,
       warnings: [
         ...(translatedTo ? [] : captionLanguageWarning(settings, Boolean(captions), Boolean(llm))),
         ...notes,
@@ -333,6 +379,7 @@ async function run({ job, signal, progress }: JobContext) {
         error: transcript.error,
         providerConfigured,
         hasAudio: Boolean(info.audio),
+        musicAdded: Boolean(track),
         }),
       ],
     };

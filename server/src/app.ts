@@ -15,6 +15,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { metaRouter } from './modules/meta/meta.routes.js';
 import { assetsRouter } from './modules/assets/assets.routes.js';
 import { storageRouter } from './modules/storage/storage.routes.js';
+import { brandKitRouter } from './modules/brandkit/brandkit.routes.js';
 
 export function createApp() {
   const app = express();
@@ -67,6 +68,7 @@ export function createApp() {
   app.use('/api/projects', projectsRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/assets', assetsRouter);
+  app.use('/api/brand-kit', brandKitRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

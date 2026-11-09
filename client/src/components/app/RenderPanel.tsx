@@ -251,6 +251,10 @@ function RenderResult({ project }: { project: Project }) {
               ...(s.captionsAdded ? [{ icon: Captions, label: 'Captions', value: 'Added' }] : []),
               ...(s.framing ? [{ icon: Timer, label: 'Background', value: s.framing === 'blur' ? 'Blurred fill' : 'Fill frame' }] : []),
               ...(s.brollCount ? [{ icon: Film, label: 'B-roll clips', value: String(s.brollCount) }] : []),
+              ...(s.zoomCount ? [{ icon: Film, label: 'Zoom punch-ins', value: String(s.zoomCount) }] : []),
+              ...(s.music ? [{ icon: Film, label: 'Music', value: s.music.title }] : []),
+              ...(s.logoApplied ? [{ icon: Film, label: 'Brand logo', value: 'Added' }] : []),
+              ...(s.watermark ? [{ icon: Film, label: 'Watermark', value: 'Free plan' }] : []),
               ...(s.captionsTranslatedTo ? [{ icon: Captions, label: 'Captions', value: `Translated (${s.captionsTranslatedTo.toUpperCase()})` }] : s.aiKeywords ? [{ icon: Captions, label: 'Keywords', value: 'Picked by AI' }] : []),
             ].map((x) => (
               <div key={x.label} className="rounded-lg bg-muted/50 p-3">
@@ -277,6 +281,11 @@ function RenderResult({ project }: { project: Project }) {
               </li>
             ))}
           </ul>
+        )}
+        {s?.music && (
+          <p className="text-xs text-muted-foreground">
+            Music: “{s.music.title}” by {s.music.artist} · {s.music.license}
+          </p>
         )}
         {s?.broll && s.broll.length > 0 && (
           <div className="text-xs text-muted-foreground">

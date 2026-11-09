@@ -8,7 +8,7 @@ before it is.
 | **2.1 Core edit** | Uploads, storage, job queue + worker, silence/pause removal, aspect-ratio reframing, loudness normalisation, H.264 render, thumbnail, credit charging with refunds, Media Library | ✅ Implemented, tested (unit + integration with real FFmpeg) and verified in the browser |
 | **2.2 Transcription & captions** | Provider interface + Deepgram adapter, transcript cache, filler-word removal, captions re-timed through cuts, 5 styles (bold pop, karaoke, boxed, clean, cinematic), rule-based keyword highlights, Indic-script captions, burn-in | ✅ Verified live with Deepgram (nova-3) on English speech: accurate transcript, captions in sync, keyword highlights. Deepgram accepts `hi`/`te`/`ta`/`mr`, but accuracy in those languages and filler-word detection still need testing with real recordings. |
 | **2.3 AI analysis & B-roll** | Gemini adapter (structured JSON), AI keyword highlights, caption translation (EN/HI/TE/TA/MR), B-roll planning + Pixabay search with tag-relevance filtering, B-roll overlays under captions, attribution | ✅ Verified live (Gemini 3.5 Flash + Pixabay) on an English test clip; translation verified with a stand-in provider and in tests |
-| 2.4 Music & polish | Licensed music bed with ducking, zooms on key moments, Brand Kit (logo/colours/fonts, watermark for Free) | Needs a licensed music library |
+| **2.4 Music & polish** | Zoom punch-ins (Off/Subtle/Dynamic), Free-plan watermark, Brand Kit (logo corner/size/opacity, colours, default caption look applied to new projects), music engine (mood pick, ducking under speech, fade-out) | ✅ Built and verified in real renders. **Music needs your licensed library** (`MUSIC_LIBRARY_DIR` + `music.json`); until then renders say no music was added. Custom fonts and intro/outro clips not yet built. |
 | 2.5 Editor & infra | Caption editing, scene tweaks, Redis/BullMQ queue driver, R2 verification | Needs Redis + R2 credentials |
 
 ## How a render works (2.1)
@@ -94,3 +94,17 @@ npm --prefix server run worker   # (production) run workers as separate processe
   20/12/7 s (low/medium/high), and never in the first 2 s or last 1 s. Clips are full-frame hard cuts with
   the speaker's audio continuing; captions stay on top. Source page + author recorded per clip.
 - Tests use stand-in providers and blank all real keys (no paid calls from the test suite).
+
+## Step 2.4 — zooms, watermark, Brand Kit, music
+
+- **Zoom punch-ins:** 1.08× (Subtle, ~every 3rd caption line) or 1.15× (Dynamic, ~every 2nd), landing on
+  lines with a highlighted keyword; never during B-roll; ≤2.5 s; steady rhythm when there's no transcript.
+- **Watermark:** Free plan only — "Made with ShortsInShort", top-right, ~60% opacity, above everything.
+- **Brand Kit:** one per workspace. Logo (PNG/JPG/WEBP ≤5 MB, real-type checked) in a chosen corner, size and
+  opacity; brand colours; default caption style/position/size/highlight applied to new projects when enabled.
+  Per-project "Show my logo" toggle.
+- **Music:** reads `MUSIC_LIBRARY_DIR/music.json`; uses only tracks that exist and declare a license. Mood comes
+  from the setting ("Match the style" maps editing style → mood), stable per project. Music sits ~8 dB under
+  speech and is ducked a further ~13 dB while someone talks (measured in tests: −21 dB in pauses vs −35 dB
+  under speech), then fades out at the end.
+- Render layer order: reframe → zoom → B-roll → logo → captions → watermark; audio: speech + ducked music → −14 LUFS.
