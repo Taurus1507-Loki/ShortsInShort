@@ -77,7 +77,7 @@ resolution (720p|1080p|4k)`.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/estimate` | `{credits, balance, sourceDurationSec, resolution, resolutionAllowed, planMaxResolution}` |
-| POST | `/generate` | 202 `{job, credits}`. 402 `INSUFFICIENT_CREDITS`, 403 `PLAN_LIMIT`, 409 `PROJECT_BUSY`, 501 for avatar/faceless |
+| POST | `/generate` | 202 `{job, credits}`. 402 `INSUFFICIENT_CREDITS`, 403 `PLAN_LIMIT`, 409 `PROJECT_BUSY`, 501 for faceless. Avatar projects: 400 `NO_NARRATION` / `NO_BACKGROUND`, 409 `NARRATION_OUTDATED` / `VOICE_WITHDRAWN`; estimate adds `narrationOutdated` |
 | GET | `/job` | Latest job `{status, stage, progress, attempts, error}` for polling |
 
 Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, `outputAsset`,
@@ -119,4 +119,14 @@ Recordings are uploaded with `POST /assets/uploads` and `purpose: voice_sample |
 | POST | `/lookup` | `{token, purpose: confirm|withdraw}` → who asked, statement, status |
 | POST | `/confirm` | `{token}` — single use, 7-day expiry (410 `TOKEN_EXPIRED`); starts cloning |
 | POST | `/withdraw` | `{token}` — idempotent; deletes clone and recordings |
+
+## AI writing — `/ai` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/script` | `{topic, language?, durationSec? (15–180), style?, notes?}` → `{title, hook, script}`. 503 `NOT_CONFIGURED` without `GEMINI_API_KEY`, 502 `PROVIDER_ERROR`, 429 after 30/hour |
+
+Avatar projects accept `settings.background` (`brand|color|image|video`), `settings.backgroundColor`,
+`settings.disclosure` and top-level `backgroundAssetId` (a `background_image` upload — `purpose: background` —
+or a ready `source_video`); they return `backgroundAsset`.
 

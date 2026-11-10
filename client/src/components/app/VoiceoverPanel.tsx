@@ -104,7 +104,7 @@ export function VoiceoverPanel({
           <Mic className="h-5 w-5 text-primary" /> AI voiceover
         </CardTitle>
         <CardDescription className="mt-1.5">
-          Turns your script into natural speech with word-level timing (used for captions when the full avatar video arrives). The talking-presenter video itself needs an avatar provider — coming in step 3.4.
+          Turns your script into natural speech with word-level timing, which the video below uses for perfectly timed captions. The talking presenter itself needs an avatar provider — coming in step 3.4.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">

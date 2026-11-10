@@ -54,3 +54,7 @@ export const resetPasswordLimiter = limiter(15 * MIN, 10);
 export const sensitiveActionLimiter = limiter(15 * MIN, 10, { byUser: true });
 export const refreshLimiter = limiter(MIN, 30);
 export const apiLimiter = limiter(MIN, 300);
+/** AI script writing (paid LLM calls). */
+export const aiWriteLimiter = limiter(60 * MIN, 30, { byUser: true });
+/** Public consent links (confirm / withdraw / lookup). */
+export const consentLimiter = limiter(15 * MIN, 30);

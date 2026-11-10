@@ -6,7 +6,7 @@ import { pinoHttp } from 'pino-http';
 import { randomUUID } from 'node:crypto';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
-import { apiLimiter, originCheck } from './middleware/security.js';
+import { apiLimiter, consentLimiter, originCheck } from './middleware/security.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
@@ -17,6 +17,7 @@ import { assetsRouter } from './modules/assets/assets.routes.js';
 import { storageRouter } from './modules/storage/storage.routes.js';
 import { brandKitRouter } from './modules/brandkit/brandkit.routes.js';
 import { consentRouter, voicesRouter } from './modules/voices/voices.routes.js';
+import { aiRouter } from './modules/ai/ai.routes.js';
 
 export function createApp() {
   const app = express();
@@ -71,7 +72,8 @@ export function createApp() {
   app.use('/api/assets', assetsRouter);
   app.use('/api/brand-kit', brandKitRouter);
   app.use('/api/voices', voicesRouter);
-  app.use('/api/consent', consentRouter);
+  app.use('/api/consent', consentLimiter, consentRouter);
+  app.use('/api/ai', aiRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

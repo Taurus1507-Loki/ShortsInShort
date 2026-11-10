@@ -31,6 +31,9 @@ import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
 import type { LogoPosition } from './render.js';
 import type { AssetDoc } from '../../models/Asset.js';
+import type { ProjectDoc } from '../../models/Project.js';
+import { CustomVoice } from '../../models/CustomVoice.js';
+import { renderBackground, type BackgroundKind } from './background.js';
 
 export interface RenderPayload {
   projectId: string;
@@ -140,13 +143,52 @@ async function loadTranscript(
   }
 }
 
+/**
+ * Avatar Studio (voiceover video): renders the base clip — the chosen background at the final size
+ * with the voiceover as audio — and returns it with the voiceover's word timings, so the rest of the
+ * pipeline (captions, B-roll, zooms, logo, music) treats it like an edited source.
+ */
+async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal: AbortSignal) {
+  if (!project.narrationAssetId) throw new PermanentJobError('Generate the voiceover first.');
+  const narration = await Asset.findOne({ _id: project.narrationAssetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready' });
+  if (!narration) throw new PermanentJobError('The voiceover is missing. Generate it again.');
+  const withWords = await Project.findById(project._id).select('+narrationWords').lean();
+  const settings = project.settings ?? {};
+  const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
+  const kind = (settings.background ?? 'brand') as BackgroundKind;
+  let mediaPath: string | undefined;
+  if (kind === 'image' || kind === 'video') {
+    const bg = project.backgroundAssetId
+      ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready', kind: kind === 'image' ? 'background_image' : 'source_video' })
+      : null;
+    if (!bg) throw new PermanentJobError(`The background ${kind} is missing. Choose it again.`);
+    mediaPath = await storage.getProcessingInput(bg.storageKey);
+  }
+  const kit = kind === 'brand' ? await BrandKit.findOne({ workspaceId: project.workspaceId }).lean() : null;
+  const colors: [string, string] =
+    kind === 'brand' ? [kit?.primaryColor ?? '#7C3AED', kit?.secondaryColor ?? '#0F172A'] : [settings.backgroundColor ?? '#1E1B4B', settings.backgroundColor ?? '#1E1B4B'];
+  const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
+  if (!(durationSec > 0)) throw new PermanentJobError('The voiceover has no length. Generate it again.');
+  const input = path.join(workDir, 'base.mp4');
+  await renderBackground(
+    { kind, width: size.width, height: size.height, durationSec, audioPath: await storage.getProcessingInput(narration.storageKey), output: input, colors, mediaPath },
+    { signal },
+  );
+  const words = ((withWords?.narrationWords ?? []) as Array<{ text: string; start: number; end: number }>).map((w) => ({ text: w.text, start: w.start, end: w.end }));
+  return { input, words: words as Word[] };
+}
+
 async function run({ job, signal, progress }: JobContext) {
   const { projectId } = job.payload as RenderPayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
-  if (!project.sourceAssetId) throw new PermanentJobError('The project has no source video.');
-  const source = await Asset.findOne({ _id: project.sourceAssetId, workspaceId: job.workspaceId, deletedAt: null, status: 'ready' });
-  if (!source) throw new PermanentJobError('The source video is missing or was deleted.');
+  const avatar = project.mode === 'avatar';
+  let source: AssetDoc | null = null;
+  if (!avatar) {
+    if (!project.sourceAssetId) throw new PermanentJobError('The project has no source video.');
+    source = await Asset.findOne({ _id: project.sourceAssetId, workspaceId: job.workspaceId, deletedAt: null, status: 'ready' });
+    if (!source) throw new PermanentJobError('The source video is missing or was deleted.');
+  }
 
   await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
   const workDir = await mkdtemp(path.join(tmpdir(), `sis-${job._id.toString()}-`));
@@ -154,8 +196,16 @@ async function run({ job, signal, progress }: JobContext) {
 
   try {
     // 1. Analyse
-    await progress(3, 'analyzing');
-    const input = await storage.getProcessingInput(source.storageKey);
+    await progress(3, avatar ? 'preparing_background' : 'analyzing');
+    let input: string;
+    let narrationWords: Word[] | null = null;
+    if (avatar) {
+      const base = await prepareVoiceoverBase(project, workDir, signal);
+      input = base.input;
+      narrationWords = base.words;
+    } else {
+      input = await storage.getProcessingInput(source!.storageKey);
+    }
     const info = await probe(input, { signal });
     if (!info.video) throw new PermanentJobError('The source file has no video track.');
     const duration = info.durationSec;
@@ -164,17 +214,20 @@ async function run({ job, signal, progress }: JobContext) {
     const settings = project.settings ?? {};
     const intensity = (settings.editingIntensity ?? 'medium') as Intensity;
     const language = settings.language ?? 'en';
-    const providerConfigured = Boolean(getTranscriptionProvider());
-    let transcript: { words: Word[] | null; error: string | null } = { words: null, error: null };
-    if (info.audio && providerConfigured && (settings.captionsEnabled || intensity !== 'low')) {
+    // Voiceover videos already have exact word timings from the voice provider: no transcription.
+    const providerConfigured = avatar || Boolean(getTranscriptionProvider());
+    let transcript: { words: Word[] | null; error: string | null } = avatar
+      ? { words: narrationWords?.length ? narrationWords : null, error: narrationWords?.length ? null : 'the voice provider returned no word timings for this voiceover.' }
+      : { words: null, error: null };
+    if (!avatar && info.audio && providerConfigured && (settings.captionsEnabled || intensity !== 'low')) {
       await progress(6, 'transcribing');
-      transcript = await loadTranscript(source, input, language, workDir, signal);
+      transcript = await loadTranscript(source!, input, language, workDir, signal);
     }
 
     // 3. Silence, pause & filler-word removal
     let segments = [{ start: 0, end: duration }];
     let fillerWordsRemoved = 0;
-    if (info.audio) {
+    if (info.audio && !avatar) {
       await progress(12, 'removing_silence');
       const silences = await detectSilences(input, duration, intensity, { signal, timeoutMs: Math.max(120_000, duration * 4000) });
       const fillers = transcript.words && intensity !== 'low' ? fillerIntervals(transcript.words) : [];
@@ -192,7 +245,10 @@ async function run({ job, signal, progress }: JobContext) {
     let captions: { assPath: string; fontsDir: string } | undefined;
     let captionLines: CaptionLine[] | undefined;
     // The cut the captions are timed against; edits are only valid for the same cut.
-    const timelineKey = createHash('sha1').update(JSON.stringify(segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)]))).digest('hex').slice(0, 16);
+    const timelineKey = createHash('sha1')
+      .update(JSON.stringify(segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)])) + (avatar ? `|${project.narrationAssetId?.toString()}` : ''))
+      .digest('hex')
+      .slice(0, 16);
     let captionsFromEdits = false;
     let clearOverrides = false;
     let aiKeywordsUsed = false;
@@ -278,12 +334,6 @@ async function run({ job, signal, progress }: JobContext) {
     // 4c. Brand Kit logo, Free-plan watermark, licensed music
     const wsDoc = await Workspace.findById(job.workspaceId).select('plan').lean();
     const plan = PLANS[(wsDoc?.plan ?? 'free') as PlanId];
-    let watermark: { assPath: string; fontsDir: string } | undefined;
-    if (plan.watermark) {
-      const wmPath = path.join(workDir, 'watermark.ass');
-      await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec }), 'utf8');
-      watermark = { assPath: wmPath, fontsDir: env.captions.fontsDir };
-    }
     let logo: { path: string; position: LogoPosition; widthFrac: number; opacity: number } | undefined;
     if (settings.useBrandKit !== false) {
       const kit = await BrandKit.findOne({ workspaceId: job.workspaceId }).lean();
@@ -296,6 +346,19 @@ async function run({ job, signal, progress }: JobContext) {
           opacity: kit.logoOpacity,
         };
       }
+    }
+    // Overlay layer: Free-plan watermark and, for voiceover videos, an "AI-generated voice" label
+    // (always shown when a cloned voice was used).
+    const clonedVoice = avatar && project.narrationStats?.voiceId ? await CustomVoice.exists({ workspaceId: job.workspaceId, providerVoiceId: project.narrationStats.voiceId }) : null;
+    const disclosure =
+      avatar && (settings.disclosure !== false || clonedVoice)
+        ? { text: 'AI-generated voice', corner: (logo?.position === 'top-left' ? 'bottom-left' : 'top-left') as 'top-left' | 'bottom-left' }
+        : null;
+    let watermark: { assPath: string; fontsDir: string } | undefined;
+    if (plan.watermark || disclosure) {
+      const wmPath = path.join(workDir, 'watermark.ass');
+      await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec, watermark: plan.watermark, disclosure }), 'utf8');
+      watermark = { assPath: wmPath, fontsDir: env.captions.fontsDir };
     }
     const track = settings.musicMood && settings.musicMood !== 'none' ? pickTrack(loadLibrary(), settings.musicMood, project.style, project._id.toString()) : null;
     // ~0.25 sits a mastered track roughly 8 dB under normalised speech; ducking dips it further while talking.
@@ -389,7 +452,9 @@ async function run({ job, signal, progress }: JobContext) {
       captionsFromEdits,
       zoomCount: zooms.length,
       logoApplied: Boolean(logo),
-      watermark: Boolean(watermark),
+      watermark: plan.watermark,
+      disclosure: Boolean(disclosure),
+      background: avatar ? (settings.background ?? 'brand') : null,
       music: track ? { title: track.title, artist: track.artist, license: track.license } : null,
       warnings: [
         ...(translatedTo ? [] : captionLanguageWarning(settings, Boolean(captions), Boolean(llm))),

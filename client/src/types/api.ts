@@ -41,13 +41,13 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'scriptWriting' | 'stockBroll' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
   uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
 }
 
 export interface Asset {
   id: string;
-  kind: 'source_video' | 'render' | 'thumbnail' | 'brand_logo' | 'narration_audio' | 'voice_sample' | 'consent_recording';
+  kind: 'source_video' | 'render' | 'thumbnail' | 'brand_logo' | 'narration_audio' | 'voice_sample' | 'consent_recording' | 'background_image';
   status: 'pending' | 'ready' | 'failed';
   originalName: string;
   mimeType: string;
@@ -82,6 +82,8 @@ export interface Estimate {
   resolution: string;
   resolutionAllowed: boolean;
   planMaxResolution: string;
+  /** Avatar projects: the script/voice changed since the voiceover was made. */
+  narrationOutdated?: boolean;
 }
 
 export interface RenderStats {
@@ -101,6 +103,8 @@ export interface RenderStats {
   zoomCount?: number;
   logoApplied?: boolean;
   watermark?: boolean;
+  disclosure?: boolean;
+  background?: string | null;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -142,6 +146,10 @@ export interface ProjectSettings {
   voiceId: string;
   /** 0.7–1.2, 1 = normal speed. */
   speakingRate: number;
+  background: 'brand' | 'color' | 'image' | 'video';
+  backgroundColor: string;
+  /** "AI-generated voice" label (always on for cloned voices). */
+  disclosure: boolean;
 }
 
 export interface VoiceInfo {
@@ -205,6 +213,8 @@ export interface Project {
   narrationAssetId?: string | null;
   narrationStats?: NarrationStats | null;
   narrationAsset?: Asset | null;
+  backgroundAssetId?: string | null;
+  backgroundAsset?: Asset | null;
   createdAt: string;
   updatedAt: string;
 }

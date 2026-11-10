@@ -41,7 +41,8 @@ export const AUDIO_TYPES: Record<string, string[]> = {
 const ALLOWED_AUDIO = new Set(Object.values(AUDIO_TYPES).flat());
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export const MAX_AUDIO_SEC = 5 * 60;
-export type UploadPurpose = 'video' | 'logo' | 'voice_sample' | 'consent';
+export type UploadPurpose = 'video' | 'logo' | 'background' | 'voice_sample' | 'consent';
+export const MAX_BACKGROUND_BYTES = 15 * 1024 * 1024;
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
 export function extensionOf(filename: string): string {
@@ -88,14 +89,16 @@ export async function initiateUpload(input: {
   purpose?: UploadPurpose;
 }) {
   const ext = extensionOf(input.filename);
-  const logo = input.purpose === 'logo';
+  const background = input.purpose === 'background';
+  const logo = input.purpose === 'logo' || background;
   const audio = input.purpose === 'voice_sample' || input.purpose === 'consent';
   if (audio) {
     if (!AUDIO_TYPES[ext] || !/^(audio|video)\//.test(input.contentType)) throw badRequest('Upload an MP3, WAV, M4A, WEBM or OGG recording.', 'UNSUPPORTED_TYPE');
     if (input.sizeBytes > MAX_AUDIO_BYTES) throw new AppError(413, 'TOO_LARGE', 'Recordings can be up to 25 MB.');
   } else if (logo) {
     if (!IMAGE_TYPES[ext] || !input.contentType.startsWith('image/')) throw badRequest('Upload a PNG, JPG or WEBP image.', 'UNSUPPORTED_TYPE');
-    if (input.sizeBytes > MAX_LOGO_BYTES) throw new AppError(413, 'TOO_LARGE', 'Logos can be up to 5 MB.');
+    const max = background ? MAX_BACKGROUND_BYTES : MAX_LOGO_BYTES;
+    if (input.sizeBytes > max) throw new AppError(413, 'TOO_LARGE', background ? 'Background images can be up to 15 MB.' : 'Logos can be up to 5 MB.');
   } else {
     if (!VIDEO_TYPES[ext]) throw badRequest('Upload an MP4, MOV, WEBM or MKV video.', 'UNSUPPORTED_TYPE');
     if (!input.contentType.startsWith('video/')) throw badRequest('Upload a video file.', 'UNSUPPORTED_TYPE');
@@ -113,7 +116,7 @@ export async function initiateUpload(input: {
     _id: id,
     workspaceId: input.workspaceId,
     createdBy: input.userId,
-    kind: logo ? 'brand_logo' : input.purpose === 'voice_sample' ? 'voice_sample' : input.purpose === 'consent' ? 'consent_recording' : 'source_video',
+    kind: background ? 'background_image' : logo ? 'brand_logo' : input.purpose === 'voice_sample' ? 'voice_sample' : input.purpose === 'consent' ? 'consent_recording' : 'source_video',
     status: 'pending',
     storageKey,
     originalName: input.filename.slice(0, 255),
@@ -122,7 +125,7 @@ export async function initiateUpload(input: {
   });
   // Short-lived: the URL only needs to outlive one upload. (On S3/R2 a presigned PUT can't be made
   // write-once, so the short window plus the render job's own ffprobe re-check is the mitigation.)
-  const upload = await storage.createUploadTarget(storageKey, input.contentType, logo ? MAX_LOGO_BYTES : audio ? MAX_AUDIO_BYTES : env.uploads.maxBytes, UPLOAD_URL_TTL_SEC);
+  const upload = await storage.createUploadTarget(storageKey, input.contentType, background ? MAX_BACKGROUND_BYTES : logo ? MAX_LOGO_BYTES : audio ? MAX_AUDIO_BYTES : env.uploads.maxBytes, UPLOAD_URL_TTL_SEC);
   return { asset, upload };
 }
 
@@ -151,7 +154,7 @@ export async function completeUpload(workspaceId: Types.ObjectId, assetId: strin
 
   const head = await storage.readHead(asset.storageKey, 4100);
   const detected = await fileTypeFromBuffer(head);
-  if (asset.kind === 'brand_logo') return completeLogo(asset, workspaceId, s.size, detected?.mime);
+  if (asset.kind === 'brand_logo' || asset.kind === 'background_image') return completeLogo(asset, workspaceId, s.size, detected?.mime);
   if (asset.kind === 'voice_sample' || asset.kind === 'consent_recording') return completeAudio(asset, workspaceId, s.size, detected?.mime);
   if (!detected || !ALLOWED_DETECTED.has(detected.mime)) {
     return failUpload(asset, 'That file isn’t a supported video (MP4, MOV, WEBM or MKV).');
@@ -256,7 +259,8 @@ async function measureAudioSec(input: string): Promise<number> {
 
 /** Logo validation: real image type, decodable, sensible dimensions. */
 async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: number, mime: string | undefined): Promise<AssetDoc> {
-  if (size > MAX_LOGO_BYTES) return failUpload(asset, 'Logos can be up to 5 MB.');
+  const bg = asset.kind === 'background_image';
+  if (size > (bg ? MAX_BACKGROUND_BYTES : MAX_LOGO_BYTES)) return failUpload(asset, bg ? 'Background images can be up to 15 MB.' : 'Logos can be up to 5 MB.');
   if (!mime || !ALLOWED_IMAGES.has(mime)) return failUpload(asset, 'That file isn’t a PNG, JPG or WEBP image.');
   let info;
   try {
@@ -266,7 +270,9 @@ async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: 
   }
   const w = info.video?.width ?? 0;
   const h = info.video?.height ?? 0;
-  if (w < 32 || h < 32 || w > 6000 || h > 6000) return failUpload(asset, 'Logos must be between 32 and 6000 pixels on each side.');
+  if (bg ? w < 320 || h < 320 || w > 8000 || h > 8000 : w < 32 || h < 32 || w > 6000 || h > 6000) {
+    return failUpload(asset, bg ? 'Background images must be between 320 and 8000 pixels on each side.' : 'Logos must be between 32 and 6000 pixels on each side.');
+  }
   await reserveStorage(workspaceId, size);
   asset.set({ status: 'ready', sizeBytes: size, countedBytes: size, mimeType: mime, width: w, height: h });
   await asset.save();
@@ -304,7 +310,7 @@ export async function deleteAsset(workspaceId: Types.ObjectId, assetId: string) 
     workspaceId,
     deletedAt: null,
     status: { $in: ['queued', 'processing'] },
-    $or: [{ sourceAssetId: asset._id }],
+    $or: [{ sourceAssetId: asset._id }, { backgroundAssetId: asset._id }, { narrationAssetId: asset._id }],
   });
   if (busy) throw conflict('This video is being processed. Try again when it finishes.', 'ASSET_BUSY');
   await purgeAsset(asset);
@@ -321,6 +327,7 @@ export async function purgeAsset(asset: AssetDoc) {
   await Project.updateMany({ workspaceId, sourceAssetId: asset._id }, { $set: { sourceAssetId: null } });
   await Project.updateMany({ workspaceId, outputAssetId: asset._id }, { $set: { outputAssetId: null } });
   await Project.updateMany({ workspaceId, narrationAssetId: asset._id }, { $set: { narrationAssetId: null } });
+  await Project.updateMany({ workspaceId, backgroundAssetId: asset._id }, { $set: { backgroundAssetId: null } });
 
   if (asset.thumbnailAssetId) {
     const thumb = await Asset.findOne({ _id: asset.thumbnailAssetId, workspaceId, deletedAt: null });

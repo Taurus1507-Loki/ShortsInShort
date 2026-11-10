@@ -34,6 +34,9 @@ metaRouter.get('/meta', (_req, res) => {
         brandKit: true,
         // Avatar Studio voiceovers (step 3.1): live when a text-to-speech key is configured.
         voices: Boolean(getTtsProvider()),
+        scriptWriting: Boolean(getLLMProvider()),
+        // B-roll for voiceover videos (no transcription needed: the voice provider gives word timings).
+        stockBroll: Boolean(getLLMProvider()) && Boolean(getStockProvider()),
         // Talking-avatar video needs an avatar provider (step 3.4).
         avatarStudio: false,
         facelessCreator: false,

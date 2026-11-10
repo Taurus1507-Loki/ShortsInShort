@@ -19,7 +19,7 @@ Each step is usable on its own and nothing is shown as working before it is.
 |---|---|---|
 | **3.1 Voices** ✅ built | ElevenLabs adapter (voice list, previews, TTS with word timings), Voice Library page, "Narrate a script" → narration audio, TTS credit pricing | `ELEVENLABS_API_KEY` |
 | **3.2 Consent & custom voices** ✅ built | `consentrecords` collection: who, whose likeness/voice, recorded consent statement (audio/video), attestations, IP/user-agent/time, revocation. Instant voice clone only after a valid consent record; revoking deletes the clone at the provider. Audit log entries. | ElevenLabs key |
-| **3.3 Avatar Studio projects** | Wizard: script (write / AI-assist with Gemini), choose voice, choose avatar, background, format. Pipeline: TTS → avatar render (provider) → Phase 2 finishing (captions from TTS word timings — no transcription cost, Brand Kit logo, watermark, music). "AI-generated" disclosure label on every avatar video. Without an avatar provider: narration-only export (voice + captions over a background/brand card) so the step is still useful. | ElevenLabs key; avatar provider for presenter video |
+| **3.3 Avatar Studio projects** ✅ built (voiceover video) | Wizard: script (write / AI-assist with Gemini), choose voice, choose avatar, background, format. Pipeline: TTS → avatar render (provider) → Phase 2 finishing (captions from TTS word timings — no transcription cost, Brand Kit logo, watermark, music). "AI-generated" disclosure label on every avatar video. Without an avatar provider: narration-only export (voice + captions over a background/brand card) so the step is still useful. | ElevenLabs key; avatar provider for presenter video |
 | **3.4 Avatar provider** | Adapter for the chosen provider: stock avatar list, render job submit + poll/webhook, download into our storage, cost tracking, failures → refund. Custom avatars from a consented recording. | HeyGen or D-ID API key |
 
 ## Step 3.1 — what's built (2026-11-09)
@@ -72,6 +72,33 @@ Each step is usable on its own and nothing is shown as working before it is.
 - **Known limits:** the check proves the sentence was said, not that the sample voice and the consent
   voice are the same person (speaker matching is a later improvement); consent sentence is English only;
   the "Add a voice" wizard has not been seen in a browser yet because it needs the ElevenLabs key.
+
+## Step 3.3 — what's built (2026-11-10)
+
+Without an avatar provider, an Avatar project now produces a finished **voiceover video**:
+
+- **AI script writing** (`POST /api/ai/script`, Gemini): topic + length (15–180 s) + project language and
+  editing style → spoken-words-only script sized at ~2.5 words/s (English) or ~2.1 (Indic), cleaned of
+  markdown, bracketed directions and hashtags. Free, rate-limited (30/hour per user). Verified live: a 45 s
+  English script took ~45 s to come back.
+- **Background** (Video settings): Brand gradient (Brand Kit primary → secondary, slowly drifting), solid
+  colour, uploaded image (slow pan, slightly dimmed; PNG/JPG/WEBP ≤15 MB, 320–8000 px) or uploaded video
+  (looped, muted, dimmed).
+- **Render** (same queue/job as the editor): background + voiceover → base clip at the final size, then the
+  Phase 2 pipeline: captions from the voice provider's word timings (no transcription cost), caption
+  translation / AI keywords, B-roll (needs Gemini + Pixabay only), zooms, Brand Kit logo, Free watermark,
+  music, −14 LUFS. No pause cutting. Caption editing after render works as for the editor.
+- **"AI-generated voice" label:** small, top-left (bottom-left if the logo is top-left); on by default,
+  can be switched off for library voices, always on for cloned voices.
+- **Checks before charging:** voiceover exists and matches the current script/voice/language/speed
+  (409 `NARRATION_OUTDATED` otherwise), background file chosen for image/video (400 `NO_BACKGROUND`),
+  cloned voice's consent still active (409 `VOICE_WITHDRAWN`), plan resolution.
+- **Credits:** 1 per started minute of voiceover (×2 for 4K), same as the editor; refunded on failure.
+- **Tests:** 8 (real FFmpeg renders): background args per kind, disclosure overlay, script cleaning +
+  sizing + prompt, script API on/off/validation, full render (720p 9:16, captions, watermark, label,
+  credits), image background with label off, outdated voiceover / missing background / foreign asset,
+  cloned voice label forced + withdrawn consent blocks render.
+- **Not verified live:** the full voiceover → video flow needs `ELEVENLABS_API_KEY`.
 
 ## Consent rules (non-negotiable)
 

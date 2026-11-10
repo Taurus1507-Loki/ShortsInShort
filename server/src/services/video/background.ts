@@ -1,0 +1,77 @@
+import { runFfmpeg, type RunOptions } from './ffmpeg.js';
+
+export type BackgroundKind = 'brand' | 'color' | 'image' | 'video';
+
+export interface BackgroundInput {
+  kind: BackgroundKind;
+  width: number;
+  height: number;
+  durationSec: number;
+  /** Narration audio laid under the background. */
+  audioPath: string;
+  output: string;
+  /** brand: two colours for a slowly moving gradient; color: the first is used. */
+  colors?: [string, string];
+  /** image/video file for those kinds. */
+  mediaPath?: string;
+  fps?: number;
+}
+
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+const hex = (c: string) => `0x${c.replace('#', '').toUpperCase()}`;
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * FFmpeg arguments for the base video of a voiceover project: a background at the final size with
+ * the narration as its audio. Image backgrounds slowly pan; video backgrounds loop silently; both are
+ * darkened slightly so captions stay readable. Exported for tests.
+ */
+export function buildBackgroundArgs(b: BackgroundInput): string[] {
+  const fps = b.fps ?? 30;
+  const d = Math.max(0.5, b.durationSec).toFixed(3);
+  const W = b.width;
+  const H = b.height;
+  const [c0, c1] = (b.colors ?? ['#4C1D95', '#0F172A']).map((c) => (HEX_RE.test(c) ? c : '#1E1B4B')) as [string, string];
+  const input: string[] = [];
+  let vf: string;
+  switch (b.kind) {
+    case 'brand':
+      // A diagonal two-colour gradient that drifts slowly — motion without distraction.
+      input.push('-f', 'lavfi', '-i', `gradients=s=${W}x${H}:c0=${hex(c0)}:c1=${hex(c1)}:x0=0:y0=0:x1=${W}:y1=${H}:nb_colors=2:speed=0.004:r=${fps}:d=${d}`);
+      vf = 'format=yuv420p';
+      break;
+    case 'color':
+      input.push('-f', 'lavfi', '-i', `color=c=${hex(c0)}:s=${W}x${H}:r=${fps}:d=${d}`);
+      vf = 'format=yuv420p';
+      break;
+    case 'image': {
+      if (!b.mediaPath) throw new Error('Image background needs a file.');
+      // Cover a frame 12% larger, then pan across it over the whole video.
+      const bw = even(W * 1.12);
+      const bh = even(H * 1.12);
+      input.push('-loop', '1', '-framerate', String(fps), '-t', d, '-i', b.mediaPath);
+      vf = `scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='(iw-ow)*t/${d}':y='(ih-oh)/2',eq=brightness=-0.05,format=yuv420p`;
+      break;
+    }
+    case 'video':
+      if (!b.mediaPath) throw new Error('Video background needs a file.');
+      input.push('-stream_loop', '-1', '-i', b.mediaPath);
+      vf = `fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},eq=brightness=-0.05,format=yuv420p`;
+      break;
+  }
+  return [
+    ...input,
+    '-i', b.audioPath,
+    '-map', '0:v:0', '-map', '1:a:0',
+    '-vf', vf,
+    '-t', d,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-r', String(fps),
+    '-c:a', 'aac', '-b:a', '192k',
+    '-movflags', '+faststart',
+    b.output,
+  ];
+}
+
+export async function renderBackground(b: BackgroundInput, opts: RunOptions = {}) {
+  await runFfmpeg(buildBackgroundArgs(b), { timeoutMs: Math.max(120_000, b.durationSec * 8000), ...opts });
+}

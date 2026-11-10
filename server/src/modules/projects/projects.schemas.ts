@@ -7,6 +7,7 @@ import {
   CAPTION_SIZES,
   FRAMINGS,
   ZOOM_INTENSITIES,
+  BACKGROUNDS,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -35,6 +36,9 @@ const settingsSchema = z
     resolution: z.enum(RESOLUTIONS),
     voiceId: z.string().regex(/^[A-Za-z0-9_-]{0,64}$/, 'Invalid voice'),
     speakingRate: z.number().min(0.7).max(1.2),
+    background: z.enum(BACKGROUNDS),
+    backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour like #1E1B4B'),
+    disclosure: z.boolean(),
   })
   .strict()
   .partial();
@@ -49,6 +53,11 @@ export const createProjectSchema = z
     topic: z.string().trim().max(300).default(''),
     settings: settingsSchema.default({}),
     sourceAssetId: z
+      .string()
+      .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
+      .nullable()
+      .optional(),
+    backgroundAssetId: z
       .string()
       .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
       .nullable()

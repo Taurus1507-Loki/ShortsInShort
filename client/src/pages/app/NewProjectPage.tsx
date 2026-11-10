@@ -23,7 +23,16 @@ const STEPS = ['Choose mode', 'Content', 'Customize', 'Review & generate', 'Prev
 const AVAILABLE_STEPS = 3;
 const RES_RANK = { '720p': 1, '1080p': 2, '4k': 3 } as const;
 
+/**
+ * The sidebar links (AI Video Editor / AI Avatar) only change `?mode=`, which keeps this page mounted.
+ * Keying the wizard by mode starts it fresh for the newly chosen mode instead of keeping the old one.
+ */
 export default function NewProjectPage() {
+  const [params] = useSearchParams();
+  return <NewProjectWizard key={params.get('mode') ?? 'choose'} />;
+}
+
+function NewProjectWizard() {
   const [params] = useSearchParams();
   const initialMode = MODES.some((m) => m.id === params.get('mode')) ? (params.get('mode') as ProjectMode) : null;
   const navigate = useNavigate();

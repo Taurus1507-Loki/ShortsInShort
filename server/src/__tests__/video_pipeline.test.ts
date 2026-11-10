@@ -291,7 +291,7 @@ describe('render pipeline', () => {
 
   it('refuses generation for modes that are not built yet', async () => {
     const { auth } = await registerUser({ verify: true });
-    const res = await request(app).post('/api/projects').set(auth).send({ title: 'Avatar', mode: 'avatar' }).expect(201);
+    const res = await request(app).post('/api/projects').set(auth).send({ title: 'Faceless', mode: 'faceless' }).expect(201);
     await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(501);
   });
 });

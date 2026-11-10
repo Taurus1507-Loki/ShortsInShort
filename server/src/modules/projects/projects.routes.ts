@@ -15,6 +15,8 @@ import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
 import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
 import { ownCustomVoice } from '../../services/voice/consent.js';
+import { scriptHash } from '../../services/audio/narrationJob.js';
+import { CustomVoice } from '../../models/CustomVoice.js';
 import type { JobType } from '../../models/Job.js';
 import type { Request } from 'express';
 import { createProjectSchema, idParams, listProjectsQuery, updateProjectSchema } from './projects.schemas.js';
@@ -32,15 +34,22 @@ async function assertUsableSource(workspaceId: Types.ObjectId, assetId: string) 
   return asset;
 }
 
+/** Background for voiceover videos: an uploaded image, or one of the workspace's ready videos. */
+async function assertUsableBackground(workspaceId: Types.ObjectId, assetId: string) {
+  const asset = await Asset.findOne({ _id: assetId, workspaceId, deletedAt: null, status: 'ready', kind: { $in: ['background_image', 'source_video'] } });
+  if (!asset) throw badRequest('That background is not available. Upload it again.', 'INVALID_ASSET');
+  return asset;
+}
+
 /** Project + its source/output asset summaries. */
 async function withMedia(p: ProjectDoc) {
-  const ids = [p.sourceAssetId, p.outputAssetId, p.narrationAssetId].filter(Boolean) as Types.ObjectId[];
+  const ids = [p.sourceAssetId, p.outputAssetId, p.narrationAssetId, p.backgroundAssetId].filter(Boolean) as Types.ObjectId[];
   const assets = ids.length ? await Asset.find({ _id: { $in: ids }, workspaceId: p.workspaceId, deletedAt: null }) : [];
   const find = (id: Types.ObjectId | null | undefined) => {
     const a = id && assets.find((x) => x._id.equals(id));
     return a ? toPublicAsset(a) : null;
   };
-  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId), narrationAsset: find(p.narrationAssetId) };
+  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId), narrationAsset: find(p.narrationAssetId), backgroundAsset: find(p.backgroundAssetId) };
 }
 
 projectsRouter.get(
@@ -72,6 +81,7 @@ projectsRouter.post(
     const { user, workspaceId } = req.auth!;
     const body = req.body as z.infer<typeof createProjectSchema>;
     if (body.sourceAssetId) await assertUsableSource(workspaceId, body.sourceAssetId);
+    if (body.backgroundAssetId) await assertUsableBackground(workspaceId, body.backgroundAssetId);
     const project = await Project.create({ ...body, workspaceId, createdBy: user._id });
     await audit(req, 'project.created', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString() } });
     res.status(201).json({ data: await withMedia(project) });
@@ -98,8 +108,10 @@ projectsRouter.patch(
     if (project.status === 'queued' || project.status === 'processing') {
       throw conflict('This project is being processed and cannot be edited right now.', 'PROJECT_BUSY');
     }
-    const { settings, sourceAssetId, ...rest } = req.body as z.infer<typeof updateProjectSchema>;
+    const { settings, sourceAssetId, backgroundAssetId, ...rest } = req.body as z.infer<typeof updateProjectSchema>;
     if (sourceAssetId) await assertUsableSource(workspaceId, sourceAssetId);
+    if (backgroundAssetId) await assertUsableBackground(workspaceId, backgroundAssetId);
+    if (backgroundAssetId !== undefined) project.set('backgroundAssetId', backgroundAssetId);
     project.set(rest);
     if (sourceAssetId !== undefined) project.set('sourceAssetId', sourceAssetId);
     if (settings) project.set('settings', { ...project.toObject().settings, ...settings });
@@ -125,7 +137,45 @@ projectsRouter.delete(
 
 /* ── Generation ─────────────────────────────────────────────────────── */
 
+/**
+ * Voiceover video (Avatar Studio without an avatar provider): needs an up-to-date voiceover, a usable
+ * background, and — for a cloned voice — consent that is still active. Priced like the editor:
+ * 1 credit per started minute of the voiceover (×2 for 4K).
+ */
+async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  const stats = project.narrationStats;
+  const narration = project.narrationAssetId
+    ? await Asset.findOne({ _id: project.narrationAssetId, workspaceId, deletedAt: null, status: 'ready', kind: 'narration_audio' })
+    : null;
+  if (!narration || !stats) throw badRequest('Generate the voiceover first.', 'NO_NARRATION');
+  const s = project.settings ?? {};
+  const background = s.background ?? 'brand';
+  if (background === 'image' || background === 'video') {
+    const bg = project.backgroundAssetId ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId, deletedAt: null, status: 'ready' }) : null;
+    if (!bg || (background === 'image' ? bg.kind !== 'background_image' : bg.kind !== 'source_video')) {
+      throw badRequest(`Choose a background ${background} first.`, 'NO_BACKGROUND');
+    }
+  }
+  if (stats.voiceId && (await CustomVoice.exists({ workspaceId, providerVoiceId: stats.voiceId })) && !(await ownCustomVoice(workspaceId, stats.voiceId))) {
+    throw new AppError(409, 'VOICE_WITHDRAWN', 'Consent for this custom voice was withdrawn, so its voiceover can’t be used in new videos. Choose another voice and generate the voiceover again.');
+  }
+  const ws = await Workspace.findById(workspaceId).select('plan creditBalance').lean();
+  const plan = PLANS[(ws?.plan ?? 'free') as PlanId];
+  const resolution = s.resolution ?? '1080p';
+  const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
+  return {
+    credits: editorCreditCost(durationSec, resolution),
+    balance: ws?.creditBalance ?? 0,
+    sourceDurationSec: durationSec,
+    resolution,
+    resolutionAllowed: resolutionAllowed(resolution, plan.maxResolution),
+    planMaxResolution: plan.maxResolution,
+    narrationOutdated: stats.scriptHash !== scriptHash(project.script ?? '', s.voiceId ?? '', s.speakingRate ?? 1, s.language ?? 'en'),
+  };
+}
+
 async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  if (project.mode === 'avatar') return avatarQuote(project, workspaceId);
   if (project.mode !== 'editor') {
     throw new AppError(501, 'NOT_AVAILABLE', 'Generation for this project type is not available yet.');
   }
@@ -231,6 +281,9 @@ projectsRouter.post(
     const q = await quote(project, workspaceId);
     if (!q.resolutionAllowed) {
       throw new AppError(403, 'PLAN_LIMIT', `Your plan exports up to ${q.planMaxResolution}. Lower the resolution or upgrade.`);
+    }
+    if ('narrationOutdated' in q && q.narrationOutdated) {
+      throw conflict('Your script, voice, language or speed changed since the voiceover was made. Generate the voiceover again first.', 'NARRATION_OUTDATED');
     }
     const data = await startProjectJob(req, project, { type: 'render_project', credits: q.credits, note: 'Render', auditAction: 'project.generate' });
     res.status(202).json({ data });

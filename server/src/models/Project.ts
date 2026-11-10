@@ -21,6 +21,8 @@ export const CAPTION_SIZES = ['small', 'medium', 'large', 'xl'] as const;
 /** How the source fills a different-shaped frame: auto chooses per video. */
 export const FRAMINGS = ['auto', 'crop', 'blur'] as const;
 export const ZOOM_INTENSITIES = ['off', 'subtle', 'dynamic'] as const;
+/** Avatar Studio backgrounds behind the voiceover video. */
+export const BACKGROUNDS = ['brand', 'color', 'image', 'video'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -46,6 +48,11 @@ const settingsSchema = new Schema(
     voiceId: { type: String, default: '', maxlength: 64 },
     /** 0.7–1.2, 1 = normal speaking speed. */
     speakingRate: { type: Number, min: 0.7, max: 1.2, default: 1 },
+    /** brand = Brand Kit colour gradient; color = solid colour; image/video = uploaded file. */
+    background: { type: String, enum: BACKGROUNDS, default: 'brand' },
+    backgroundColor: { type: String, default: '#1E1B4B', match: /^#[0-9a-fA-F]{6}$/ },
+    /** Small "AI-generated" label on the video (always on for cloned voices). */
+    disclosure: { type: Boolean, default: true },
   },
   { _id: false },
 );
@@ -73,6 +80,8 @@ const projectSchema = new Schema(
     topic: { type: String, default: '', maxlength: 300 },
     settings: { type: settingsSchema, default: () => ({}) },
     sourceAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
+    /** Avatar Studio: background image or video asset. */
+    backgroundAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     outputAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     lastJobId: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
     lastError: { type: String, default: null, maxlength: 500 },
@@ -105,6 +114,8 @@ const projectSchema = new Schema(
       zoomCount: { type: Number, default: 0 },
       logoApplied: { type: Boolean, default: false },
       watermark: { type: Boolean, default: false },
+      disclosure: { type: Boolean, default: false },
+      background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
     },
@@ -154,6 +165,7 @@ export function toPublicProject(p: ProjectDoc) {
     topic: p.topic,
     settings: p.settings,
     sourceAssetId: p.sourceAssetId?.toString() ?? null,
+    backgroundAssetId: p.backgroundAssetId?.toString() ?? null,
     outputAssetId: p.outputAssetId?.toString() ?? null,
     lastJobId: p.lastJobId?.toString() ?? null,
     lastError: p.lastError,

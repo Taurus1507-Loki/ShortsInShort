@@ -8,6 +8,7 @@ import { CaptionEditor } from '@/components/app/CaptionEditor';
 import { LivePreview } from '@/components/app/LivePreview';
 import { RenderPanel } from '@/components/app/RenderPanel';
 import { VoiceoverPanel } from '@/components/app/VoiceoverPanel';
+import { BackgroundPicker, ScriptAssist } from '@/components/app/AvatarControls';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -82,6 +83,16 @@ export default function ProjectDetailPage() {
       onSaved(p);
       queryClient.invalidateQueries({ queryKey: ['assets'] });
       toast.success('Video attached');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const attachBackground = useMutation({
+    mutationFn: (asset: Asset | null) => api<{ data: Project }>(`/projects/${id}`, { method: 'PATCH', body: { backgroundAssetId: asset?.id ?? null } }).then((r) => r.data),
+    onSuccess: (p) => {
+      queryClient.setQueryData(keys.project(id), (old: Project | undefined) => (old ? { ...old, backgroundAssetId: p.backgroundAssetId, backgroundAsset: p.backgroundAsset } : p));
+      queryClient.invalidateQueries({ queryKey: keys.estimate(id) });
+      toast.success('Background saved');
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -172,7 +183,7 @@ export default function ProjectDetailPage() {
 
         {project.mode !== 'avatar' && <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />}
 
-        {project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
+        {project.mode !== 'avatar' && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
 
         <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
           <Card>
@@ -197,6 +208,17 @@ export default function ProjectDetailPage() {
                 >
                   <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} placeholder="What should your presenter say?" />
                 </Field>
+              ) : null}
+              {project.mode === 'avatar' ? (
+                <ScriptAssist
+                  language={custom.settings.language}
+                  style={custom.style}
+                  hasScript={script.trim().length > 0}
+                  onScript={(text, aiTitle) => {
+                    setScript(text);
+                    if (!title.trim() && aiTitle) setTitle(aiTitle);
+                  }}
+                />
               ) : (
                 <Field id="script" label="Script / notes" hint={`${script.length.toLocaleString()} / 20,000`}>
                   <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={6} />
@@ -229,6 +251,42 @@ export default function ProjectDetailPage() {
             scriptLength={script.trim().length}
           />
         )}
+        {project.mode === 'avatar' && (
+          <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
+            <Card>
+              <CardHeader>
+                <CardTitle>Video settings</CardTitle>
+                <CardDescription>Background, captions and branding for the finished video. Click Save before making the video.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-10">
+                <section className="grid gap-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Background</h3>
+                  <BackgroundPicker
+                    settings={{ ...DEFAULT_SETTINGS, ...custom.settings }}
+                    onChange={(patch) => setCustom({ ...custom, settings: { ...custom.settings, ...patch } })}
+                    asset={project.backgroundAsset}
+                    onAsset={(a) => attachBackground.mutate(a)}
+                  />
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                      checked={custom.settings.disclosure !== false}
+                      onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, disclosure: e.target.checked } })}
+                    />
+                    <span>
+                      Show a small “AI-generated voice” label
+                      <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown when a cloned voice is used.</span>
+                    </span>
+                  </label>
+                </section>
+                <CustomizeForm value={custom} onChange={setCustom} mode="avatar" />
+              </CardContent>
+            </Card>
+          </fieldset>
+        )}
+        {project.mode === 'avatar' && <RenderPanel project={project} autoOpen={false} dirty={dirty} />}
+        {project.mode === 'avatar' && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
       </div>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>

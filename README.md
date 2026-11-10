@@ -12,7 +12,7 @@ strategy, cost estimates, MVP scope and roadmap, and [docs/API.md](docs/API.md) 
 |---|---|---|
 | 1 Foundation | Landing page, design system, auth (email/password, verification, reset, Google OAuth, sessions), workspaces, dashboard, project drafts | ✅ Implemented & tested locally |
 | 2 AI Video Editor | **2.1 done:** uploads, job queue + worker, pause removal, reframing, loudness, FFmpeg render, credits + refunds, Media Library. 2.2–2.5 (captions, B-roll, music, editor) need API keys — see [docs/PHASE2.md](docs/PHASE2.md) | 🟡 In progress |
-| 3 Avatar Studio | **3.1 built:** AI voices (ElevenLabs) — voice library, script → voiceover MP3 with word timings, credits + refunds. **3.2 built:** consented voice cloning (spoken consent checked by speech-to-text, email confirmation for other people, withdrawal deletes everything). Needs `ELEVENLABS_API_KEY` (cloning: ElevenLabs Starter+). Avatar video next — see [docs/PHASE3.md](docs/PHASE3.md) | 🟡 In progress |
+| 3 Avatar Studio | **3.1 built:** AI voices (ElevenLabs) — voice library, script → voiceover MP3 with word timings, credits + refunds. **3.2 built:** consented voice cloning (spoken consent checked by speech-to-text, email confirmation for other people, withdrawal deletes everything). **3.3 built:** AI script writing and finished voiceover videos (background + voiceover + timed captions, B-roll, logo, AI label). Needs `ELEVENLABS_API_KEY` (cloning: ElevenLabs Starter+). Talking presenter (3.4) needs an avatar provider — see [docs/PHASE3.md](docs/PHASE3.md) | 🟡 In progress |
 | 4 Faceless · 5 Billing · 6 Admin · 7 Launch | | Not started |
 
 **Not production-ready.** Captions/B-roll/music, payments and deployment are not built yet; the UI
@@ -48,7 +48,7 @@ npm --prefix server run seed:admin -- you@example.com super_admin
 ## Tests
 
 ```bash
-npm test             # 132 API tests (incl. real FFmpeg renders and caption burn-in) against a throwaway mongod
+npm test             # 140 API tests (incl. real FFmpeg renders and caption burn-in) against a throwaway mongod
 npm run typecheck    # server + client
 npm run build        # production builds
 ```

@@ -21,13 +21,16 @@ const STAGES: Record<string, string> = {
   removing_silence: 'Detecting and removing pauses',
   rendering: 'Rendering your edit',
   finalizing: 'Running quality checks',
+  preparing_background: 'Building the background with your voiceover',
   saving: 'Saving your video',
   retrying: 'Hit a snag — retrying',
 };
 
 export function RenderPanel({ project, autoOpen, dirty }: { project: Project; autoOpen?: boolean; dirty: boolean }) {
   const busy = project.status === 'queued' || project.status === 'processing';
-  const canQuote = project.mode === 'editor' && Boolean(project.sourceAssetId) && !busy;
+  const avatar = project.mode === 'avatar';
+  const hasInput = avatar ? Boolean(project.narrationAssetId) : Boolean(project.sourceAssetId);
+  const canQuote = (project.mode === 'editor' || avatar) && hasInput && !busy && !dirty;
   const estimate = useEstimate(project.id, canQuote);
   const job = useJob(project.id, busy);
   const [confirm, setConfirm] = useState(false);
@@ -62,21 +65,27 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
     },
   });
 
-  if (project.mode !== 'editor') {
+  if (project.mode === 'faceless') {
     return (
       <Notice tone="info" title="Generation for this project type isn’t available yet">
-        {project.mode === 'avatar' ? 'AI Avatar videos arrive in Phase 3.' : 'Faceless videos arrive in Phase 4.'} Your settings are saved.
+        Faceless videos arrive in Phase 4. Your settings are saved.
       </Notice>
     );
   }
 
   const e = estimate.data;
   const insufficient = e ? e.balance < e.credits : false;
+  const outdated = Boolean(e?.narrationOutdated);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Render</CardTitle>
+        <CardTitle>{avatar ? 'Video' : 'Render'}</CardTitle>
+        {avatar && (
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Builds the finished video: your background, the voiceover, captions timed to every word, plus B-roll, logo and music if switched on. The talking presenter arrives with the avatar provider (step 3.4).
+          </p>
+        )}
       </CardHeader>
       <CardContent className="grid gap-5">
         {/* In progress */}
@@ -113,8 +122,10 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
         {!busy && (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm">
-              {!project.sourceAssetId ? (
-                <p className="text-muted-foreground">Upload a video above to render it.</p>
+              {!hasInput ? (
+                <p className="text-muted-foreground">{avatar ? 'Generate the voiceover first — the video is built around it.' : 'Upload a video above to render it.'}</p>
+              ) : dirty ? (
+                <p className="text-muted-foreground">Save your changes to see the cost.</p>
               ) : estimate.isLoading ? (
                 <Skeleton className="h-5 w-48" />
               ) : estimate.isError ? (
@@ -131,7 +142,7 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
             <Button
               variant="gradient"
               onClick={() => setConfirm(true)}
-              disabled={!canQuote || !e || insufficient || !e.resolutionAllowed || dirty}
+              disabled={!canQuote || !e || insufficient || !e.resolutionAllowed || dirty || outdated}
               title={dirty ? 'Save your changes first' : undefined}
             >
               {project.status === 'completed' ? <RotateCcw /> : <Sparkles />}
@@ -140,6 +151,11 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
           </div>
         )}
         {!busy && dirty && <p className="text-xs text-muted-foreground">Save your changes before rendering so they’re included.</p>}
+        {!busy && outdated && (
+          <Notice tone="warning" title="Voiceover is out of date">
+            Your script, voice, language or speed changed since the voiceover was made. Generate the voiceover again first, so the video says what you see.
+          </Notice>
+        )}
         {e && !e.resolutionAllowed && (
           <Notice tone="warning">
             Your plan exports up to {e.planMaxResolution}. Change the export resolution in Settings below, or{' '}
@@ -167,7 +183,7 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               {e && (
                 <dl className="grid gap-2 rounded-lg bg-muted/50 p-4">
                   <div className="flex justify-between">
-                    <dt>Source length</dt>
+                    <dt>{avatar ? 'Voiceover length' : 'Source length'}</dt>
                     <dd className="font-medium text-foreground">{formatDuration(e.sourceDurationSec)}</dd>
                   </div>
                   <div className="flex justify-between">
@@ -186,7 +202,14 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               )}
               <p className="flex gap-2">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                {(() => {
+                {avatar ? (
+                  <span>
+                    This builds a {project.aspectRatio} video from your background and voiceover, with {project.settings.captionsEnabled ? 'captions timed to every word' : 'no captions'}
+                    {meta?.features.stockBroll && project.settings.bRollIntensity !== 'none' ? ', B-roll cutaways' : ''}
+                    {project.settings.useBrandKit ? ', your logo' : ''}
+                    {project.settings.disclosure !== false ? ' and a small “AI-generated voice” label' : ''}.
+                  </span>
+                ) : (() => {
                   const parts = [captionsLive ? 'removes pauses and filler words' : 'removes pauses', `reframes to ${project.aspectRatio}`, 'balances loudness'];
                   if (captionsLive && wantsCaptions) parts.push(project.settings.captionLanguage && project.settings.captionLanguage !== 'same' && meta?.features.translation ? 'adds translated captions' : 'adds animated captions');
                   if (meta?.features.broll && project.settings.bRollIntensity !== 'none') parts.push('adds B-roll cutaways');

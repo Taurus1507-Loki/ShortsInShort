@@ -88,6 +88,9 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   resolution: '1080p',
   voiceId: '',
   speakingRate: 1,
+  background: 'brand',
+  backgroundColor: '#1E1B4B',
+  disclosure: true,
 };
 
 function Choice<T extends string>({
@@ -185,15 +188,18 @@ const CAPTION_SIZES: { id: ProjectSettings['captionSize']; label: string }[] = [
   { id: 'xl', label: 'Extra large' },
 ];
 
-export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onChange: (v: CustomizeValue) => void }) {
+/** `avatar` hides footage-only settings (framing, pause cutting, spoken language — set in the voiceover panel). */
+export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: CustomizeValue; onChange: (v: CustomizeValue) => void; mode?: ProjectMode }) {
   const { data: meta } = useMeta();
-  const captionsLive = Boolean(meta?.features.captions);
+  const avatar = mode === 'avatar';
+  // Voiceover videos get captions from the voice's own word timings: no transcription needed.
+  const captionsLive = avatar || Boolean(meta?.features.captions);
   // Older projects may predate newer settings; fall back to defaults.
   const s: ProjectSettings = { ...DEFAULT_SETTINGS, ...value.settings };
   const set = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K]) => onChange({ ...value, settings: { ...s, [k]: v } });
   const captionStatus: SettingStatus = captionsLive ? 'applied' : 'needs_key';
-  const brollLive = Boolean(meta?.features.broll);
-  const translationLive = Boolean(meta?.features.translation);
+  const brollLive = Boolean(avatar ? meta?.features.stockBroll : meta?.features.broll);
+  const translationLive = Boolean(avatar ? meta?.features.scriptWriting : meta?.features.translation);
   const musicLive = Boolean(meta?.features.music);
   const spokenName = LANGUAGES.find((l) => l.id === s.language)?.name ?? s.language;
 
@@ -205,8 +211,12 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
 
         <Setting
           label="Editing style"
-          status="soon"
-          help="Sets the overall feel — pacing, music and B-roll choices. Saved now; it will shape renders once AI styling launches. Pauses, captions and framing below already apply."
+          status={avatar ? 'applied' : 'soon'}
+          help={
+            avatar
+              ? 'Sets the tone when AI writes your script, and the music mood when “Match the style” is chosen.'
+              : 'Sets the overall feel — pacing, music and B-roll choices. Saved now; it will shape renders once AI styling launches. Pauses, captions and framing below already apply.'
+          }
         >
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {STYLES.map((st) => (
@@ -228,6 +238,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
           <Choice name="Aspect ratio" value={value.aspectRatio} onChange={(v) => onChange({ ...value, aspectRatio: v })} options={ASPECTS.map((a) => ({ id: a.id, label: a.name, sub: a.platforms }))} />
         </Setting>
 
+        {!avatar && (
         <Setting
           label="Video background (framing)"
           status="applied"
@@ -235,6 +246,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
         >
           <Choice name="Framing" value={s.framing} onChange={(v) => set('framing', v)} options={FRAMING} />
         </Setting>
+        )}
 
         <div className="grid gap-6 sm:grid-cols-2">
           <Setting label="Export resolution" htmlFor="resolution" status="applied" help="Sharpness of the downloaded file. Higher looks crisper but makes larger files. Free plan exports up to 720p.">
@@ -244,6 +256,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
               <option value="4k">4K (Pro plans)</option>
             </Select>
           </Setting>
+          {!avatar && (
           <Setting label="Target length (seconds)" htmlFor="duration" status="soon" help="How long you want the finished video. Saved now; AI trimming to a target length comes in a later release.">
             <Input
               id="duration"
@@ -254,6 +267,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
               onChange={(e) => set('targetDurationSec', Math.min(3600, Math.max(5, Number(e.target.value) || 5)))}
             />
           </Setting>
+          )}
         </div>
       </section>
 
@@ -261,6 +275,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
       <section className="grid gap-6">
         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Editing</h3>
         <div className="grid gap-6 sm:grid-cols-2">
+          {!avatar && (
           <Setting
             label="Editing intensity"
             status="applied"
@@ -268,6 +283,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
           >
             <Choice name="Editing intensity" value={s.editingIntensity} onChange={(v) => set('editingIntensity', v)} options={INTENSITY} />
           </Setting>
+          )}
           <Setting
             label="B-roll (stock footage)"
             status={brollLive ? 'applied' : 'soon'}
@@ -326,6 +342,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
       <section className="grid gap-6">
         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Language</h3>
         <div className="grid gap-6 sm:grid-cols-2">
+          {!avatar && (
           <Setting
             label="Spoken language (audio)"
             htmlFor="language"
@@ -340,6 +357,7 @@ export function CustomizeForm({ value, onChange }: { value: CustomizeValue; onCh
               ))}
             </Select>
           </Setting>
+          )}
           <Setting
             label="Caption language"
             htmlFor="captionLanguage"
