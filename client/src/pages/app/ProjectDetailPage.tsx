@@ -9,6 +9,7 @@ import { LivePreview } from '@/components/app/LivePreview';
 import { RenderPanel } from '@/components/app/RenderPanel';
 import { VoiceoverPanel } from '@/components/app/VoiceoverPanel';
 import { BackgroundPicker, PresenterPicker, ScriptAssist } from '@/components/app/AvatarControls';
+import { ScenesPanel } from '@/components/app/ScenesPanel';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -138,6 +139,8 @@ export default function ProjectDetailPage() {
 
   const busy = project.status === 'queued' || project.status === 'processing';
   const dirty = isDirty();
+  // Avatar Studio and Faceless are both built around a voiceover.
+  const voiced = project.mode === 'avatar' || project.mode === 'faceless';
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -181,9 +184,9 @@ export default function ProjectDetailPage() {
           </Card>
         )}
 
-        {project.mode !== 'avatar' && <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />}
+        {project.mode === 'editor' && <RenderPanel project={project} autoOpen={autoGenerate} dirty={dirty} />}
 
-        {project.mode !== 'avatar' && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
+        {project.mode === 'editor' && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
 
         <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
           <Card>
@@ -199,7 +202,7 @@ export default function ProjectDetailPage() {
                   <span className="text-muted-foreground">Topic:</span> {project.topic}
                 </p>
               )}
-              {project.mode === 'avatar' ? (
+              {voiced ? (
                 <Field
                   id="script"
                   label="Script"
@@ -209,11 +212,12 @@ export default function ProjectDetailPage() {
                   <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} placeholder="What should your presenter say?" />
                 </Field>
               ) : null}
-              {project.mode === 'avatar' ? (
+              {voiced ? (
                 <ScriptAssist
                   language={custom.settings.language}
                   style={custom.style}
                   hasScript={script.trim().length > 0}
+                  initialTopic={project.topic}
                   onScript={(text, aiTitle) => {
                     setScript(text);
                     if (!title.trim() && aiTitle) setTitle(aiTitle);
@@ -226,7 +230,7 @@ export default function ProjectDetailPage() {
               )}
             </CardContent>
           </Card>
-          {project.mode !== 'avatar' && (
+          {!voiced && (
           <Card>
             <CardHeader>
               <CardTitle>Settings</CardTitle>
@@ -241,7 +245,7 @@ export default function ProjectDetailPage() {
           </Card>
           )}
         </fieldset>
-        {project.mode === 'avatar' && (
+        {voiced && (
           <VoiceoverPanel
             project={project}
             settings={{ ...DEFAULT_SETTINGS, ...custom.settings }}
@@ -250,6 +254,32 @@ export default function ProjectDetailPage() {
             saveFirst={() => save.mutateAsync()}
             scriptLength={script.trim().length}
           />
+        )}
+        {project.mode === 'faceless' && <ScenesPanel project={project} dirty={dirty} saveFirst={() => save.mutateAsync()} />}
+        {project.mode === 'faceless' && (
+          <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
+            <Card>
+              <CardHeader>
+                <CardTitle>Video settings</CardTitle>
+                <CardDescription>Format, captions and branding for the finished video. Click Save before making the video.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-10">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                    checked={custom.settings.disclosure !== false}
+                    onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, disclosure: e.target.checked } })}
+                  />
+                  <span>
+                    Show a small “AI-generated voice” label
+                    <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown when a cloned voice is used.</span>
+                  </span>
+                </label>
+                <CustomizeForm value={custom} onChange={setCustom} mode="faceless" />
+              </CardContent>
+            </Card>
+          </fieldset>
         )}
         {project.mode === 'avatar' && (
           <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
@@ -295,8 +325,8 @@ export default function ProjectDetailPage() {
             </Card>
           </fieldset>
         )}
-        {project.mode === 'avatar' && <RenderPanel project={project} autoOpen={false} dirty={dirty} />}
-        {project.mode === 'avatar' && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
+        {voiced && <RenderPanel project={project} autoOpen={false} dirty={dirty} />}
+        {voiced && project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
       </div>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>

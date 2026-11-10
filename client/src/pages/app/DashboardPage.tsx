@@ -151,7 +151,7 @@ export default function DashboardPage() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2 text-sm font-semibold">
                       {m.name}
-                      {m.id === 'faceless' && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Phase {m.phase}</span>}{m.id === 'avatar' && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">New</span>}
+                      {m.id !== 'editor' && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">New</span>}
                     </span>
                     <span className="block line-clamp-2 text-xs text-muted-foreground">{m.description}</span>
                   </span>

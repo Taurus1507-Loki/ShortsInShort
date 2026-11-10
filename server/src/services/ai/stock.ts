@@ -17,6 +17,8 @@ export interface StockClip {
   durationSec: number;
   /** Provider keywords describing the clip (used to rank relevance). */
   tags?: string[];
+  /** Still preview image, when the provider gives one. */
+  thumbnailUrl?: string | null;
 }
 
 const stem = (w: string) => w.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(ies)$/, 'y').replace(/(es|s)$/, '');
@@ -55,7 +57,7 @@ interface PixabayHit {
   duration: number;
   user: string;
   tags?: string;
-  videos: Record<string, { url: string; width: number; height: number; size: number }>;
+  videos: Record<string, { url: string; width: number; height: number; size: number; thumbnail?: string }>;
 }
 
 /** Picks a 720p-ish rendition: sharp enough for 1080p B-roll, small enough to download quickly. */
@@ -70,7 +72,7 @@ export function parsePixabayVideos(body: unknown): StockClip[] {
   return hits.flatMap((h) => {
     const r = pickRendition(h.videos ?? {});
     if (!r) return [];
-    return [{ id: String(h.id), provider: 'pixabay', downloadUrl: r.url, pageUrl: h.pageURL, author: h.user, width: r.width, height: r.height, durationSec: h.duration, tags: (h.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean) }];
+    return [{ id: String(h.id), provider: 'pixabay', downloadUrl: r.url, pageUrl: h.pageURL, author: h.user, width: r.width, height: r.height, durationSec: h.duration, tags: (h.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean), thumbnailUrl: [h.videos?.small?.thumbnail, h.videos?.tiny?.thumbnail, r.thumbnail].find((u) => typeof u === 'string' && u.startsWith('https://')) ?? null }];
   });
 }
 

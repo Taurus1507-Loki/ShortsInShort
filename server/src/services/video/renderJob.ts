@@ -33,7 +33,8 @@ import type { LogoPosition } from './render.js';
 import type { AssetDoc } from '../../models/Asset.js';
 import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
-import { renderBackground, type BackgroundKind } from './background.js';
+import { renderBackground, renderScenes, type BackgroundKind } from './background.js';
+import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { AvatarError, getAvatarProvider } from '../ai/avatar.js';
 
 export interface RenderPayload {
@@ -298,11 +299,61 @@ async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal
   return { input, words: words as Word[], presenter: presenter ? { avatarId: settings.avatarId!, layout, reused: presenter.reused } : null };
 }
 
+/**
+ * Faceless (stock footage): each scene's licensed clip is cut to the exact time its narration is
+ * spoken, then joined under the voiceover. Returns the base clip, the word timings and the scene list
+ * (for attribution).
+ */
+async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal: AbortSignal, progress: JobContext['progress']) {
+  if (!project.narrationAssetId) throw new PermanentJobError('Generate the voiceover first.');
+  const narration = await Asset.findOne({ _id: project.narrationAssetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready' });
+  if (!narration) throw new PermanentJobError('The voiceover is missing. Generate it again.');
+  const scenes = project.scenes ?? [];
+  if (!scenes.length || project.scenesKey !== scenesKey(project.script ?? '')) throw new PermanentJobError('Plan the scenes again — the script changed.');
+  const missing = scenes.findIndex((sc) => !sc.clip?.downloadUrl);
+  if (missing >= 0) throw new PermanentJobError(`Scene ${missing + 1} has no clip. Choose one first.`);
+  const stock = getStockProvider();
+  if (!stock) throw new PermanentJobError('Stock footage is not configured on this server.');
+  const withWords = await Project.findById(project._id).select('+narrationWords').lean();
+  const words = ((withWords?.narrationWords ?? []) as Array<{ text: string; start: number; end: number }>).map((w) => ({ text: w.text, start: w.start, end: w.end }));
+  const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
+  if (!(durationSec > 0)) throw new PermanentJobError('The voiceover has no length. Generate it again.');
+  const timings = sceneTimings(scenes, words, durationSec);
+
+  const files: string[] = [];
+  for (const [i, sc] of scenes.entries()) {
+    await progress(4 + Math.round((i / scenes.length) * 8), 'downloading_clips');
+    const file = path.join(workDir, `scene-${i}.mp4`);
+    await stock.download(sc.clip as unknown as StockClip, file, { signal });
+    files.push(file);
+  }
+  await progress(12, 'assembling_scenes');
+  const settings = project.settings ?? {};
+  const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
+  const input = path.join(workDir, 'base.mp4');
+  await renderScenes(
+    { width: size.width, height: size.height, scenes: files.map((f, i) => ({ path: f, durationSec: timings[i]!.end - timings[i]!.start })), audioPath: await storage.getProcessingInput(narration.storageKey), output: input },
+    { signal },
+  );
+  const used = scenes.map((sc, i) => ({
+    path: files[i]!,
+    start: timings[i]!.start,
+    end: timings[i]!.end,
+    query: sc.queries?.[0] ?? '',
+    provider: sc.clip!.provider ?? '',
+    pageUrl: sc.clip!.pageUrl ?? '',
+    author: sc.clip!.author ?? '',
+  }));
+  return { input, words: words as Word[], scenes: used };
+}
+
 async function run({ job, signal, progress }: JobContext) {
   const { projectId } = job.payload as RenderPayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
-  const avatar = project.mode === 'avatar';
+  const faceless = project.mode === 'faceless';
+  // Voiceover-based videos (Avatar Studio and Faceless) share everything after the base clip.
+  const avatar = project.mode === 'avatar' || faceless;
   let source: AssetDoc | null = null;
   if (!avatar) {
     if (!project.sourceAssetId) throw new PermanentJobError('The project has no source video.');
@@ -320,7 +371,13 @@ async function run({ job, signal, progress }: JobContext) {
     let input: string;
     let narrationWords: Word[] | null = null;
     let presenter: { avatarId: string; layout: string; reused: boolean } | null = null;
-    if (avatar) {
+    let facelessScenes: UsedBroll[] | null = null;
+    if (faceless) {
+      const base = await prepareFacelessBase(project, workDir, signal, progress);
+      input = base.input;
+      narrationWords = base.words;
+      facelessScenes = base.scenes;
+    } else if (avatar) {
       const base = await prepareVoiceoverBase(project, workDir, signal, progress);
       input = base.input;
       narrationWords = base.words;
@@ -430,7 +487,7 @@ async function run({ job, signal, progress }: JobContext) {
     const brollIntensity = (settings.bRollIntensity ?? 'medium') as 'none' | 'low' | 'medium' | 'high';
     const stock = getStockProvider();
     let broll: UsedBroll[] = [];
-    if (brollIntensity !== 'none') {
+    if (brollIntensity !== 'none' && !faceless) {
       if (!stock || !llm) notes.push('B-roll was not added: stock media search is not enabled on this server yet.');
       else if (!editedWords.length) notes.push('B-roll was not added: it is chosen from what you say, and no transcript was available for this video.');
       else {
@@ -568,8 +625,9 @@ async function run({ job, signal, progress }: JobContext) {
       captionsAdded: Boolean(captions),
       fillerWordsRemoved,
       framing,
-      brollCount: broll.length,
-      broll: broll.map(({ path: _p, ...b }) => b),
+      brollCount: facelessScenes ? facelessScenes.length : broll.length,
+      broll: (facelessScenes ?? broll).map(({ path: _p, ...b }) => b),
+      sceneCount: facelessScenes?.length ?? 0,
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
       captionsFromEdits,

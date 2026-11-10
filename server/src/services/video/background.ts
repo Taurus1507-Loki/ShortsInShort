@@ -101,3 +101,49 @@ export function buildBackgroundArgs(b: BackgroundInput): string[] {
 export async function renderBackground(b: BackgroundInput, opts: RunOptions = {}) {
   await runFfmpeg(buildBackgroundArgs(b), { timeoutMs: Math.max(120_000, b.durationSec * 8000), ...opts });
 }
+
+export interface ScenesInput {
+  width: number;
+  height: number;
+  /** Clips in order with the seconds each must fill (from the voiceover timings). */
+  scenes: Array<{ path: string; durationSec: number }>;
+  audioPath: string;
+  output: string;
+  fps?: number;
+}
+
+/**
+ * FFmpeg arguments for a faceless video's base clip: each scene's stock clip is looped if short,
+ * cut to its scene length, scaled to fill the frame, then all are joined and laid under the
+ * voiceover. Exported for tests.
+ */
+export function buildScenesArgs(s: ScenesInput): string[] {
+  const fps = s.fps ?? 30;
+  const W = s.width;
+  const H = s.height;
+  const inputs: string[] = [];
+  const chains: string[] = [];
+  s.scenes.forEach((sc, i) => {
+    const d = Math.max(0.3, sc.durationSec).toFixed(3);
+    inputs.push('-stream_loop', '-1', '-t', d, '-i', sc.path);
+    chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`);
+  });
+  const n = s.scenes.length;
+  const total = s.scenes.reduce((t, sc) => t + Math.max(0.3, sc.durationSec), 0).toFixed(3);
+  return [
+    ...inputs,
+    '-i', s.audioPath,
+    '-filter_complex', `${chains.join(';')};${s.scenes.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0,format=yuv420p[v]`,
+    '-map', '[v]', '-map', `${n}:a:0`,
+    '-t', total,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-r', String(fps),
+    '-c:a', 'aac', '-b:a', '192k',
+    '-movflags', '+faststart',
+    s.output,
+  ];
+}
+
+export async function renderScenes(s: ScenesInput, opts: RunOptions = {}) {
+  const total = s.scenes.reduce((t, sc) => t + sc.durationSec, 0);
+  await runFfmpeg(buildScenesArgs(s), { timeoutMs: Math.max(180_000, total * 12_000), ...opts });
+}

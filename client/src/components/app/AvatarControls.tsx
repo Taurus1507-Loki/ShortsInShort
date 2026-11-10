@@ -220,15 +220,18 @@ export function ScriptAssist({
   style,
   hasScript,
   onScript,
+  initialTopic = '',
 }: {
   language: ProjectSettings['language'];
   style: EditingStyle;
   hasScript: boolean;
   onScript: (script: string, title: string) => void;
+  /** Pre-fills the topic (e.g. a Faceless project's topic). */
+  initialTopic?: string;
 }) {
   const { data: meta } = useMeta();
   const [open, setOpen] = useState(false);
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(initialTopic);
   const [duration, setDuration] = useState(45);
   const [notes, setNotes] = useState('');
   const write = useMutation({
@@ -248,7 +251,16 @@ export function ScriptAssist({
   if (!meta?.features.scriptWriting) return null;
   if (!open) {
     return (
-      <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="justify-self-start"
+        onClick={() => {
+          if (!topic && initialTopic) setTopic(initialTopic);
+          setOpen(true);
+        }}
+      >
         <Wand2 /> Write it with AI
       </Button>
     );

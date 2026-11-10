@@ -31,19 +31,6 @@ const ConsentPage = lazy(() => import('@/pages/consent/ConsentPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
   {
-    path: 'faceless',
-    title: 'Faceless Videos',
-    phase: 4,
-    description: 'Turn a topic or script into a narrated video with licensed visuals.',
-    bullets: [
-      'AI script improvement',
-      'Scene planning & visual prompts',
-      'Narration in 5 Indian languages',
-      'Licensed stock media',
-      'Motion Explainer style: fully animated scenes from a topic',
-    ],
-  },
-  {
     path: 'templates',
     title: 'Templates',
     phase: 4,
@@ -95,6 +82,7 @@ export default function App() {
               <Route path="brand-kit" element={<BrandKitPage />} />
               <Route path="editor" element={<Navigate to="/app/new?mode=editor" replace />} />
               <Route path="avatar" element={<Navigate to="/app/new?mode=avatar" replace />} />
+              <Route path="faceless" element={<Navigate to="/app/new?mode=faceless" replace />} />
               <Route path="voices" element={<VoicesPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="help" element={<HelpPage />} />

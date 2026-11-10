@@ -9,9 +9,11 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { avatarCreditCost, editorCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { avatarCreditCost, editorCreditCost, facelessCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
+import { getStockProvider } from '../../services/ai/stock.js';
+import { findClips, scenesKey, splitScenes } from '../../services/faceless/scenes.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
@@ -51,7 +53,9 @@ async function withMedia(p: ProjectDoc) {
     const a = id && assets.find((x) => x._id.equals(id));
     return a ? toPublicAsset(a) : null;
   };
-  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId), narrationAsset: find(p.narrationAssetId), backgroundAsset: find(p.backgroundAssetId) };
+  return { ...toPublicProject(p), sourceAsset: find(p.sourceAssetId), outputAsset: find(p.outputAssetId), narrationAsset: find(p.narrationAssetId), backgroundAsset: find(p.backgroundAssetId),
+    // Faceless: the scene plan no longer matches the script.
+    scenesOutdated: p.mode === 'faceless' && (p.scenes?.length ?? 0) > 0 && p.scenesKey !== scenesKey(p.script ?? '') };
 }
 
 projectsRouter.get(
@@ -199,8 +203,44 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   };
 }
 
+/**
+ * Stock-footage faceless video: needs an up-to-date voiceover and a scene plan for the current script
+ * with a clip in every scene. 1 credit per started 30 s of voiceover (×2 for 4K).
+ */
+async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  const stats = project.narrationStats;
+  const narration = project.narrationAssetId
+    ? await Asset.findOne({ _id: project.narrationAssetId, workspaceId, deletedAt: null, status: 'ready', kind: 'narration_audio' })
+    : null;
+  if (!narration || !stats) throw badRequest('Generate the voiceover first.', 'NO_NARRATION');
+  if (!project.scenes?.length) throw badRequest('Plan the scenes first.', 'NO_SCENES');
+  if (project.scenesKey !== scenesKey(project.script ?? '')) throw conflict('The script changed since the scenes were planned. Plan the scenes again.', 'SCENES_OUTDATED');
+  const missing = project.scenes.findIndex((sc) => !sc.clip?.id);
+  if (missing >= 0) throw badRequest(`Scene ${missing + 1} has no clip yet. Search for one or edit its search.`, 'SCENE_WITHOUT_CLIP');
+  if (!getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+  const s = project.settings ?? {};
+  if (stats.voiceId && (await CustomVoice.exists({ workspaceId, providerVoiceId: stats.voiceId })) && !(await ownCustomVoice(workspaceId, stats.voiceId))) {
+    throw new AppError(409, 'VOICE_WITHDRAWN', 'Consent for this custom voice was withdrawn, so its voiceover can’t be used in new videos. Choose another voice and generate the voiceover again.');
+  }
+  const ws = await Workspace.findById(workspaceId).select('plan creditBalance').lean();
+  const plan = PLANS[(ws?.plan ?? 'free') as PlanId];
+  const resolution = s.resolution ?? '1080p';
+  const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
+  return {
+    credits: facelessCreditCost(durationSec, resolution),
+    balance: ws?.creditBalance ?? 0,
+    sourceDurationSec: durationSec,
+    resolution,
+    resolutionAllowed: resolutionAllowed(resolution, plan.maxResolution),
+    planMaxResolution: plan.maxResolution,
+    narrationOutdated: stats.scriptHash !== scriptHash(project.script ?? '', s.voiceId ?? '', s.speakingRate ?? 1, s.language ?? 'en'),
+    sceneCount: project.scenes.length,
+  };
+}
+
 async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   if (project.mode === 'avatar') return avatarQuote(project, workspaceId);
+  if (project.mode === 'faceless') return facelessQuote(project, workspaceId);
   if (project.mode !== 'editor') {
     throw new AppError(501, 'NOT_AVAILABLE', 'Generation for this project type is not available yet.');
   }
@@ -253,7 +293,7 @@ async function startProjectJob(
   if (!claimed) throw conflict('This project is already being processed.', 'PROJECT_BUSY');
 
   try {
-    await applyCreditChange({
+    if (opts.credits > 0) await applyCreditChange({
       workspaceId,
       type: 'consume',
       amount: -opts.credits,
@@ -280,7 +320,7 @@ async function startProjectJob(
   } catch (err) {
     // Never leave credits charged for a job that doesn't exist, or a project stuck in `queued`.
     // The refund key matches the worker's, so even a racing compensation can only refund once.
-    await applyCreditChange({
+    if (opts.credits > 0) await applyCreditChange({
       workspaceId,
       type: 'refund',
       amount: opts.credits,
@@ -318,7 +358,7 @@ projectsRouter.post(
 /* ── Avatar Studio voiceover (step 3.1) ─────────────────────────────── */
 
 async function narrationQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
-  if (project.mode !== 'avatar') throw badRequest('Voiceovers are part of Avatar Studio projects.', 'WRONG_MODE');
+  if (project.mode !== 'avatar' && project.mode !== 'faceless') throw badRequest('Voiceovers are part of Avatar Studio and Faceless projects.', 'WRONG_MODE');
   if (!getTtsProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'AI voices are not configured on this server.');
   const characters = (project.script ?? '').trim().length;
   const ws = await Workspace.findById(workspaceId).select('creditBalance').lean();
@@ -433,5 +473,81 @@ projectsRouter.get(
     if (!project) throw notFound('Project not found.');
     const job = project.lastJobId ? await Job.findOne({ _id: project.lastJobId, workspaceId: req.auth!.workspaceId }) : null;
     res.json({ data: job ? toPublicJob(job) : null });
+  }),
+);
+
+/* ── Faceless scenes (step 4.1) ─────────────────────────────────────── */
+
+const sceneParams = z.object({ id: idParams.shape.id, index: z.coerce.number().int().min(0).max(99) });
+
+async function facelessProject(req: Request, id: string) {
+  const project = await Project.findOne({ _id: id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+  if (!project) throw notFound('Project not found.');
+  if (project.mode !== 'faceless') throw badRequest('Scenes are part of Faceless projects.', 'WRONG_MODE');
+  return project;
+}
+
+/** Plans scenes from the saved script (background job; free). */
+projectsRouter.post(
+  '/:id/scenes/plan',
+  requireVerifiedEmail,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await facelessProject(req, req.params.id!);
+    if (!getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+    if (!splitScenes(project.script ?? '', project.settings?.language ?? 'en').length) throw badRequest('Write a script first.', 'NO_SCRIPT');
+    const data = await startProjectJob(req, project, {
+      type: 'plan_scenes',
+      credits: 0,
+      note: 'Plan scenes',
+      payload: { previousStatus: project.status },
+      auditAction: 'project.plan_scenes',
+    });
+    res.status(202).json({ data });
+  }),
+);
+
+/** Searches stock clips for one scene with the user's own words; saves the results as its candidates. */
+projectsRouter.post(
+  '/:id/scenes/:index/search',
+  validate({ params: sceneParams, body: z.object({ query: z.string().trim().min(2).max(60) }).strict() }),
+  asyncHandler(async (req, res) => {
+    const project = await facelessProject(req, req.params.id!);
+    if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+    const index = Number(req.params.index);
+    const scene = project.scenes?.[index];
+    if (!scene) throw notFound('Scene not found.');
+    const stock = getStockProvider();
+    if (!stock) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+    const query = String(req.body.query);
+    const used = new Set((project.scenes ?? []).filter((_, i) => i !== index).map((sc) => sc.clip?.id).filter(Boolean) as string[]);
+    let candidates;
+    try {
+      candidates = await findClips(stock, [query], { minDurationSec: Math.min(12, scene.text.split(/\s+/).length / 2.5), used, max: 6 });
+    } catch {
+      throw new AppError(502, 'PROVIDER_ERROR', 'Stock search failed. Try again shortly.');
+    }
+    project.set(`scenes.${index}.queries`, [query, ...(scene.queries ?? []).filter((q) => q !== query)].slice(0, 3));
+    project.set(`scenes.${index}.candidates`, candidates);
+    await project.save();
+    res.json({ data: await withMedia(project), meta: { found: candidates.length } });
+  }),
+);
+
+/** Picks one of a scene's candidate clips. */
+projectsRouter.patch(
+  '/:id/scenes/:index',
+  validate({ params: sceneParams, body: z.object({ clipId: z.string().min(1).max(40) }).strict() }),
+  asyncHandler(async (req, res) => {
+    const project = await facelessProject(req, req.params.id!);
+    if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+    const index = Number(req.params.index);
+    const scene = project.scenes?.[index];
+    if (!scene) throw notFound('Scene not found.');
+    const clip = [...(scene.candidates ?? []), ...(scene.clip ? [scene.clip] : [])].find((c) => c.id === req.body.clipId);
+    if (!clip) throw badRequest('That clip isn’t one of this scene’s options. Search again.', 'INVALID_CLIP');
+    project.set(`scenes.${index}.clip`, clip);
+    await project.save();
+    res.json({ data: await withMedia(project) });
   }),
 );

@@ -50,7 +50,20 @@ export class GeminiProvider implements LLMProvider {
     private readonly model: string,
   ) {}
 
+  /** Retries temporary failures (overloaded / rate limited) twice with a short backoff. */
   async generateJson<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number } = {}): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.once<T>(prompt, schema, opts);
+      } catch (err) {
+        const temporary = err instanceof LLMError && (err.status === 429 || err.status === 500 || err.status === 503);
+        if (!temporary || attempt >= 2 || opts.signal?.aborted) throw err;
+        await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+      }
+    }
+  }
+
+  private async once<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number }): Promise<T> {
     const timeout = AbortSignal.timeout(90_000);
     const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`, {
@@ -65,11 +78,18 @@ export class GeminiProvider implements LLMProvider {
     if (!res.ok) {
       if (res.status === 400 || res.status === 403) throw new LLMError('The AI provider rejected the request (check GEMINI_API_KEY / GEMINI_MODEL).', res.status);
       if (res.status === 429) throw new LLMError('The AI provider is rate-limiting requests; try again shortly.', 429);
+      if (res.status === 503) throw new LLMError('The AI provider is overloaded right now; try again shortly.', 503);
       throw new LLMError(`The AI provider failed (HTTP ${res.status}).`, res.status);
     }
     return parseGeminiResponse<T>(await res.json());
   }
 }
+
+let retryDelayMs = 2500;
+/** Test seam: backoff between retries of temporary AI failures. */
+export const setLLMRetryDelay = (ms: number) => {
+  retryDelayMs = ms;
+};
 
 let override: LLMProvider | null | undefined;
 /** Test seam: inject a provider (null = not configured, undefined = reset to env). */

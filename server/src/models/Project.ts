@@ -72,6 +72,36 @@ const captionLineSchema = new Schema(
   { _id: false },
 );
 
+/** A licensed stock clip chosen for a faceless scene (download URL never sent to the browser). */
+const stockClipSchema = new Schema(
+  {
+    id: String,
+    provider: String,
+    downloadUrl: String,
+    pageUrl: String,
+    author: String,
+    width: Number,
+    height: Number,
+    durationSec: Number,
+    thumbnailUrl: { type: String, default: null },
+    tags: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
+const sceneSchema = new Schema(
+  {
+    /** The narration for this scene (a slice of the script, in order). */
+    text: { type: String, required: true, maxlength: 1000 },
+    /** Stock searches, most specific first. */
+    queries: { type: [String], default: [] },
+    clip: { type: stockClipSchema, default: null },
+    /** Other relevant clips to swap in. */
+    candidates: { type: [stockClipSchema], default: [] },
+  },
+  { _id: false },
+);
+
 const projectSchema = new Schema(
   {
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
@@ -121,6 +151,7 @@ const projectSchema = new Schema(
       watermark: { type: Boolean, default: false },
       disclosure: { type: Boolean, default: false },
       presenter: { type: { _id: false, avatarId: String, layout: String, reused: Boolean }, default: null },
+      sceneCount: { type: Number, default: 0 },
       background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
@@ -144,6 +175,11 @@ const projectSchema = new Schema(
       },
       default: null,
     },
+    /** Faceless: scenes planned from the script (step 4.1) and the script fingerprint they match. */
+    scenes: { type: [sceneSchema], default: [] },
+    scenesKey: { type: String, default: null },
+    /** How the scene searches were chosen: by AI, or from keywords when the AI wasn't available. */
+    scenesPlannedWith: { type: String, enum: ['ai', 'keywords', null], default: null },
     /** Avatar Studio voiceover (step 3.1). */
     narrationAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     /** Word timings of the voiceover (used for captions in 3.3; never sent in full to the client). */
@@ -178,6 +214,10 @@ projectSchema.index({ workspaceId: 1, deletedAt: 1, status: 1 });
 export type ProjectDoc = HydratedDocument<InferSchemaType<typeof projectSchema>>;
 export const Project = model('Project', projectSchema);
 
+const publicClip = (c: { id?: string | null; provider?: string | null; pageUrl?: string | null; author?: string | null; durationSec?: number | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null }) => ({
+  id: c.id, provider: c.provider, pageUrl: c.pageUrl, author: c.author, durationSec: c.durationSec, thumbnailUrl: c.thumbnailUrl ?? null, width: c.width, height: c.height,
+});
+
 export function toPublicProject(p: ProjectDoc) {
   return {
     id: (p._id as Types.ObjectId).toString(),
@@ -202,6 +242,14 @@ export function toPublicProject(p: ProjectDoc) {
     captionOverrides: p.captionOverrides?.length ? p.captionOverrides : null,
     narrationAssetId: p.narrationAssetId?.toString() ?? null,
     narrationStats: p.narrationStats ?? null,
+    scenes: (p.scenes ?? []).map((s) => ({
+      text: s.text,
+      queries: s.queries,
+      clip: s.clip ? publicClip(s.clip) : null,
+      candidates: (s.candidates ?? []).map(publicClip),
+    })),
+    scenesKey: p.scenesKey ?? null,
+    scenesPlannedWith: p.scenesPlannedWith ?? null,
     createdAt: p.get('createdAt') as Date,
     updatedAt: p.get('updatedAt') as Date,
   };

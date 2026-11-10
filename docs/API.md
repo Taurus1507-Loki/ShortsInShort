@@ -134,3 +134,16 @@ Presenter settings: `settings.avatarId` ('' = none) and `settings.avatarLayout` 
 presenter the estimate adds `presenterCredits` and `presenterReused`; generate can return 400 `INVALID_AVATAR`
 or 503 `NOT_CONFIGURED`.
 
+## Faceless scenes — `/projects/:id` (auth, mode `faceless`)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/scenes/plan` | 202 `{job}` — background job (free): splits the saved script into scenes, AI picks searches, one licensed clip per scene. 503 `NOT_CONFIGURED` without `PIXABAY_API_KEY`, 400 `NO_SCRIPT` |
+| POST | `/scenes/:index/search` | `{query}` → project with that scene's new `candidates` (meta `{found}`) |
+| PATCH | `/scenes/:index` | `{clipId}` — choose one of the scene's candidates (400 `INVALID_CLIP`) |
+
+Faceless projects return `scenes[]` (`text, queries, clip, candidates` — clips without download URLs),
+`scenesKey`, `scenesOutdated`, `scenesPlannedWith` (`ai|keywords`). Generate errors: `NO_NARRATION`, `NO_SCENES`,
+`SCENES_OUTDATED`, `SCENE_WITHOUT_CLIP`, `NARRATION_OUTDATED`, `VOICE_WITHDRAWN`; estimate adds `sceneCount`.
+Voiceover endpoints (`/narrate`, `/narration/estimate`) accept faceless projects too.
+

@@ -6,6 +6,7 @@ import { Worker } from './services/queue/worker.js';
 import { registerRenderJob } from './services/video/renderJob.js';
 import { registerNarrationJob } from './services/audio/narrationJob.js';
 import { registerCloneJob } from './services/voice/cloneJob.js';
+import { registerPlanScenesJob } from './services/faceless/planJob.js';
 
 async function main() {
   // Fail fast: the API never serves traffic without its database.
@@ -24,6 +25,7 @@ async function main() {
     registerRenderJob();
     registerNarrationJob();
     registerCloneJob();
+    registerPlanScenesJob();
     worker = new Worker();
     worker.start();
   }

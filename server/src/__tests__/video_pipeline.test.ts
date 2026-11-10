@@ -289,10 +289,10 @@ describe('render pipeline', () => {
     expect(await CreditTransaction.countDocuments({ type: 'refund' })).toBe(1);
   }, 60_000);
 
-  it('refuses generation for modes that are not built yet', async () => {
+  it('asks for a voiceover before rendering a faceless video', async () => {
     const { auth } = await registerUser({ verify: true });
     const res = await request(app).post('/api/projects').set(auth).send({ title: 'Faceless', mode: 'faceless' }).expect(201);
-    await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(501);
+    await request(app).post(`/api/projects/${res.body.data.id}/generate`).set(auth).expect(400);
   });
 });
 

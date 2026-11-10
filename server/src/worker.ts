@@ -6,12 +6,14 @@ import { Worker } from './services/queue/worker.js';
 import { registerRenderJob } from './services/video/renderJob.js';
 import { registerNarrationJob } from './services/audio/narrationJob.js';
 import { registerCloneJob } from './services/voice/cloneJob.js';
+import { registerPlanScenesJob } from './services/faceless/planJob.js';
 
 async function main() {
   await connectDB(env.mongodbUri);
   registerRenderJob();
   registerNarrationJob();
   registerCloneJob();
+  registerPlanScenesJob();
   const worker = new Worker();
   worker.start();
   const shutdown = async (signal: string) => {

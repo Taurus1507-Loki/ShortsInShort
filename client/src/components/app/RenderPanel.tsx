@@ -25,13 +25,18 @@ const STAGES: Record<string, string> = {
   requesting_presenter: 'Sending your voiceover to the presenter',
   presenter_rendering: 'The presenter is being animated (usually a few minutes)',
   saving_presenter: 'Saving the presenter video',
+  downloading_clips: 'Downloading your scene clips',
+  assembling_scenes: 'Cutting each clip to its words',
+  planning_scenes: 'Planning scenes',
+  finding_clips: 'Finding clips',
   saving: 'Saving your video',
   retrying: 'Hit a snag — retrying',
 };
 
 export function RenderPanel({ project, autoOpen, dirty }: { project: Project; autoOpen?: boolean; dirty: boolean }) {
   const busy = project.status === 'queued' || project.status === 'processing';
-  const avatar = project.mode === 'avatar';
+  const faceless = project.mode === 'faceless';
+  const avatar = project.mode === 'avatar' || faceless;
   const hasInput = avatar ? Boolean(project.narrationAssetId) : Boolean(project.sourceAssetId);
   const canQuote = (project.mode === 'editor' || avatar) && hasInput && !busy && !dirty;
   const estimate = useEstimate(project.id, canQuote);
@@ -68,14 +73,6 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
     },
   });
 
-  if (project.mode === 'faceless') {
-    return (
-      <Notice tone="info" title="Generation for this project type isn’t available yet">
-        Faceless videos arrive in Phase 4. Your settings are saved.
-      </Notice>
-    );
-  }
-
   const e = estimate.data;
   const insufficient = e ? e.balance < e.credits : false;
   const outdated = Boolean(e?.narrationOutdated);
@@ -84,7 +81,12 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
     <Card>
       <CardHeader>
         <CardTitle>{avatar ? 'Video' : 'Render'}</CardTitle>
-        {avatar && (
+        {faceless && (
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Builds the finished video: every scene’s clip cut to its words, your voiceover, captions timed to every word, plus logo and music if switched on.
+          </p>
+        )}
+        {avatar && !faceless && (
           <p className="mt-1.5 text-sm text-muted-foreground">
             Builds the finished video: your voiceover with a talking presenter (if chosen), your background, captions timed to every word, plus B-roll, logo and music if switched on.
           </p>
@@ -127,6 +129,8 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
             <div className="text-sm">
               {!hasInput ? (
                 <p className="text-muted-foreground">{avatar ? 'Generate the voiceover first — the video is built around it.' : 'Upload a video above to render it.'}</p>
+              ) : faceless && (!project.scenes?.length || project.scenesOutdated) ? (
+                <p className="text-muted-foreground">Plan the scenes above first.</p>
               ) : dirty ? (
                 <p className="text-muted-foreground">Save your changes to see the cost.</p>
               ) : estimate.isLoading ? (
@@ -207,7 +211,13 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               )}
               <p className="flex gap-2">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                {avatar ? (
+                {faceless ? (
+                  <span>
+                    This builds a {project.aspectRatio} video from your {e?.sceneCount ?? project.scenes?.length ?? 0} scenes and voiceover, with {project.settings.captionsEnabled ? 'captions timed to every word' : 'no captions'}
+                    {project.settings.useBrandKit ? ', your logo' : ''}
+                    {project.settings.disclosure !== false ? ' and a small “AI-generated voice” label' : ''}. Licensed clips are credited in the result.
+                  </span>
+                ) : avatar ? (
                   <span>
                     This builds a {project.aspectRatio} video from {project.settings.avatarId ? 'a talking presenter, ' : ''}your background and voiceover, with {project.settings.captionsEnabled ? 'captions timed to every word' : 'no captions'}
                     {meta?.features.stockBroll && project.settings.bRollIntensity !== 'none' ? ', B-roll cutaways' : ''}

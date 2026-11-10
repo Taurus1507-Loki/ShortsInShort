@@ -86,6 +86,7 @@ export interface Estimate {
   narrationOutdated?: boolean;
   presenterCredits?: number;
   presenterReused?: boolean;
+  sceneCount?: number;
 }
 
 export interface RenderStats {
@@ -108,6 +109,7 @@ export interface RenderStats {
   disclosure?: boolean;
   background?: string | null;
   presenter?: { avatarId: string; layout: string; reused: boolean } | null;
+  sceneCount?: number;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -221,6 +223,10 @@ export interface Project {
   narrationAsset?: Asset | null;
   backgroundAssetId?: string | null;
   backgroundAsset?: Asset | null;
+  scenes?: Scene[];
+  scenesKey?: string | null;
+  scenesOutdated?: boolean;
+  scenesPlannedWith?: 'ai' | 'keywords' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -331,4 +337,22 @@ export interface AvatarInfo {
   previewVideoUrl: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
   tags: string[];
+}
+
+export interface SceneClip {
+  id: string;
+  provider: string;
+  pageUrl: string;
+  author: string;
+  durationSec: number;
+  thumbnailUrl: string | null;
+  width: number;
+  height: number;
+}
+
+export interface Scene {
+  text: string;
+  queries: string[];
+  clip: SceneClip | null;
+  candidates: SceneClip[];
 }

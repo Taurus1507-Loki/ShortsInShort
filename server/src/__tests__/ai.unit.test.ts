@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { parseGeminiResponse, type LLMProvider } from '../services/ai/llm.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { GeminiProvider, LLMError, parseGeminiResponse, setLLMRetryDelay, type LLMProvider } from '../services/ai/llm.js';
 import { parsePixabayVideos, rankClips, type StockClip } from '../services/ai/stock.js';
 import { aiKeywords, matchKeyword, planBroll, scheduleBroll, timeTokens, toSentences, translateLines } from '../services/ai/creative.js';
 import { buildRenderArgs } from '../services/video/render.js';
@@ -32,7 +32,7 @@ describe('provider response parsing', () => {
     const clips = parsePixabayVideos({
       hits: [{ id: 7, pageURL: 'https://pixabay.com/videos/x-7/', duration: 12, user: 'ann', videos: { large: { url: 'L', width: 1920, height: 1080, size: 9 }, medium: { url: 'M', width: 1280, height: 720, size: 5 } } }],
     });
-    expect(clips).toEqual([{ id: '7', provider: 'pixabay', downloadUrl: 'M', pageUrl: 'https://pixabay.com/videos/x-7/', author: 'ann', width: 1280, height: 720, durationSec: 12, tags: [] }]);
+    expect(clips).toEqual([{ id: '7', provider: 'pixabay', downloadUrl: 'M', pageUrl: 'https://pixabay.com/videos/x-7/', author: 'ann', width: 1280, height: 720, durationSec: 12, tags: [], thumbnailUrl: null }]);
   });
 });
 
@@ -143,5 +143,34 @@ describe('B-roll in the render graph', () => {
     expect(graph).toContain("[base1][b1]overlay=enable='between(t,7.000,9.000)'");
     expect(graph).toContain('setpts=PTS-STARTPTS+3.000/TB');
     expect(graph).toContain('[base2]setsar=1,ass=');
+  });
+});
+
+describe('Gemini retries', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const ok = { candidates: [{ content: { parts: [{ text: '{"x":1}' }] } }] };
+
+  it('retries temporary failures and gives up on permanent ones', async () => {
+    setLLMRetryDelay(1);
+    const calls: number[] = [];
+    const replies = [503, 429, 200];
+    vi.stubGlobal('fetch', async () => {
+      const status = replies[calls.length]!;
+      calls.push(status);
+      return new Response(status === 200 ? JSON.stringify(ok) : '{}', { status });
+    });
+    const g = new GeminiProvider('test-key', 'model');
+    await expect(g.generateJson<{ x: number }>('p', { type: 'OBJECT' })).resolves.toEqual({ x: 1 });
+    expect(calls).toEqual([503, 429, 200]);
+
+    calls.length = 0;
+    replies.splice(0, 3, 400, 200, 200);
+    await expect(g.generateJson('p', { type: 'OBJECT' })).rejects.toBeInstanceOf(LLMError);
+    expect(calls).toEqual([400]);
+
+    calls.length = 0;
+    replies.splice(0, 3, 503, 503, 503);
+    await expect(g.generateJson('p', { type: 'OBJECT' })).rejects.toThrow(/overloaded/);
+    expect(calls).toHaveLength(3);
   });
 });

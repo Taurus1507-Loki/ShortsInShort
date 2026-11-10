@@ -193,7 +193,9 @@ const CAPTION_SIZES: { id: ProjectSettings['captionSize']; label: string }[] = [
 /** `avatar` hides footage-only settings (framing, pause cutting, spoken language — set in the voiceover panel). */
 export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: CustomizeValue; onChange: (v: CustomizeValue) => void; mode?: ProjectMode }) {
   const { data: meta } = useMeta();
-  const avatar = mode === 'avatar';
+  // Voiceover-based modes share the same reduced settings.
+  const avatar = mode === 'avatar' || mode === 'faceless';
+  const faceless = mode === 'faceless';
   // Voiceover videos get captions from the voice's own word timings: no transcription needed.
   const captionsLive = avatar || Boolean(meta?.features.captions);
   // Older projects may predate newer settings; fall back to defaults.
@@ -286,6 +288,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
             <Choice name="Editing intensity" value={s.editingIntensity} onChange={(v) => set('editingIntensity', v)} options={INTENSITY} />
           </Setting>
           )}
+          {!faceless && (
           <Setting
             label="B-roll (stock footage)"
             status={brollLive ? 'applied' : 'soon'}
@@ -297,6 +300,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
           >
             <Choice name="B-roll" value={s.bRollIntensity} onChange={(v) => set('bRollIntensity', v)} options={BROLL} />
           </Setting>
+          )}
           <Setting
             label="Zoom punch-ins"
             status="applied"

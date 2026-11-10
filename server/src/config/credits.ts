@@ -22,6 +22,9 @@ export function narrationCreditCost(characters: number): number {
 export const AVATAR_CREDITS_PER_30S = 5;
 export const avatarCreditCost = (durationSec: number) => Math.max(1, Math.ceil(durationSec / 30)) * AVATAR_CREDITS_PER_30S;
 
+/** Stock-footage faceless video: 1 credit per started 30 s of voiceover (×2 for 4K). */
+export const facelessCreditCost = (durationSec: number, resolution: string) => Math.max(1, Math.ceil(durationSec / 30)) * (CREDIT_COSTS.resolutionMultiplier[resolution] ?? 1);
+
 export function editorCreditCost(sourceDurationSec: number, resolution: string): number {
   const minutes = Math.max(1, Math.ceil(sourceDurationSec / 60));
   return minutes * CREDIT_COSTS.editorPerSourceMinute * (CREDIT_COSTS.resolutionMultiplier[resolution] ?? 1);

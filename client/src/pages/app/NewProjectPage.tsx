@@ -8,6 +8,7 @@ import { CustomizeForm, DEFAULT_SETTINGS, type CustomizeValue } from '@/componen
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { LivePreview } from '@/components/app/LivePreview';
 import { VoicePicker } from '@/components/app/VoicePicker';
+import { ScriptAssist } from '@/components/app/AvatarControls';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { Card, Field, Notice } from '@/components/ui/primitives';
@@ -50,7 +51,8 @@ function NewProjectWizard() {
   const [custom, setCustom] = useState<CustomizeValue>({ style: 'viral', aspectRatio: '9:16', settings: DEFAULT_SETTINGS });
   // Apply Brand Kit caption defaults once, when the kit says so (the user can still change them).
   const { data: brandKit } = useBrandKit();
-  const { data: voices } = useVoices(mode === 'avatar' && Boolean(meta?.features.voices));
+  const voicedMode = mode === 'avatar' || mode === 'faceless';
+  const { data: voices } = useVoices(voicedMode && Boolean(meta?.features.voices));
   const [brandApplied, setBrandApplied] = useState(false);
   useEffect(() => {
     if (brandApplied || !brandKit) return;
@@ -148,7 +150,7 @@ function NewProjectWizard() {
                   </span>
                   <span className="mt-4 font-semibold">{m.name}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{m.description}</span>
-                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : m.id === 'avatar' ? 'Available now · script → voice → video' : `Coming in Phase ${m.phase}`}</span>
+                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : m.id === 'avatar' ? 'Available now · script → voice → video' : 'Available now · topic → stock-footage video'}</span>
                 </button>
               ))}
             </div>
@@ -174,7 +176,7 @@ function NewProjectWizard() {
             )}
 
             {mode === 'faceless' && (
-              <Field id="topic" label="Topic" hint="One line is enough — AI script planning arrives in Phase 4.">
+              <Field id="topic" label="Topic" hint="What the video is about — used when AI writes your script and picks footage.">
                 <Input value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={300} placeholder="e.g. Why compounding is the 8th wonder of the world" />
               </Field>
             )}
@@ -182,15 +184,27 @@ function NewProjectWizard() {
             <Field
               id="script"
               label={mode === 'editor' ? 'Notes or script (optional)' : 'Script'}
-              error={mode === 'avatar' && script.trim().length > 5000 ? 'One voiceover can be up to 5,000 characters (about 6 minutes).' : undefined}
-              hint={mode === 'avatar' ? `${script.trim().length.toLocaleString()} / 5,000 characters · what the voice will say, word for word` : `${script.length.toLocaleString()} / 20,000 characters`}
+              error={voicedMode && script.trim().length > 5000 ? 'One voiceover can be up to 5,000 characters (about 6 minutes).' : undefined}
+              hint={voicedMode ? `${script.trim().length.toLocaleString()} / 5,000 characters · what the voice will say, word for word` : `${script.length.toLocaleString()} / 20,000 characters`}
             >
               <Textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={20000} rows={8} placeholder={mode === 'avatar' ? 'What should your avatar say?' : 'Write or paste your script…'} />
             </Field>
+            {voicedMode && (
+              <ScriptAssist
+                language={custom.settings.language}
+                style={custom.style}
+                hasScript={script.trim().length > 0}
+                initialTopic={topic || title}
+                onScript={(text, aiTitle) => {
+                  setScript(text);
+                  if (!title.trim() && aiTitle) setTitle(aiTitle);
+                }}
+              />
+            )}
           </div>
         )}
 
-        {step === 2 && mode === 'avatar' && (
+        {step === 2 && voicedMode && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Voice</h2>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -216,7 +230,7 @@ function NewProjectWizard() {
           </div>
         )}
 
-        {step === 2 && mode !== 'avatar' && (
+        {step === 2 && !voicedMode && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Customize</h2>
             <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
@@ -241,7 +255,7 @@ function NewProjectWizard() {
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">Review & generate</h2>
             <dl className="grid gap-x-8 gap-y-3 rounded-xl bg-muted/40 p-5 text-sm sm:grid-cols-2">
-              {(mode === 'avatar'
+              {(voicedMode
                 ? [
                     ['Mode', modeName(mode)],
                     ['Title', title],
@@ -268,7 +282,11 @@ function NewProjectWizard() {
                 </div>
               ))}
             </dl>
-            {mode === 'avatar' ? (
+            {mode === 'faceless' ? (
+              <Notice tone="info" title="What happens next">
+                After creating the project: generate the voiceover (1 credit per started 400 characters), let AI plan the scenes with licensed stock clips (free), swap any clip you don’t like, then make the video (1 credit per started 30 s).
+              </Notice>
+            ) : mode === 'avatar' ? (
               <Notice tone="info" title="What you can make today">
                 After creating the project you can generate the AI voiceover (you’ll see the credit cost first — 1 credit per started 400 characters). Then choose a background and, optionally, a talking presenter, and make the video.
               </Notice>
@@ -304,11 +322,11 @@ function NewProjectWizard() {
               <Button
                 variant="gradient"
                 onClick={() => save.mutate({ generate: mode === 'editor' })}
-                loading={save.isPending && (mode === 'avatar' || save.variables?.generate)}
-                disabled={Boolean(unverified) || save.isPending || (mode === 'editor' ? !sourceAsset : mode !== 'avatar') || (mode === 'avatar' && script.trim().length > 5000)}
-                title={mode === 'faceless' ? 'Not available for this mode yet' : mode === 'editor' && !sourceAsset ? 'Upload a video first' : undefined}
+                loading={save.isPending && (voicedMode || save.variables?.generate)}
+                disabled={Boolean(unverified) || save.isPending || (mode === 'editor' && !sourceAsset) || (voicedMode && script.trim().length > 5000)}
+                title={mode === 'editor' && !sourceAsset ? 'Upload a video first' : undefined}
               >
-                {mode === 'faceless' ? <Lock /> : <Sparkles />} {mode === 'avatar' ? 'Create & add voiceover' : 'Create & generate'}
+                <Sparkles /> {voicedMode ? 'Create & add voiceover' : 'Create & generate'}
               </Button>
             </div>
           )}
