@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { Worker } from './services/queue/worker.js';
 import { registerRenderJob } from './services/video/renderJob.js';
 import { registerNarrationJob } from './services/audio/narrationJob.js';
+import { registerCloneJob } from './services/voice/cloneJob.js';
 
 async function main() {
   // Fail fast: the API never serves traffic without its database.
@@ -22,6 +23,7 @@ async function main() {
   if (env.video.workerMode === 'embedded') {
     registerRenderJob();
     registerNarrationJob();
+    registerCloneJob();
     worker = new Worker();
     worker.start();
   }

@@ -63,3 +63,15 @@ export function formatDuration(sec: number | null | undefined): string {
   const h = Math.floor(m / 60);
   return h ? `${h}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
 }
+
+/** Voice samples and consent recordings (files or browser recordings). */
+export async function uploadAudio(file: File, purpose: 'voice_sample' | 'consent', opts: { onProgress?: (f: number) => void; signal?: AbortSignal } = {}): Promise<Asset> {
+  const init = await api<{ data: { asset: Asset; upload: { url: string; headers: Record<string, string> } } }>('/assets/uploads', {
+    method: 'POST',
+    body: { filename: file.name, contentType: file.type || 'audio/mpeg', sizeBytes: file.size, purpose },
+    signal: opts.signal,
+  });
+  await putWithProgress(init.data.upload.url, file, init.data.upload.headers, (f) => opts.onProgress?.(f), opts.signal);
+  const done = await api<{ data: Asset }>(`/assets/${init.data.asset.id}/complete`, { method: 'POST', signal: opts.signal });
+  return done.data;
+}

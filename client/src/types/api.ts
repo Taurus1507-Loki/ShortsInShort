@@ -47,7 +47,7 @@ export interface Meta {
 
 export interface Asset {
   id: string;
-  kind: 'source_video' | 'render' | 'thumbnail' | 'brand_logo' | 'narration_audio';
+  kind: 'source_video' | 'render' | 'thumbnail' | 'brand_logo' | 'narration_audio' | 'voice_sample' | 'consent_recording';
   status: 'pending' | 'ready' | 'failed';
   originalName: string;
   mimeType: string;
@@ -253,4 +253,56 @@ export interface CaptionLineData {
   end: number;
   text: string;
   keyword: string;
+}
+
+export interface ConsentInfo {
+  id: string;
+  kind: 'voice';
+  relationship: 'self' | 'other';
+  subjectName: string;
+  subjectEmail: string;
+  statementText: string;
+  statementMatch: number;
+  status: 'awaiting_subject' | 'active' | 'revoked';
+  grantedAt: string | null;
+  subjectConfirmedAt: string | null;
+  revokedAt: string | null;
+  revokedBy: 'subject' | 'workspace' | null;
+  createdAt: string;
+}
+
+export interface CustomVoice {
+  id: string;
+  name: string;
+  language: string;
+  description: string;
+  status: 'awaiting_consent' | 'cloning' | 'ready' | 'failed' | 'revoked';
+  failureReason: string | null;
+  voiceId: string | null;
+  sampleCount: number;
+  sampleDurationSec: number;
+  createdAt: string;
+  consent: ConsentInfo | null;
+}
+
+export interface CloneStatus {
+  voicesConfigured: boolean;
+  consentCheckConfigured: boolean;
+  limit: number;
+  used: number;
+  minSampleSec: number;
+  maxSampleSec: number;
+  matchThreshold: number;
+}
+
+export interface ConsentDetails {
+  subjectName: string;
+  statementText: string;
+  status: ConsentInfo['status'];
+  relationship: 'self' | 'other';
+  workspaceName: string;
+  requesterName: string;
+  voiceName: string;
+  confirmExpiresAt: string | null;
+  revokedAt: string | null;
 }

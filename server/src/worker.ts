@@ -5,11 +5,13 @@ import { connectDB, disconnectDB } from './config/db.js';
 import { Worker } from './services/queue/worker.js';
 import { registerRenderJob } from './services/video/renderJob.js';
 import { registerNarrationJob } from './services/audio/narrationJob.js';
+import { registerCloneJob } from './services/voice/cloneJob.js';
 
 async function main() {
   await connectDB(env.mongodbUri);
   registerRenderJob();
   registerNarrationJob();
+  registerCloneJob();
   const worker = new Worker();
   worker.start();
   const shutdown = async (signal: string) => {

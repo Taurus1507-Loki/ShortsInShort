@@ -14,6 +14,8 @@ export interface Plan {
   storageBytes: number;
   maxResolution: '720p' | '1080p' | '4k';
   watermark: boolean;
+  /** Consented custom (cloned) voices the workspace can keep at once. */
+  customVoices: number;
   highlights: string[];
 }
 
@@ -29,6 +31,7 @@ export const PLANS: Record<PlanId, Plan> = {
     storageBytes: 2 * GB,
     maxResolution: '720p',
     watermark: true,
+    customVoices: 0,
     highlights: ['3 credits after email verification', '720p exports', 'Watermarked output'],
   },
   starter: {
@@ -40,6 +43,7 @@ export const PLANS: Record<PlanId, Plan> = {
     storageBytes: 10 * GB,
     maxResolution: '1080p',
     watermark: false,
+    customVoices: 1,
     highlights: ['20 credits / month', '1080p exports', 'No watermark', 'Brand Kit'],
   },
   creator: {
@@ -51,6 +55,7 @@ export const PLANS: Record<PlanId, Plan> = {
     storageBytes: 25 * GB,
     maxResolution: '1080p',
     watermark: false,
+    customVoices: 3,
     highlights: ['50 credits / month', 'Everything in Starter', 'Faceless videos', 'Priority queue'],
   },
   pro: {
@@ -62,6 +67,7 @@ export const PLANS: Record<PlanId, Plan> = {
     storageBytes: 60 * GB,
     maxResolution: '4k',
     watermark: false,
+    customVoices: 5,
     highlights: ['120 credits / month', 'AI Avatar Studio', '4K where supported', 'Premium AI models'],
   },
   agency: {
@@ -73,6 +79,7 @@ export const PLANS: Record<PlanId, Plan> = {
     storageBytes: 200 * GB,
     maxResolution: '4k',
     watermark: false,
+    customVoices: 10,
     highlights: ['350 credits / month', 'Team members', 'Multiple brand kits', 'Dedicated support'],
   },
 };

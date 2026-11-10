@@ -120,4 +120,56 @@ export const emails = {
       ),
     };
   },
+  consentRequest(to: string, subjectName: string, requester: string, workspace: string, statement: string, confirmUrl: string, revokeUrl: string): EmailMessage {
+    return {
+      to,
+      tag: 'consent_request',
+      subject: `${requester} wants to create an AI copy of your voice`,
+      text: `Hi ${subjectName},
+
+${requester} (workspace "${workspace}") uploaded a recording of you saying:
+"${statement}"
+
+Nothing is created until you confirm. If you agree, confirm here (link valid 7 days):
+${confirmUrl}
+
+If this wasn't you or you don't agree, do nothing — or withdraw at any time, now or later:
+${revokeUrl}`,
+      html: layout(
+        'Confirm your voice consent',
+        `<p>Hi ${escapeHtml(subjectName)}, <strong>${escapeHtml(requester)}</strong> (workspace “${escapeHtml(workspace)}”) uploaded a recording of you saying:</p><blockquote style="margin:12px 0;padding:10px 14px;border-left:3px solid #7C3AED;background:#F5F3FF">${escapeHtml(statement)}</blockquote><p>Nothing is created until you confirm. The link is valid for 7 days.</p><p style="font-size:13px">Don’t agree, or this wasn’t you? Do nothing, or <a href="${escapeHtml(revokeUrl)}">withdraw consent</a> — that link keeps working later too.</p>`,
+        { label: 'Review and confirm', url: confirmUrl },
+      ),
+    };
+  },
+  consentRecorded(to: string, subjectName: string, workspace: string, revokeUrl: string): EmailMessage {
+    return {
+      to,
+      tag: 'consent_recorded',
+      subject: 'Your voice consent for ShortsInShort',
+      text: `Hi ${subjectName},
+
+You agreed to an AI copy of your voice for the "${workspace}" workspace. Keep this email: you can withdraw at any time with this link, which deletes the voice and your recordings:
+${revokeUrl}`,
+      html: layout(
+        'Your voice consent is recorded',
+        `<p>Hi ${escapeHtml(subjectName)}, you agreed to an AI copy of your voice for the “${escapeHtml(workspace)}” workspace.</p><p>Keep this email. You can withdraw at any time — the AI voice and your recordings are deleted straight away.</p>`,
+        { label: 'Withdraw consent', url: revokeUrl },
+      ),
+    };
+  },
+  consentWithdrawn(to: string, name: string, subjectName: string, voiceName: string): EmailMessage {
+    return {
+      to,
+      tag: 'consent_withdrawn',
+      subject: `${subjectName} withdrew consent for the voice "${voiceName}"`,
+      text: `Hi ${name},
+
+${subjectName} withdrew their consent. The custom voice "${voiceName}" and its recordings were deleted and can no longer be used for new voiceovers.`,
+      html: layout(
+        'Voice consent withdrawn',
+        `<p>Hi ${escapeHtml(name)}, ${escapeHtml(subjectName)} withdrew their consent. The custom voice “${escapeHtml(voiceName)}” and its recordings were deleted and can no longer be used for new voiceovers.</p>`,
+      ),
+    };
+  },
 };

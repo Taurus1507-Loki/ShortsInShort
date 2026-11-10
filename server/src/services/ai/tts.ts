@@ -42,11 +42,25 @@ export interface SynthesisOptions {
   signal?: AbortSignal;
 }
 
+export interface CloneOptions {
+  name: string;
+  description?: string;
+  language?: string;
+  /** Audio files (MP3) of the person speaking. */
+  files: Array<{ filename: string; data: Buffer; mimeType: string }>;
+  signal?: AbortSignal;
+}
+
 /** Provider-independent text-to-speech interface. */
 export interface TtsProvider {
   readonly name: string;
+  /** The provider's shared library voices only — never account-owned clones. */
   listVoices(signal?: AbortSignal): Promise<VoiceInfo[]>;
   synthesize(text: string, opts: SynthesisOptions): Promise<SynthesisResult>;
+  /** Creates an instant voice clone; returns the provider's voice id. */
+  cloneVoice(opts: CloneOptions): Promise<string>;
+  /** Deletes a cloned voice at the provider (idempotent: a missing voice is not an error). */
+  deleteVoice(voiceId: string, signal?: AbortSignal): Promise<void>;
 }
 
 export class TtsError extends Error {
@@ -196,15 +210,58 @@ export class ElevenLabsProvider implements TtsProvider {
     const out: VoiceInfo[] = [];
     let token: string | null = null;
     for (let page = 0; page < 5; page++) {
-      const qs = new URLSearchParams({ page_size: '100', include_total_count: 'false' });
+      // Premade only: clones on the platform account belong to individual workspaces and are
+      // listed from our own records, never from the provider's account-wide list.
+      const qs = new URLSearchParams({ page_size: '100', include_total_count: 'false', category: 'premade' });
       if (token) qs.set('next_page_token', token);
       const res = await this.request(`/v2/voices?${qs}`, { method: 'GET', signal });
       const body = (await res.json()) as { voices?: ElevenVoice[]; has_more?: boolean; next_page_token?: string | null };
-      for (const v of body.voices ?? []) if (v?.voice_id) out.push(parseElevenVoice(v));
+      for (const v of body.voices ?? []) if (v?.voice_id && (v.category ?? 'premade') === 'premade') out.push(parseElevenVoice(v));
       if (!body.has_more || !body.next_page_token) break;
       token = body.next_page_token;
     }
     return out;
+  }
+
+  async cloneVoice(opts: CloneOptions): Promise<string> {
+    const form = new FormData();
+    form.append('name', opts.name.slice(0, 100));
+    if (opts.description) form.append('description', opts.description.slice(0, 500));
+    if (opts.language) form.append('labels', JSON.stringify({ language: opts.language }));
+    form.append('remove_background_noise', 'false');
+    for (const f of opts.files) form.append('files', new Blob([new Uint8Array(f.data)], { type: f.mimeType }), f.filename);
+    const res = await fetch(`${this.base}/v1/voices/add`, {
+      method: 'POST',
+      headers: { 'xi-api-key': this.apiKey, Accept: 'application/json' },
+      body: form,
+      signal: opts.signal,
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 500);
+      if (res.status === 401 && !/quota/i.test(detail)) throw new TtsError('The voice provider rejected the API key.', 401, true);
+      if (/can_not_use_instant_voice_cloning|subscription|upgrade|voice_limit|limit_reached|too many voices/i.test(detail) || res.status === 403) {
+        throw new TtsError('The voice provider account can’t create more cloned voices (plan or voice-slot limit). The platform owner needs to upgrade the ElevenLabs plan.', res.status, true);
+      }
+      if (res.status === 400 || res.status === 422) throw new TtsError(`The voice provider couldn’t use these recordings (${detail.slice(0, 200)}).`, res.status, true);
+      if (res.status === 429) throw new TtsError('The voice provider is busy (rate limited). Retrying shortly.', 429);
+      throw new TtsError(`Voice cloning failed (HTTP ${res.status}).`, res.status);
+    }
+    const body = (await res.json()) as { voice_id?: string };
+    if (!body.voice_id) throw new TtsError('The voice provider returned no voice id.');
+    return body.voice_id;
+  }
+
+  async deleteVoice(voiceId: string, signal?: AbortSignal): Promise<void> {
+    const res = await fetch(`${this.base}/v1/voices/${encodeURIComponent(voiceId)}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': this.apiKey, Accept: 'application/json' },
+      signal,
+    });
+    if (res.ok || res.status === 404) return;
+    // ElevenLabs answers 400 "voice_does_not_exist" for unknown ids.
+    const detail = (await res.text().catch(() => '')).slice(0, 300);
+    if (/does_not_exist|not found/i.test(detail)) return;
+    throw new TtsError(`Could not delete the voice at the provider (HTTP ${res.status}).`, res.status);
   }
 
   modelFor(language: string) {

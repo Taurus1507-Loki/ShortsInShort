@@ -27,6 +27,7 @@ const SettingsPage = lazy(() => import('@/pages/app/SettingsPage'));
 const MediaLibraryPage = lazy(() => import('@/pages/app/MediaLibraryPage'));
 const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
 const VoicesPage = lazy(() => import('@/pages/app/VoicesPage'));
+const ConsentPage = lazy(() => import('@/pages/consent/ConsentPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
   {
@@ -79,6 +80,8 @@ export default function App() {
             <Route path="reset-password" element={<ResetPasswordPage />} />
             <Route path="verify-email" element={<VerifyEmailPage />} />
             <Route path="auth/callback" element={<OAuthCallbackPage />} />
+            <Route path="consent/confirm" element={<ConsentPage purpose="confirm" />} />
+            <Route path="consent/withdraw" element={<ConsentPage purpose="withdraw" />} />
           </Route>
 
           <Route path="app" element={<RequireAuth />}>

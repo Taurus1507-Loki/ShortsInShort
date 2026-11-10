@@ -1,66 +1,21 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import mongoose from 'mongoose';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { app, connectTestDb, registerUser, resetDb } from './helpers.js';
-import { runFfmpeg } from '../services/video/ffmpeg.js';
 import { Worker } from '../services/queue/worker.js';
 import { registerNarrationJob } from '../services/audio/narrationJob.js';
 import { Asset } from '../models/Asset.js';
 import { Project } from '../models/Project.js';
 import { Workspace } from '../models/Workspace.js';
 import { CreditTransaction } from '../models/CreditTransaction.js';
-import {
-  alignmentToWords,
-  parseElevenVoice,
-  setTtsProvider,
-  splitScript,
-  TtsError,
-  type SynthesisOptions,
-  type TtsProvider,
-  type VoiceInfo,
-} from '../services/ai/tts.js';
+import { alignmentToWords, parseElevenVoice, setTtsProvider, splitScript, TtsError, type VoiceInfo } from '../services/ai/tts.js';
+import { FakeTts, SEC_PER_CHAR } from './fakeTts.js';
 import { narrationCreditCost } from '../config/credits.js';
 
 const worker = new Worker(1, 10);
-const SEC_PER_CHAR = 0.04;
-
-const VOICES: VoiceInfo[] = [
-  { id: 'voiceA1', name: 'Asha', category: 'premade', gender: 'female', age: 'young', accent: 'indian', description: 'warm', useCase: 'narration', previewUrl: null, languages: ['en', 'hi'] },
-  { id: 'voiceB2', name: 'Ravi', category: 'premade', gender: 'male', age: 'middle aged', accent: 'indian', description: 'calm', useCase: 'news', previewUrl: null, languages: ['en'] },
-];
-
-/** Stand-in provider: real MP3 audio (a tone) with linear per-character timings. Never calls a paid API. */
-class FakeTts implements TtsProvider {
-  readonly name = 'fake-tts';
-  calls: Array<{ text: string; opts: SynthesisOptions }> = [];
-  failWith: Error | null = null;
-  constructor(private readonly dir: string) {}
-  async listVoices() {
-    return VOICES;
-  }
-  async synthesize(text: string, opts: SynthesisOptions) {
-    this.calls.push({ text, opts });
-    if (this.failWith) throw this.failWith;
-    const dur = Math.max(0.5, text.length * SEC_PER_CHAR);
-    const file = path.join(this.dir, `tts-${this.calls.length}.mp3`);
-    await runFfmpeg(['-f', 'lavfi', '-i', `sine=frequency=330:duration=${dur}`, '-c:a', 'libmp3lame', '-b:a', '64k', file]);
-    const characters = [...text];
-    return {
-      audio: await readFile(file),
-      mimeType: 'audio/mpeg' as const,
-      model: 'fake-model',
-      alignment: {
-        characters,
-        starts: characters.map((_, i) => i * SEC_PER_CHAR),
-        ends: characters.map((_, i) => (i + 1) * SEC_PER_CHAR),
-      },
-    };
-  }
-}
-
 let fake: FakeTts;
 
 beforeAll(async () => {
@@ -172,7 +127,7 @@ describe('voiceover generation', () => {
     const p = res.body.data;
     expect(p.status).toBe('completed');
     expect(p.narrationAsset).toMatchObject({ kind: 'narration_audio', mimeType: 'audio/mpeg', status: 'ready' });
-    expect(p.narrationAsset.durationSec).toBeGreaterThan(1.4);
+    expect(p.narrationAsset.durationSec as number).toBeGreaterThan(1.4);
     expect(p.narrationStats).toMatchObject({ voiceId: 'voiceA1', voiceName: 'Asha', chunks: 1, wordCount: 8, timingsAvailable: true, creditsCharged: 1, provider: 'fake-tts' });
     expect(p.narrationWords).toBeUndefined(); // timings stay server-side
 
@@ -197,7 +152,7 @@ describe('voiceover generation', () => {
     const first = await Project.findById(project.id).select('+narrationWords');
     expect(first!.narrationStats!.chunks).toBe(2);
     const w = first!.narrationWords;
-    for (let i = 1; i < w.length; i++) expect(w[i]!.start).toBeGreaterThanOrEqual(w[i - 1]!.start);
+    for (let i = 1; i < w.length; i++) expect(w[i]!.start).toBeGreaterThanOrEqual(w[i - 1]!.start as number);
     expect(w[w.length - 1]!.end).toBeGreaterThan(script.length * SEC_PER_CHAR * 0.9);
     // Neighbouring text was passed for natural flow.
     expect(fake.calls[1]!.opts.previousText).toBe(fake.calls[0]!.text);

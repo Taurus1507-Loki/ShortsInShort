@@ -1,6 +1,6 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
-import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, NarrationEstimate, Paginated, Project, SessionInfo, VoiceInfo } from '@/types/api';
+import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, NarrationEstimate, Paginated, Project, SessionInfo, VoiceInfo, CustomVoice, CloneStatus } from '@/types/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,6 +25,8 @@ export const keys = {
   job: (id: string) => ['job', id] as const,
   brandKit: ['brand-kit'] as const,
   voices: ['voices'] as const,
+  customVoices: ['custom-voices'] as const,
+  cloneStatus: ['clone-status'] as const,
   narrationEstimate: (id: string) => ['narration-estimate', id] as const,
 };
 
@@ -105,3 +107,14 @@ export const useNarrationEstimate = (projectId: string, enabled: boolean) =>
     enabled,
     staleTime: 0,
   });
+
+/** Workspace custom voices; polls while one is cloning. */
+export const useCustomVoices = () =>
+  useQuery({
+    queryKey: keys.customVoices,
+    queryFn: () => api<{ data: CustomVoice[] }>('/voices/custom').then((r) => r.data),
+    refetchInterval: (q) => (q.state.data?.some((v) => v.status === 'cloning') ? 2500 : false),
+  });
+
+export const useCloneStatus = () =>
+  useQuery({ queryKey: keys.cloneStatus, queryFn: () => api<{ data: CloneStatus }>('/voices/custom/status').then((r) => r.data) });

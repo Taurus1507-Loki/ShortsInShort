@@ -14,6 +14,7 @@ import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
 import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
+import { ownCustomVoice } from '../../services/voice/consent.js';
 import type { JobType } from '../../models/Job.js';
 import type { Request } from 'express';
 import { createProjectSchema, idParams, listProjectsQuery, updateProjectSchema } from './projects.schemas.js';
@@ -283,7 +284,8 @@ projectsRouter.post(
     } catch {
       throw new AppError(502, 'PROVIDER_ERROR', 'Could not reach the voice provider. Try again shortly.');
     }
-    const voice = voices.find((v) => v.id === voiceId);
+    const custom = await ownCustomVoice(workspaceId, voiceId);
+    const voice = custom ? { name: custom.name } : voices.find((v) => v.id === voiceId);
     if (!voice) throw badRequest('That voice is no longer available. Choose another one.', 'INVALID_VOICE');
     const data = await startProjectJob(req, project, {
       type: 'narrate_project',

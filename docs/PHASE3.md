@@ -18,7 +18,7 @@ Each step is usable on its own and nothing is shown as working before it is.
 | Step | Scope | Needs |
 |---|---|---|
 | **3.1 Voices** ✅ built | ElevenLabs adapter (voice list, previews, TTS with word timings), Voice Library page, "Narrate a script" → narration audio, TTS credit pricing | `ELEVENLABS_API_KEY` |
-| **3.2 Consent & custom voices** | `consentrecords` collection: who, whose likeness/voice, recorded consent statement (audio/video), attestations, IP/user-agent/time, revocation. Instant voice clone only after a valid consent record; revoking deletes the clone at the provider. Audit log entries. | ElevenLabs key |
+| **3.2 Consent & custom voices** ✅ built | `consentrecords` collection: who, whose likeness/voice, recorded consent statement (audio/video), attestations, IP/user-agent/time, revocation. Instant voice clone only after a valid consent record; revoking deletes the clone at the provider. Audit log entries. | ElevenLabs key |
 | **3.3 Avatar Studio projects** | Wizard: script (write / AI-assist with Gemini), choose voice, choose avatar, background, format. Pipeline: TTS → avatar render (provider) → Phase 2 finishing (captions from TTS word timings — no transcription cost, Brand Kit logo, watermark, music). "AI-generated" disclosure label on every avatar video. Without an avatar provider: narration-only export (voice + captions over a background/brand card) so the step is still useful. | ElevenLabs key; avatar provider for presenter video |
 | **3.4 Avatar provider** | Adapter for the chosen provider: stock avatar list, render job submit + poll/webhook, download into our storage, cost tracking, failures → refund. Custom avatars from a consented recording. | HeyGen or D-ID API key |
 
@@ -42,6 +42,36 @@ Each step is usable on its own and nothing is shown as working before it is.
 - **Not yet verified live:** needs `ELEVENLABS_API_KEY`. To check with the key: voice list loads,
   English voiceover sounds right, Telugu/Hindi pronunciation, and whether `eleven_v3` returns timings
   (if not, the voiceover still works and the panel says timings weren't returned).
+
+## Step 3.2 — what's built (2026-11-10)
+
+- **Flow (Voices page → "Add a voice"):** whose voice (mine / someone else's + their email) → voice
+  samples (record in the browser or upload; ≥30 s total, 1–2 min recommended, ≤5 min) → the person
+  reads a generated consent sentence naming themselves and the workspace → three attestations → create.
+- **Consent check:** the consent recording is transcribed (Deepgram) and must contain ≥70% of the
+  sentence's words, otherwise nothing is created and the user sees what was heard. No speech-to-text
+  key → cloning is unavailable (no unchecked path).
+- **Someone else's voice:** they get an email with a confirm link (7 days, single use) and a withdraw
+  link. Nothing is sent to the provider until they confirm on the public `/consent/confirm` page.
+- **Withdrawal** (`/consent/withdraw`, link emailed to the person in both cases, or "Remove" by the
+  workspace): deletes the provider clone, the voice samples and the consent recording; the voice can no
+  longer be picked or used (checked again when a voiceover job runs). The consent record (names, email,
+  statement, transcript, match score, IP/user-agent, timestamps) is kept as evidence. Voiceovers made
+  before withdrawal stay. The workspace owner is emailed when a third party withdraws.
+- **Isolation:** the shared library lists ElevenLabs **premade** voices only; clones are listed from our
+  own records per workspace, and every use re-checks ownership + active consent.
+- **Plans:** custom voices kept at once — Free 0, Starter 1, Creator 3, Pro 5, Agency 10 (business
+  assumption). Cloning costs no credits for now.
+- **Provider:** ElevenLabs Instant Voice Clone (`POST /v1/voices/add`, samples converted to 192 kbps MP3)
+  and `DELETE /v1/voices/{id}`. **Requires an ElevenLabs Starter plan or higher** (free tier can't clone),
+  and each ElevenLabs plan has a voice-slot limit shared by all workspaces.
+- **Tests:** 9 (stand-in voice + speech-to-text providers, real audio files): statement scoring, audio
+  upload validation (MP3/WEBM, too short, fake files), self flow → clone → voiceover, mismatched
+  recording, plan/sample/attestation/config checks, third-party confirm → clone → withdraw → deletion,
+  expiry, isolation between workspaces, owner removal, provider refusal.
+- **Known limits:** the check proves the sentence was said, not that the sample voice and the consent
+  voice are the same person (speaker matching is a later improvement); consent sentence is English only;
+  the "Add a voice" wizard has not been seen in a browser yet because it needs the ElevenLabs key.
 
 ## Consent rules (non-negotiable)
 

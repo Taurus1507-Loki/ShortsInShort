@@ -8,7 +8,7 @@ import { Workspace } from '../models/Workspace.js';
 import { Project } from '../models/Project.js';
 import { AppError, badRequest, conflict, notFound } from '../utils/errors.js';
 import { keys, storage } from './storage/storage.js';
-import { probe } from './video/ffmpeg.js';
+import { probe, runFfmpeg } from './video/ffmpeg.js';
 import { extractThumbnail } from './video/render.js';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -28,6 +28,20 @@ const ALLOWED_DETECTED = new Set(Object.values(VIDEO_TYPES).flat());
 export const IMAGE_TYPES: Record<string, string[]> = { png: ['image/png'], jpg: ['image/jpeg'], jpeg: ['image/jpeg'], webp: ['image/webp'] };
 const ALLOWED_IMAGES = new Set(Object.values(IMAGE_TYPES).flat());
 export const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+
+/** Voice samples and consent recordings (browser recordings are WEBM/Opus or MP4/AAC). */
+export const AUDIO_TYPES: Record<string, string[]> = {
+  mp3: ['audio/mpeg'],
+  wav: ['audio/wav', 'audio/x-wav', 'audio/vnd.wave'],
+  m4a: ['audio/mp4', 'audio/x-m4a', 'video/mp4'],
+  mp4: ['audio/mp4', 'video/mp4'],
+  webm: ['audio/webm', 'video/webm'],
+  ogg: ['audio/ogg', 'audio/opus'],
+};
+const ALLOWED_AUDIO = new Set(Object.values(AUDIO_TYPES).flat());
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+export const MAX_AUDIO_SEC = 5 * 60;
+export type UploadPurpose = 'video' | 'logo' | 'voice_sample' | 'consent';
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
 export function extensionOf(filename: string): string {
@@ -71,11 +85,15 @@ export async function initiateUpload(input: {
   filename: string;
   contentType: string;
   sizeBytes: number;
-  purpose?: 'video' | 'logo';
+  purpose?: UploadPurpose;
 }) {
   const ext = extensionOf(input.filename);
   const logo = input.purpose === 'logo';
-  if (logo) {
+  const audio = input.purpose === 'voice_sample' || input.purpose === 'consent';
+  if (audio) {
+    if (!AUDIO_TYPES[ext] || !/^(audio|video)\//.test(input.contentType)) throw badRequest('Upload an MP3, WAV, M4A, WEBM or OGG recording.', 'UNSUPPORTED_TYPE');
+    if (input.sizeBytes > MAX_AUDIO_BYTES) throw new AppError(413, 'TOO_LARGE', 'Recordings can be up to 25 MB.');
+  } else if (logo) {
     if (!IMAGE_TYPES[ext] || !input.contentType.startsWith('image/')) throw badRequest('Upload a PNG, JPG or WEBP image.', 'UNSUPPORTED_TYPE');
     if (input.sizeBytes > MAX_LOGO_BYTES) throw new AppError(413, 'TOO_LARGE', 'Logos can be up to 5 MB.');
   } else {
@@ -95,7 +113,7 @@ export async function initiateUpload(input: {
     _id: id,
     workspaceId: input.workspaceId,
     createdBy: input.userId,
-    kind: logo ? 'brand_logo' : 'source_video',
+    kind: logo ? 'brand_logo' : input.purpose === 'voice_sample' ? 'voice_sample' : input.purpose === 'consent' ? 'consent_recording' : 'source_video',
     status: 'pending',
     storageKey,
     originalName: input.filename.slice(0, 255),
@@ -104,7 +122,7 @@ export async function initiateUpload(input: {
   });
   // Short-lived: the URL only needs to outlive one upload. (On S3/R2 a presigned PUT can't be made
   // write-once, so the short window plus the render job's own ffprobe re-check is the mitigation.)
-  const upload = await storage.createUploadTarget(storageKey, input.contentType, logo ? MAX_LOGO_BYTES : env.uploads.maxBytes, UPLOAD_URL_TTL_SEC);
+  const upload = await storage.createUploadTarget(storageKey, input.contentType, logo ? MAX_LOGO_BYTES : audio ? MAX_AUDIO_BYTES : env.uploads.maxBytes, UPLOAD_URL_TTL_SEC);
   return { asset, upload };
 }
 
@@ -134,6 +152,7 @@ export async function completeUpload(workspaceId: Types.ObjectId, assetId: strin
   const head = await storage.readHead(asset.storageKey, 4100);
   const detected = await fileTypeFromBuffer(head);
   if (asset.kind === 'brand_logo') return completeLogo(asset, workspaceId, s.size, detected?.mime);
+  if (asset.kind === 'voice_sample' || asset.kind === 'consent_recording') return completeAudio(asset, workspaceId, s.size, detected?.mime);
   if (!detected || !ALLOWED_DETECTED.has(detected.mime)) {
     return failUpload(asset, 'That file isn’t a supported video (MP4, MOV, WEBM or MKV).');
   }
@@ -202,6 +221,39 @@ async function attachThumbnail(asset: AssetDoc, durationSec: number) {
   }
 }
 
+/** Audio validation: real audio container, decodable audio track, 3 s – 5 min. */
+async function completeAudio(asset: AssetDoc, workspaceId: Types.ObjectId, size: number, mime: string | undefined): Promise<AssetDoc> {
+  if (size > MAX_AUDIO_BYTES) return failUpload(asset, 'Recordings can be up to 25 MB.');
+  if (!mime || !ALLOWED_AUDIO.has(mime)) return failUpload(asset, 'That file isn’t a supported recording (MP3, WAV, M4A, WEBM or OGG).');
+  let info;
+  try {
+    info = await probe(await storage.getProcessingInput(asset.storageKey));
+  } catch {
+    return failUpload(asset, 'We couldn’t read that recording. It may be corrupted.');
+  }
+  if (!info.audio) return failUpload(asset, 'That file has no audio.');
+  // Browser WEBM recordings often carry no duration header; fall back to decoding the length.
+  const duration = info.durationSec > 0 ? info.durationSec : await measureAudioSec(await storage.getProcessingInput(asset.storageKey));
+  if (!(duration >= 3)) return failUpload(asset, 'That recording is too short (at least 3 seconds).');
+  if (duration > MAX_AUDIO_SEC) return failUpload(asset, 'Recordings can be up to 5 minutes long.');
+  await reserveStorage(workspaceId, size);
+  asset.set({ status: 'ready', sizeBytes: size, countedBytes: size, mimeType: mime, durationSec: Math.round(duration * 1000) / 1000, hasAudio: true });
+  await asset.save();
+  return asset;
+}
+
+/** Decodes the audio to find its real length (for files without a duration header). */
+async function measureAudioSec(input: string): Promise<number> {
+  try {
+    const { stderr } = await runFfmpeg(['-i', input, '-vn', '-f', 'null', '-']);
+    const all = [...stderr.matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
+    const m = all[all.length - 1];
+    return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Logo validation: real image type, decodable, sensible dimensions. */
 async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: number, mime: string | undefined): Promise<AssetDoc> {
   if (size > MAX_LOGO_BYTES) return failUpload(asset, 'Logos can be up to 5 MB.');
@@ -245,6 +297,9 @@ export async function registerGeneratedAsset(input: {
 export async function deleteAsset(workspaceId: Types.ObjectId, assetId: string) {
   const asset = await Asset.findOne({ _id: assetId, workspaceId, deletedAt: null });
   if (!asset) throw notFound('File not found.');
+  if (asset.kind === 'voice_sample' || asset.kind === 'consent_recording') {
+    throw conflict('Voice recordings are removed together with their custom voice (AI Voices page).', 'ASSET_MANAGED');
+  }
   const busy = await Project.exists({
     workspaceId,
     deletedAt: null,

@@ -99,3 +99,24 @@ Word timings are stored server-side for captions (step 3.3) and not returned.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/` | Voice list `{id, name, category, gender, age, accent, description, useCase, previewUrl, languages}`; cached 10 min. 503 `NOT_CONFIGURED` without `ELEVENLABS_API_KEY`, 502 `PROVIDER_ERROR` |
+
+## Custom voices — `/voices/custom` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/status` | `{voicesConfigured, consentCheckConfigured, limit, used, minSampleSec, maxSampleSec, matchThreshold}` |
+| GET | `/statement?subjectName=` | `{statement}` — the sentence to read aloud |
+| GET | `/` | Workspace voices with `status` (`awaiting_consent`/`cloning`/`ready`/`failed`/`revoked`), `voiceId` once ready, and `consent` |
+| POST | `/` | `{name, language, relationship: self|other, subjectName, subjectEmail?, attestations{rightsAndConsent, notPublicFigure, acceptsUsePolicy}, statementAssetId, sampleAssetIds[]}` → 201. Errors: 400 `CONSENT_NOT_MATCHED` / `SAMPLES_TOO_SHORT` / `SUBJECT_EMAIL_REQUIRED`, 403 `PLAN_LIMIT`, 503 `NOT_CONFIGURED` |
+| DELETE | `/:id` | Withdraws consent for the workspace and deletes the clone + recordings |
+
+Recordings are uploaded with `POST /assets/uploads` and `purpose: voice_sample | consent` (MP3/WAV/M4A/WEBM/OGG, 3 s–5 min, ≤25 MB).
+
+## Consent (public, no auth) — `/consent`
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/lookup` | `{token, purpose: confirm|withdraw}` → who asked, statement, status |
+| POST | `/confirm` | `{token}` — single use, 7-day expiry (410 `TOKEN_EXPIRED`); starts cloning |
+| POST | `/withdraw` | `{token}` — idempotent; deletes clone and recordings |
+

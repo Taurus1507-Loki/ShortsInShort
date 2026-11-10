@@ -13,7 +13,8 @@ import { keys, storage } from '../storage/storage.js';
 import { PermanentJobError } from '../queue/queue.js';
 import { registerHandler, type JobContext } from '../queue/worker.js';
 import { probe, runFfmpeg } from '../video/ffmpeg.js';
-import { alignmentToWords, getTtsProvider, splitScript, TtsError, type TimedWord } from '../ai/tts.js';
+import { alignmentToWords, getTtsProvider, listVoicesCached, splitScript, TtsError, type TimedWord } from '../ai/tts.js';
+import { ownCustomVoice } from '../voice/consent.js';
 
 export interface NarrationPayload {
   projectId: string;
@@ -38,6 +39,10 @@ async function run({ job, signal, progress }: JobContext) {
   if (!script) throw new PermanentJobError('The script is empty.');
   const provider = getTtsProvider();
   if (!provider) throw new PermanentJobError('Voice generation is not configured.');
+  // Re-check at run time: a custom voice's consent may have been withdrawn since it was queued.
+  const library = await listVoicesCached().catch(() => null);
+  const allowed = (await ownCustomVoice(job.workspaceId as Types.ObjectId, payload.voiceId)) || (library ? library.some((v) => v.id === payload.voiceId) : true);
+  if (!allowed) throw new PermanentJobError('That voice is no longer available (consent may have been withdrawn).');
 
   await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
   const workDir = await mkdtemp(path.join(tmpdir(), `sis-tts-${job._id.toString()}-`));
@@ -145,7 +150,7 @@ async function run({ job, signal, progress }: JobContext) {
 async function onDead(job: JobDoc) {
   const { projectId, credits } = job.payload as NarrationPayload;
   const msg = job.lastError ?? '';
-  const friendly = /quota|API key|no longer exists|refused|couldn't read|not configured|script is empty/i.test(msg)
+  const friendly = /quota|API key|no longer exists|no longer available|refused|couldn't read|not configured|script is empty/i.test(msg)
     ? `${msg} Your credits were refunded.`
     : 'Voice generation failed. Your credits were refunded — please try again.';
   await Project.updateOne({ _id: projectId, lastJobId: job._id }, { $set: { status: 'failed', lastError: friendly.slice(0, 500) } });
