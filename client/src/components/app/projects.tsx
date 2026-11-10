@@ -91,6 +91,8 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   background: 'brand',
   backgroundColor: '#1E1B4B',
   disclosure: true,
+  avatarId: '',
+  avatarLayout: 'full',
 };
 
 function Choice<T extends string>({

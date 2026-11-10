@@ -9,7 +9,9 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { editorCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { avatarCreditCost, editorCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
+import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
@@ -150,7 +152,28 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   if (!narration || !stats) throw badRequest('Generate the voiceover first.', 'NO_NARRATION');
   const s = project.settings ?? {};
   const background = s.background ?? 'brand';
-  if (background === 'image' || background === 'video') {
+  const avatarId = s.avatarId ?? '';
+  const layout = s.avatarLayout ?? 'full';
+  let presenterCredits = 0;
+  let presenterReused = false;
+  if (avatarId) {
+    if (!getAvatarProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Talking presenters are not configured on this server.');
+    let avatars;
+    try {
+      avatars = await listAvatarsCached();
+    } catch {
+      throw new AppError(502, 'PROVIDER_ERROR', 'Could not reach the avatar provider. Try again shortly.');
+    }
+    if (!avatars.some((a) => a.id === avatarId)) throw badRequest('That presenter is no longer available. Choose another one.', 'INVALID_AVATAR');
+    const ar = project.avatarRender;
+    const color = layout === 'overlay' ? KEY_GREEN : (s.backgroundColor ?? '#1E1B4B');
+    presenterReused = Boolean(
+      ar?.assetId && ar.avatarId === avatarId && ar.narrationAssetId?.equals(narration._id) && ar.backgroundColor === color && ar.aspectRatio === project.aspectRatio &&
+        (await Asset.exists({ _id: ar.assetId, workspaceId, deletedAt: null, status: 'ready' })),
+    );
+    if (!presenterReused) presenterCredits = avatarCreditCost(narration.durationSec ?? stats.durationSec ?? 0);
+  }
+  if ((background === 'image' || background === 'video') && !(avatarId && layout === 'full')) {
     const bg = project.backgroundAssetId ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId, deletedAt: null, status: 'ready' }) : null;
     if (!bg || (background === 'image' ? bg.kind !== 'background_image' : bg.kind !== 'source_video')) {
       throw badRequest(`Choose a background ${background} first.`, 'NO_BACKGROUND');
@@ -164,7 +187,9 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const resolution = s.resolution ?? '1080p';
   const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
   return {
-    credits: editorCreditCost(durationSec, resolution),
+    credits: editorCreditCost(durationSec, resolution) + presenterCredits,
+    presenterCredits,
+    presenterReused,
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: durationSec,
     resolution,

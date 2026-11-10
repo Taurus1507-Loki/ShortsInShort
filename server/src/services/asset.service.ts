@@ -284,7 +284,7 @@ export async function registerGeneratedAsset(input: {
   id: Types.ObjectId;
   workspaceId: Types.ObjectId;
   projectId: Types.ObjectId | null;
-  kind: 'render' | 'thumbnail' | 'narration_audio';
+  kind: 'render' | 'thumbnail' | 'narration_audio' | 'avatar_video';
   storageKey: string;
   mimeType: string;
   sizeBytes: number;

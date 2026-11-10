@@ -22,6 +22,9 @@ const STAGES: Record<string, string> = {
   rendering: 'Rendering your edit',
   finalizing: 'Running quality checks',
   preparing_background: 'Building the background with your voiceover',
+  requesting_presenter: 'Sending your voiceover to the presenter',
+  presenter_rendering: 'The presenter is being animated (usually a few minutes)',
+  saving_presenter: 'Saving the presenter video',
   saving: 'Saving your video',
   retrying: 'Hit a snag — retrying',
 };
@@ -83,7 +86,7 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
         <CardTitle>{avatar ? 'Video' : 'Render'}</CardTitle>
         {avatar && (
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Builds the finished video: your background, the voiceover, captions timed to every word, plus B-roll, logo and music if switched on. The talking presenter arrives with the avatar provider (step 3.4).
+            Builds the finished video: your voiceover with a talking presenter (if chosen), your background, captions timed to every word, plus B-roll, logo and music if switched on.
           </p>
         )}
       </CardHeader>
@@ -136,6 +139,8 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
                     <Coins className="h-4 w-4 text-highlight" /> <strong>{e.credits}</strong> credit{e.credits === 1 ? '' : 's'}
                   </span>
                   <span className="text-muted-foreground">Balance: {e.balance}</span>
+                  {Boolean(e.presenterCredits) && <span className="text-muted-foreground">incl. {e.presenterCredits} for the presenter</span>}
+                  {e.presenterReused && <span className="text-muted-foreground">presenter reused — no extra charge</span>}
                 </p>
               ) : null}
             </div>
@@ -204,7 +209,7 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
                 {avatar ? (
                   <span>
-                    This builds a {project.aspectRatio} video from your background and voiceover, with {project.settings.captionsEnabled ? 'captions timed to every word' : 'no captions'}
+                    This builds a {project.aspectRatio} video from {project.settings.avatarId ? 'a talking presenter, ' : ''}your background and voiceover, with {project.settings.captionsEnabled ? 'captions timed to every word' : 'no captions'}
                     {meta?.features.stockBroll && project.settings.bRollIntensity !== 'none' ? ', B-roll cutaways' : ''}
                     {project.settings.useBrandKit ? ', your logo' : ''}
                     {project.settings.disclosure !== false ? ' and a small “AI-generated voice” label' : ''}.

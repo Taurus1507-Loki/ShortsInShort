@@ -84,6 +84,8 @@ export interface Estimate {
   planMaxResolution: string;
   /** Avatar projects: the script/voice changed since the voiceover was made. */
   narrationOutdated?: boolean;
+  presenterCredits?: number;
+  presenterReused?: boolean;
 }
 
 export interface RenderStats {
@@ -105,6 +107,7 @@ export interface RenderStats {
   watermark?: boolean;
   disclosure?: boolean;
   background?: string | null;
+  presenter?: { avatarId: string; layout: string; reused: boolean } | null;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -150,6 +153,9 @@ export interface ProjectSettings {
   backgroundColor: string;
   /** "AI-generated voice" label (always on for cloned voices). */
   disclosure: boolean;
+  /** Talking presenter ('' = none). */
+  avatarId: string;
+  avatarLayout: 'full' | 'overlay';
 }
 
 export interface VoiceInfo {
@@ -315,4 +321,14 @@ export interface ConsentDetails {
   voiceName: string;
   confirmExpiresAt: string | null;
   revokedAt: string | null;
+}
+
+export interface AvatarInfo {
+  id: string;
+  name: string;
+  gender: string | null;
+  previewImageUrl: string | null;
+  previewVideoUrl: string | null;
+  orientation: 'portrait' | 'landscape' | 'square' | null;
+  tags: string[];
 }

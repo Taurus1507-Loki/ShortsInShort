@@ -125,8 +125,12 @@ Recordings are uploaded with `POST /assets/uploads` and `purpose: voice_sample |
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/script` | `{topic, language?, durationSec? (15–180), style?, notes?}` → `{title, hook, script}`. 503 `NOT_CONFIGURED` without `GEMINI_API_KEY`, 502 `PROVIDER_ERROR`, 429 after 30/hour |
+| GET | `/avatars` | Stock presenters `{id, name, gender, previewImageUrl, previewVideoUrl, orientation, tags}`; cached 30 min. 503 `NOT_CONFIGURED` without `HEYGEN_API_KEY` |
 
 Avatar projects accept `settings.background` (`brand|color|image|video`), `settings.backgroundColor`,
 `settings.disclosure` and top-level `backgroundAssetId` (a `background_image` upload — `purpose: background` —
 or a ready `source_video`); they return `backgroundAsset`.
+Presenter settings: `settings.avatarId` ('' = none) and `settings.avatarLayout` (`full|overlay`). With a
+presenter the estimate adds `presenterCredits` and `presenterReused`; generate can return 400 `INVALID_AVATAR`
+or 503 `NOT_CONFIGURED`.
 

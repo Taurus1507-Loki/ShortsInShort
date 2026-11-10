@@ -8,6 +8,7 @@ import {
   FRAMINGS,
   ZOOM_INTENSITIES,
   BACKGROUNDS,
+  AVATAR_LAYOUTS,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -39,6 +40,8 @@ const settingsSchema = z
     background: z.enum(BACKGROUNDS),
     backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour like #1E1B4B'),
     disclosure: z.boolean(),
+    avatarId: z.string().regex(/^[A-Za-z0-9_-]{0,100}$/, 'Invalid presenter'),
+    avatarLayout: z.enum(AVATAR_LAYOUTS),
   })
   .strict()
   .partial();

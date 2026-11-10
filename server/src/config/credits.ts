@@ -18,6 +18,10 @@ export function narrationCreditCost(characters: number): number {
   return Math.max(1, Math.ceil(characters / NARRATION_CHARS_PER_CREDIT));
 }
 
+/** Talking presenter: provider cost dominates (≈₹15–80/min), so 5 credits per started 30 s of voiceover. */
+export const AVATAR_CREDITS_PER_30S = 5;
+export const avatarCreditCost = (durationSec: number) => Math.max(1, Math.ceil(durationSec / 30)) * AVATAR_CREDITS_PER_30S;
+
 export function editorCreditCost(sourceDurationSec: number, resolution: string): number {
   const minutes = Math.max(1, Math.ceil(sourceDurationSec / 60));
   return minutes * CREDIT_COSTS.editorPerSourceMinute * (CREDIT_COSTS.resolutionMultiplier[resolution] ?? 1);

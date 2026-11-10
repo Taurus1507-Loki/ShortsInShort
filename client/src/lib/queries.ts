@@ -1,6 +1,6 @@
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
-import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, NarrationEstimate, Paginated, Project, SessionInfo, VoiceInfo, CustomVoice, CloneStatus } from '@/types/api';
+import type { Asset, BrandKit, DashboardSummary, Estimate, Job, Meta, NarrationEstimate, Paginated, Project, SessionInfo, VoiceInfo, CustomVoice, CloneStatus, AvatarInfo } from '@/types/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,6 +25,7 @@ export const keys = {
   job: (id: string) => ['job', id] as const,
   brandKit: ['brand-kit'] as const,
   voices: ['voices'] as const,
+  avatars: ['avatars'] as const,
   customVoices: ['custom-voices'] as const,
   cloneStatus: ['clone-status'] as const,
   narrationEstimate: (id: string) => ['narration-estimate', id] as const,
@@ -118,3 +119,7 @@ export const useCustomVoices = () =>
 
 export const useCloneStatus = () =>
   useQuery({ queryKey: keys.cloneStatus, queryFn: () => api<{ data: CloneStatus }>('/voices/custom/status').then((r) => r.data) });
+
+/** Stock talking presenters (server caches the provider list for 30 minutes). */
+export const useAvatars = (enabled = true) =>
+  useQuery({ queryKey: keys.avatars, queryFn: () => api<{ data: AvatarInfo[] }>('/ai/avatars').then((r) => r.data), enabled, staleTime: 30 * 60_000 });

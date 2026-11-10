@@ -25,3 +25,10 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 ## Legal
 - [ ] Policies in `client/src/pages/legal/` reviewed by a lawyer; grievance officer details added.
 - [ ] Remotion Company License purchased if the company has more than 3 people (needed for Motion Explainer).
+
+## Avatar Studio (Phase 3) — live checks once keys are added
+- [ ] `ELEVENLABS_API_KEY`: voice list, English voiceover, Hindi/Telugu pronunciation, whether `eleven_v3` returns word timings.
+- [ ] ElevenLabs Starter+ plan for voice cloning; clone + withdraw end to end.
+- [ ] `HEYGEN_API_KEY`: presenter list, one full-frame and one cut-out render, background field name, keying quality, timing.
+- [ ] Confirm presenter pricing (currently 5 credits / 30 s) against HeyGen's real price.
+

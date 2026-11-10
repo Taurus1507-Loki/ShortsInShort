@@ -8,6 +8,7 @@ import { logger } from '../../config/logger.js';
 import { EDITING_STYLES } from '../../models/Project.js';
 import { getLLMProvider, LLMError } from '../../services/ai/llm.js';
 import { writeScript } from '../../services/ai/script.js';
+import { AvatarError, getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { SUPPORTED_LANGUAGES } from '../projects/projects.schemas.js';
 
 export const aiRouter = Router();
@@ -37,6 +38,21 @@ aiRouter.post(
     } catch (err) {
       logger.warn({ err }, 'Script writing failed');
       throw new AppError(502, 'PROVIDER_ERROR', err instanceof LLMError ? err.message : 'The AI couldn’t write a script right now. Try again.');
+    }
+  }),
+);
+
+/** Stock talking presenters from the avatar provider (cached). */
+aiRouter.get(
+  '/avatars',
+  asyncHandler(async (_req, res) => {
+    const provider = getAvatarProvider();
+    if (!provider) throw new AppError(503, 'NOT_CONFIGURED', 'Talking presenters are not configured on this server.');
+    try {
+      res.json({ data: await listAvatarsCached(), meta: { provider: provider.name } });
+    } catch (err) {
+      logger.warn({ err }, 'Avatar list failed');
+      throw new AppError(502, 'PROVIDER_ERROR', err instanceof AvatarError ? err.message : 'Could not load presenters. Try again shortly.');
     }
   }),
 );

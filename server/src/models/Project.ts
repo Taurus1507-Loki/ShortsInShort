@@ -23,6 +23,8 @@ export const FRAMINGS = ['auto', 'crop', 'blur'] as const;
 export const ZOOM_INTENSITIES = ['off', 'subtle', 'dynamic'] as const;
 /** Avatar Studio backgrounds behind the voiceover video. */
 export const BACKGROUNDS = ['brand', 'color', 'image', 'video'] as const;
+/** full = presenter fills the frame on a solid colour; overlay = presenter cut out over the background. */
+export const AVATAR_LAYOUTS = ['full', 'overlay'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -53,6 +55,9 @@ const settingsSchema = new Schema(
     backgroundColor: { type: String, default: '#1E1B4B', match: /^#[0-9a-fA-F]{6}$/ },
     /** Small "AI-generated" label on the video (always on for cloned voices). */
     disclosure: { type: Boolean, default: true },
+    /** Talking presenter (avatar provider look id); '' = voiceover video without a presenter. */
+    avatarId: { type: String, default: '', maxlength: 100 },
+    avatarLayout: { type: String, enum: AVATAR_LAYOUTS, default: 'full' },
   },
   { _id: false },
 );
@@ -115,9 +120,29 @@ const projectSchema = new Schema(
       logoApplied: { type: Boolean, default: false },
       watermark: { type: Boolean, default: false },
       disclosure: { type: Boolean, default: false },
+      presenter: { type: { _id: false, avatarId: String, layout: String, reused: Boolean }, default: null },
       background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
+    },
+    /**
+     * The provider presenter clip for the current voiceover. Saved as soon as the provider accepts the
+     * request so a retried job polls the same video instead of paying for a new one.
+     */
+    avatarRender: {
+      type: {
+        _id: false,
+        provider: String,
+        providerVideoId: String,
+        avatarId: String,
+        narrationAssetId: Schema.Types.ObjectId,
+        backgroundColor: String,
+        aspectRatio: String,
+        assetId: { type: Schema.Types.ObjectId, default: null },
+        status: String,
+        requestedAt: Date,
+      },
+      default: null,
     },
     /** Avatar Studio voiceover (step 3.1). */
     narrationAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },

@@ -78,6 +78,8 @@ const schema = z.object({
   ELEVENLABS_MODEL: z.string().default('eleven_multilingual_v2'),
   /** Model for languages multilingual v2 lacks (Telugu, Marathi). */
   ELEVENLABS_MODEL_INDIC: z.string().default('eleven_v3'),
+  /** Talking-avatar presenters (Avatar Studio step 3.4). */
+  HEYGEN_API_KEY: z.string().optional(),
   /** Folder with licensed music + music.json manifest (see services/ai/music.ts). */
   MUSIC_LIBRARY_DIR: z.string().optional(),
   /** Directory of TTF/OTF fonts for burned-in captions (defaults to the OS font folder). */
@@ -177,6 +179,7 @@ export const env = {
     deepgram: e.DEEPGRAM_API_KEY ? { apiKey: e.DEEPGRAM_API_KEY, model: e.DEEPGRAM_MODEL } : null,
     gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL } : null,
     pixabay: e.PIXABAY_API_KEY ? { apiKey: e.PIXABAY_API_KEY } : null,
+    heygen: e.HEYGEN_API_KEY ? { apiKey: e.HEYGEN_API_KEY } : null,
     elevenlabs: e.ELEVENLABS_API_KEY ? { apiKey: e.ELEVENLABS_API_KEY, model: e.ELEVENLABS_MODEL, indicModel: e.ELEVENLABS_MODEL_INDIC } : null,
   },
   music: {

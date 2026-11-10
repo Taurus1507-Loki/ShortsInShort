@@ -15,6 +15,8 @@ export interface BackgroundInput {
   /** image/video file for those kinds. */
   mediaPath?: string;
   fps?: number;
+  /** Talking presenter clip (green background). full = fills the frame; overlay = keyed over the background. */
+  presenter?: { path: string; layout: 'full' | 'overlay'; keyColor: string };
 }
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -37,7 +39,7 @@ export function buildBackgroundArgs(b: BackgroundInput): string[] {
   switch (b.kind) {
     case 'brand':
       // A diagonal two-colour gradient that drifts slowly — motion without distraction.
-      input.push('-f', 'lavfi', '-i', `gradients=s=${W}x${H}:c0=${hex(c0)}:c1=${hex(c1)}:x0=0:y0=0:x1=${W}:y1=${H}:nb_colors=2:speed=0.004:r=${fps}:d=${d}`);
+      input.push('-f', 'lavfi', '-i', `gradients=s=${W}x${H}:c0=${hex(c0)}:c1=${hex(c1)}:x0=0:y0=0:x1=${W}:y1=${H}:nb_colors=2:speed=0.00005:r=${fps}:d=${d}`);
       vf = 'format=yuv420p';
       break;
     case 'color':
@@ -58,6 +60,30 @@ export function buildBackgroundArgs(b: BackgroundInput): string[] {
       input.push('-stream_loop', '-1', '-i', b.mediaPath);
       vf = `fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},eq=brightness=-0.05,format=yuv420p`;
       break;
+  }
+  const out = ['-t', d, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-r', String(fps), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', b.output];
+  if (b.presenter?.layout === 'full') {
+    // The provider already rendered the presenter on a solid colour at this aspect ratio.
+    return [
+      '-i', b.presenter.path,
+      '-i', b.audioPath,
+      '-map', '0:v:0', '-map', '1:a:0',
+      '-vf', `fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},format=yuv420p,tpad=stop_mode=clone:stop_duration=2`,
+      ...out,
+    ];
+  }
+  if (b.presenter?.layout === 'overlay') {
+    // Key out the solid background and stand the presenter at the bottom, ~78% of the frame tall.
+    const ph = even(H * 0.78);
+    return [
+      ...input,
+      '-i', b.presenter.path,
+      '-i', b.audioPath,
+      '-filter_complex',
+      `[0:v]${vf}[bg];[1:v]fps=${fps},chromakey=${hex(b.presenter.keyColor)}:0.13:0.07,scale=-2:${ph},tpad=stop_mode=clone:stop_duration=2[p];[bg][p]overlay=(W-w)/2:H-h:eof_action=repeat,format=yuv420p[v]`,
+      '-map', '[v]', '-map', '2:a:0',
+      ...out,
+    ];
   }
   return [
     ...input,

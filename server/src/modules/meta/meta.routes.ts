@@ -7,6 +7,7 @@ import { getLLMProvider } from '../../services/ai/llm.js';
 import { getStockProvider } from '../../services/ai/stock.js';
 import { loadLibrary } from '../../services/ai/music.js';
 import { getTtsProvider } from '../../services/ai/tts.js';
+import { getAvatarProvider } from '../../services/ai/avatar.js';
 
 export const metaRouter = Router();
 
@@ -38,7 +39,7 @@ metaRouter.get('/meta', (_req, res) => {
         // B-roll for voiceover videos (no transcription needed: the voice provider gives word timings).
         stockBroll: Boolean(getLLMProvider()) && Boolean(getStockProvider()),
         // Talking-avatar video needs an avatar provider (step 3.4).
-        avatarStudio: false,
+        avatarStudio: Boolean(getAvatarProvider()),
         facelessCreator: false,
         payments: false,
       },

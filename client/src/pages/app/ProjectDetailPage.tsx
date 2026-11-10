@@ -8,7 +8,7 @@ import { CaptionEditor } from '@/components/app/CaptionEditor';
 import { LivePreview } from '@/components/app/LivePreview';
 import { RenderPanel } from '@/components/app/RenderPanel';
 import { VoiceoverPanel } from '@/components/app/VoiceoverPanel';
-import { BackgroundPicker, ScriptAssist } from '@/components/app/AvatarControls';
+import { BackgroundPicker, PresenterPicker, ScriptAssist } from '@/components/app/AvatarControls';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -260,7 +260,17 @@ export default function ProjectDetailPage() {
               </CardHeader>
               <CardContent className="grid gap-10">
                 <section className="grid gap-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Presenter</h3>
+                  <PresenterPicker
+                    settings={{ ...DEFAULT_SETTINGS, ...custom.settings }}
+                    onChange={(patch) => setCustom({ ...custom, settings: { ...custom.settings, ...patch } })}
+                  />
+                </section>
+                <section className="grid gap-4">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Background</h3>
+                  {custom.settings.avatarId && (custom.settings.avatarLayout ?? 'full') === 'full' && (
+                    <p className="text-xs text-muted-foreground">With a full-frame presenter only the solid colour is used — pick “Cut out over the background” to use a gradient, image or video.</p>
+                  )}
                   <BackgroundPicker
                     settings={{ ...DEFAULT_SETTINGS, ...custom.settings }}
                     onChange={(patch) => setCustom({ ...custom, settings: { ...custom.settings, ...patch } })}
@@ -275,8 +285,8 @@ export default function ProjectDetailPage() {
                       onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, disclosure: e.target.checked } })}
                     />
                     <span>
-                      Show a small “AI-generated voice” label
-                      <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown when a cloned voice is used.</span>
+                      Show a small “AI-generated” label
+                      <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown with a talking presenter or a cloned voice.</span>
                     </span>
                   </label>
                 </section>

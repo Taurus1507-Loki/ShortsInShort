@@ -8,7 +8,7 @@ for any real person's face or voice.
 | Capability | Provider | Status |
 |---|---|---|
 | Text-to-speech + voice cloning | **ElevenLabs** (`ELEVENLABS_API_KEY`) | Chosen. Free tier is enough to build and test. |
-| Talking avatar / lip-sync | **Not chosen yet** (HeyGen or D-ID) | Built behind an `AvatarProvider` interface; plugged in when chosen. Until then avatar rendering reports "not configured" — no fake output. |
+| Talking avatar / lip-sync | **HeyGen API v3** (`HEYGEN_API_KEY`) | Chosen 2026-11-10 (user: build without waiting for keys). Behind an `AvatarProvider` interface, so D-ID could be added. Not yet tested against the live API. |
 | Script writing help | Gemini (already configured) | Reused from Phase 2. |
 
 ## Steps
@@ -20,7 +20,7 @@ Each step is usable on its own and nothing is shown as working before it is.
 | **3.1 Voices** ✅ built | ElevenLabs adapter (voice list, previews, TTS with word timings), Voice Library page, "Narrate a script" → narration audio, TTS credit pricing | `ELEVENLABS_API_KEY` |
 | **3.2 Consent & custom voices** ✅ built | `consentrecords` collection: who, whose likeness/voice, recorded consent statement (audio/video), attestations, IP/user-agent/time, revocation. Instant voice clone only after a valid consent record; revoking deletes the clone at the provider. Audit log entries. | ElevenLabs key |
 | **3.3 Avatar Studio projects** ✅ built (voiceover video) | Wizard: script (write / AI-assist with Gemini), choose voice, choose avatar, background, format. Pipeline: TTS → avatar render (provider) → Phase 2 finishing (captions from TTS word timings — no transcription cost, Brand Kit logo, watermark, music). "AI-generated" disclosure label on every avatar video. Without an avatar provider: narration-only export (voice + captions over a background/brand card) so the step is still useful. | ElevenLabs key; avatar provider for presenter video |
-| **3.4 Avatar provider** | Adapter for the chosen provider: stock avatar list, render job submit + poll/webhook, download into our storage, cost tracking, failures → refund. Custom avatars from a consented recording. | HeyGen or D-ID API key |
+| **3.4 Avatar provider** ✅ built (stock presenters) | Adapter for the chosen provider: stock avatar list, render job submit + poll/webhook, download into our storage, cost tracking, failures → refund. Custom avatars from a consented recording. | HeyGen or D-ID API key |
 
 ## Step 3.1 — what's built (2026-11-09)
 
@@ -100,6 +100,36 @@ Without an avatar provider, an Avatar project now produces a finished **voiceove
   cloned voice label forced + withdrawn consent blocks render.
 - **Not verified live:** the full voiceover → video flow needs `ELEVENLABS_API_KEY`.
 
+## Step 3.4 — what's built (2026-11-10)
+
+- **Provider:** HeyGen **API v3** (v1/v2 were retired on 2026-10-31): `GET /v3/avatars/looks` (public
+  looks, cached 30 min), `POST /v3/assets` (voiceover MP3, multipart), `POST /v3/videos`
+  (`type: avatar`, `audio_asset_id`, `aspect_ratio`, `resolution`, `fit: cover`, solid `background`,
+  `Idempotency-Key`), `GET /v3/videos/{id}` (pending → processing → completed/failed, `video_url`).
+  HeyGen error codes map to friendly messages; credit/trial/consent/policy/unknown-avatar errors are
+  permanent (no retries, refund).
+- **Presenter in the render:** the presenter lip-syncs to *our* voiceover (so captions stay exact).
+  Layouts: **Full frame** (presenter on the project's solid colour) or **Cut out** (requested on chroma
+  green `#00B140`, keyed out with FFmpeg and stood at the bottom, ~78% of the frame tall, over the brand
+  gradient / colour / image / video). Then the normal pipeline: captions, B-roll, logo, watermark, music.
+  Keying checked visually on a test frame.
+- **No double charges:** the provider video id is saved as soon as HeyGen accepts it, so a retried job
+  polls the same video; the finished clip is stored (`avatar_video` asset) and reused on re-renders while
+  the voiceover, presenter, layout colour and format are unchanged (estimate shows "presenter reused").
+- **Credits:** presenter 5 credits per started 30 s of voiceover, plus the usual 1/min render — only when
+  a new presenter clip is needed. Refunded if the job fails. The "AI-generated" label is always on with a
+  presenter.
+- **UI:** Video settings → Presenter (No presenter / Talking presenter, layout, searchable presenter grid
+  with previews); render panel shows the presenter part of the cost and presenter progress stages.
+- **Tests:** 8 with a stand-in provider returning a real green-screen clip: look/error mapping, compositing
+  args, avatars API on/off, full-frame render + reuse without a second request/charge, cut-out layout,
+  transient failure → same provider video polled, provider failure → refund, validation (unknown
+  presenter, background needed only for cut-out, not configured).
+- **Not built yet:** custom avatars of real people (needs a consent flow like 3.2 plus HeyGen digital-twin
+  training); transparent WebM output for matting-trained avatars (green key used instead).
+- **Needs a live check with `HEYGEN_API_KEY`:** background field name (`value` vs `color` differs between
+  HeyGen pages), real lip-sync/timing vs our voiceover, keying quality on real presenters, render times.
+
 ## Consent rules (non-negotiable)
 
 - A custom voice or avatar can only be created for **the account holder themself** or a person who
@@ -116,7 +146,7 @@ Without an avatar provider, an Avatar project now produces a finished **voiceove
 Avatar video costs ₹15–80 per minute at providers, narration ≈ ₹2–10 per minute, so:
 
 - Narration only: **1 credit per started 400 characters** (≈30 s of speech) — implemented in 3.1.
-- Avatar video: **5 credits per started 30 s** (adjusted once the provider's price is known).
+- Avatar video: **5 credits per started 30 s** for the presenter — implemented in 3.4 (adjust once HeyGen's price is known).
 - Cost always shown before confirmation; refunds on failure as in Phase 2.
 
 ## Data model additions

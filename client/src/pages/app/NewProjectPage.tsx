@@ -148,7 +148,7 @@ function NewProjectWizard() {
                   </span>
                   <span className="mt-4 font-semibold">{m.name}</span>
                   <span className="mt-1 text-sm text-muted-foreground">{m.description}</span>
-                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : m.id === 'avatar' ? 'Voiceover available now · presenter video coming' : `Coming in Phase ${m.phase}`}</span>
+                  <span className="mt-3 text-xs text-muted-foreground">{m.id === 'editor' ? 'Available now · core edit' : m.id === 'avatar' ? 'Available now · script → voice → video' : `Coming in Phase ${m.phase}`}</span>
                 </button>
               ))}
             </div>
@@ -270,7 +270,7 @@ function NewProjectWizard() {
             </dl>
             {mode === 'avatar' ? (
               <Notice tone="info" title="What you can make today">
-                After creating the project you can generate the AI voiceover (you’ll see the credit cost first — 1 credit per started 400 characters). The talking-presenter video arrives once an avatar provider is connected.
+                After creating the project you can generate the AI voiceover (you’ll see the credit cost first — 1 credit per started 400 characters). Then choose a background and, optionally, a talking presenter, and make the video.
               </Notice>
             ) : mode === 'editor' ? (
               <Notice tone="info" title="What this render does today">

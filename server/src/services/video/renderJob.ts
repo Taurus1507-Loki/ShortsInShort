@@ -34,6 +34,7 @@ import type { AssetDoc } from '../../models/Asset.js';
 import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, type BackgroundKind } from './background.js';
+import { AvatarError, getAvatarProvider } from '../ai/avatar.js';
 
 export interface RenderPayload {
   projectId: string;
@@ -143,12 +144,116 @@ async function loadTranscript(
   }
 }
 
+/** Solid colour requested behind presenters that are cut out (overlay layout). */
+export const KEY_GREEN = '#00B140';
+let pollMs = 10_000;
+/** Test seam: how often the avatar provider is polled. */
+export const setAvatarPollInterval = (ms: number) => {
+  pollMs = ms;
+};
+const PRESENTER_DEADLINE_MS = 30 * 60_000;
+
+/**
+ * The talking presenter for the current voiceover. Reuses the stored clip when nothing relevant
+ * changed (no second provider charge); otherwise requests one, saving the provider's video id
+ * immediately so a retried job polls that video instead of paying for another.
+ */
+async function ensurePresenter(
+  project: ProjectDoc,
+  narration: AssetDoc,
+  narrationPath: string,
+  workDir: string,
+  ctx: { signal: AbortSignal; progress: JobContext['progress'] },
+): Promise<{ path: string; reused: boolean }> {
+  const provider = getAvatarProvider();
+  if (!provider) throw new PermanentJobError('Talking presenters are not configured on this server.');
+  const s = project.settings ?? {};
+  const avatarId = s.avatarId!;
+  const layout = s.avatarLayout ?? 'full';
+  const backgroundColor = layout === 'overlay' ? KEY_GREEN : (s.backgroundColor ?? '#1E1B4B');
+  const aspectRatio = project.aspectRatio as '9:16' | '16:9' | '1:1' | '4:5';
+  const ar = project.avatarRender;
+  const same = Boolean(
+    ar && ar.provider === provider.name && ar.avatarId === avatarId && ar.narrationAssetId?.equals(narration._id) && ar.backgroundColor === backgroundColor && ar.aspectRatio === aspectRatio,
+  );
+  if (same && ar?.assetId) {
+    const existing = await Asset.findOne({ _id: ar.assetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready' });
+    if (existing) return { path: await storage.getProcessingInput(existing.storageKey), reused: true };
+  }
+
+  let videoId = same ? (ar?.providerVideoId ?? null) : null;
+  try {
+    if (!videoId) {
+      await ctx.progress(5, 'requesting_presenter');
+      videoId = await provider.createVideo({
+        avatarId,
+        audioPath: narrationPath,
+        aspectRatio,
+        resolution: ((s.resolution ?? '1080p') === '720p' ? '720p' : '1080p'),
+        backgroundColor,
+        idempotencyKey: createHash('sha1').update(`${project._id}|${narration._id}|${avatarId}|${backgroundColor}|${aspectRatio}`).digest('hex'),
+        signal: ctx.signal,
+      });
+      await Project.updateOne(
+        { _id: project._id },
+        { $set: { avatarRender: { provider: provider.name, providerVideoId: videoId, avatarId, narrationAssetId: narration._id, backgroundColor, aspectRatio, assetId: null, status: 'pending', requestedAt: new Date() } } },
+      );
+    }
+    const started = Date.now();
+    for (;;) {
+      if (ctx.signal.aborted) throw new Error('Processing was cancelled.');
+      const v = await provider.getVideo(videoId, ctx.signal);
+      if (v.status === 'failed') {
+        await Project.updateOne({ _id: project._id }, { $set: { avatarRender: null } });
+        throw new PermanentJobError(`The presenter video failed at the provider: ${v.failure ?? 'unknown reason'}.`);
+      }
+      if (v.status === 'completed' && v.videoUrl) {
+        await ctx.progress(12, 'saving_presenter');
+        const file = path.join(workDir, 'presenter.mp4');
+        await provider.download(v.videoUrl, file, ctx.signal);
+        const info = await probe(file, { signal: ctx.signal });
+        if (!info.video) throw new Error('The presenter video could not be read.');
+        const assetId = new Types.ObjectId();
+        const key = keys.avatarVideo(project.workspaceId.toString(), assetId.toString());
+        await storage.uploadFile(key, file, 'video/mp4');
+        await registerGeneratedAsset({
+          id: assetId,
+          workspaceId: project.workspaceId as Types.ObjectId,
+          projectId: project._id,
+          kind: 'avatar_video',
+          storageKey: key,
+          mimeType: 'video/mp4',
+          sizeBytes: (await stat(file)).size,
+          originalName: 'presenter.mp4',
+          durationSec: Math.round(info.durationSec * 1000) / 1000,
+          width: info.video.width,
+          height: info.video.height,
+          hasAudio: Boolean(info.audio),
+        });
+        const previous = ar?.assetId && !same ? ar.assetId : null;
+        await Project.updateOne({ _id: project._id }, { $set: { 'avatarRender.assetId': assetId, 'avatarRender.status': 'completed' } });
+        if (previous) {
+          const old = await Asset.findOne({ _id: previous, deletedAt: null });
+          if (old) await purgeAsset(old).catch((err) => logger.warn({ err }, 'Failed to purge previous presenter clip'));
+        }
+        return { path: file, reused: false };
+      }
+      if (Date.now() - started > PRESENTER_DEADLINE_MS) throw new Error('The presenter video is taking too long at the provider. Try again later.');
+      await ctx.progress(Math.min(11, 6 + Math.floor((Date.now() - started) / 60_000)), 'presenter_rendering');
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+  } catch (err) {
+    if (err instanceof AvatarError && err.permanent) throw new PermanentJobError(err.message);
+    throw err;
+  }
+}
+
 /**
  * Avatar Studio (voiceover video): renders the base clip — the chosen background at the final size
  * with the voiceover as audio — and returns it with the voiceover's word timings, so the rest of the
  * pipeline (captions, B-roll, zooms, logo, music) treats it like an edited source.
  */
-async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal: AbortSignal) {
+async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal: AbortSignal, progress: JobContext['progress']) {
   if (!project.narrationAssetId) throw new PermanentJobError('Generate the voiceover first.');
   const narration = await Asset.findOne({ _id: project.narrationAssetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready' });
   if (!narration) throw new PermanentJobError('The voiceover is missing. Generate it again.');
@@ -157,7 +262,8 @@ async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal
   const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
   const kind = (settings.background ?? 'brand') as BackgroundKind;
   let mediaPath: string | undefined;
-  if (kind === 'image' || kind === 'video') {
+  const fullPresenter = Boolean(settings.avatarId) && (settings.avatarLayout ?? 'full') === 'full';
+  if ((kind === 'image' || kind === 'video') && !fullPresenter) {
     const bg = project.backgroundAssetId
       ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready', kind: kind === 'image' ? 'background_image' : 'source_video' })
       : null;
@@ -169,13 +275,27 @@ async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal
     kind === 'brand' ? [kit?.primaryColor ?? '#7C3AED', kit?.secondaryColor ?? '#0F172A'] : [settings.backgroundColor ?? '#1E1B4B', settings.backgroundColor ?? '#1E1B4B'];
   const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
   if (!(durationSec > 0)) throw new PermanentJobError('The voiceover has no length. Generate it again.');
+  const narrationPath = await storage.getProcessingInput(narration.storageKey);
+  const layout = (settings.avatarLayout ?? 'full') as 'full' | 'overlay';
+  const presenter = settings.avatarId ? await ensurePresenter(project, narration, narrationPath, workDir, { signal, progress }) : null;
+  await progress(13, 'preparing_background');
   const input = path.join(workDir, 'base.mp4');
   await renderBackground(
-    { kind, width: size.width, height: size.height, durationSec, audioPath: await storage.getProcessingInput(narration.storageKey), output: input, colors, mediaPath },
+    {
+      kind,
+      width: size.width,
+      height: size.height,
+      durationSec,
+      audioPath: narrationPath,
+      output: input,
+      colors,
+      mediaPath,
+      presenter: presenter ? { path: presenter.path, layout, keyColor: KEY_GREEN } : undefined,
+    },
     { signal },
   );
   const words = ((withWords?.narrationWords ?? []) as Array<{ text: string; start: number; end: number }>).map((w) => ({ text: w.text, start: w.start, end: w.end }));
-  return { input, words: words as Word[] };
+  return { input, words: words as Word[], presenter: presenter ? { avatarId: settings.avatarId!, layout, reused: presenter.reused } : null };
 }
 
 async function run({ job, signal, progress }: JobContext) {
@@ -199,10 +319,12 @@ async function run({ job, signal, progress }: JobContext) {
     await progress(3, avatar ? 'preparing_background' : 'analyzing');
     let input: string;
     let narrationWords: Word[] | null = null;
+    let presenter: { avatarId: string; layout: string; reused: boolean } | null = null;
     if (avatar) {
-      const base = await prepareVoiceoverBase(project, workDir, signal);
+      const base = await prepareVoiceoverBase(project, workDir, signal, progress);
       input = base.input;
       narrationWords = base.words;
+      presenter = base.presenter;
     } else {
       input = await storage.getProcessingInput(source!.storageKey);
     }
@@ -350,9 +472,10 @@ async function run({ job, signal, progress }: JobContext) {
     // Overlay layer: Free-plan watermark and, for voiceover videos, an "AI-generated voice" label
     // (always shown when a cloned voice was used).
     const clonedVoice = avatar && project.narrationStats?.voiceId ? await CustomVoice.exists({ workspaceId: job.workspaceId, providerVoiceId: project.narrationStats.voiceId }) : null;
+    // A digital presenter is always disclosed, like a cloned voice.
     const disclosure =
-      avatar && (settings.disclosure !== false || clonedVoice)
-        ? { text: 'AI-generated voice', corner: (logo?.position === 'top-left' ? 'bottom-left' : 'top-left') as 'top-left' | 'bottom-left' }
+      avatar && (settings.disclosure !== false || clonedVoice || presenter)
+        ? { text: presenter ? 'AI-generated' : 'AI-generated voice', corner: (logo?.position === 'top-left' ? 'bottom-left' : 'top-left') as 'top-left' | 'bottom-left' }
         : null;
     let watermark: { assPath: string; fontsDir: string } | undefined;
     if (plan.watermark || disclosure) {
@@ -454,6 +577,7 @@ async function run({ job, signal, progress }: JobContext) {
       logoApplied: Boolean(logo),
       watermark: plan.watermark,
       disclosure: Boolean(disclosure),
+      presenter,
       background: avatar ? (settings.background ?? 'brand') : null,
       music: track ? { title: track.title, artist: track.artist, license: track.license } : null,
       warnings: [

@@ -7,7 +7,7 @@ import { Input, Select } from '../ui/input';
 import { Field, Notice } from '../ui/primitives';
 import { VideoUploader } from './VideoUploader';
 import { api, errorMessage } from '@/lib/api';
-import { useAssetUrl, useBrandKit, useMeta } from '@/lib/queries';
+import { useAssetUrl, useAvatars, useBrandKit, useMeta } from '@/lib/queries';
 import { uploadVideo } from '@/lib/upload';
 import { cn } from '@/lib/utils';
 import type { Asset, EditingStyle, ProjectSettings } from '@/types/api';
@@ -117,6 +117,97 @@ export function BackgroundPicker({
         </div>
       )}
       {(kind === 'image' || kind === 'video') && !assetFits && !uploading && <Notice tone="warning">Add a background {kind} — the video can’t be made without it.</Notice>}
+    </div>
+  );
+}
+
+/**
+ * Talking presenter: none (voiceover video) or a stock presenter from the avatar provider, shown
+ * full-frame on a solid colour or cut out over the chosen background.
+ */
+export function PresenterPicker({ settings, onChange }: { settings: ProjectSettings; onChange: (patch: Partial<ProjectSettings>) => void }) {
+  const { data: meta } = useMeta();
+  const live = Boolean(meta?.features.avatarStudio);
+  const { data: avatars, isLoading, isError, error } = useAvatars(live);
+  const [q, setQ] = useState('');
+  const [gender, setGender] = useState('');
+  const chosen = settings.avatarId;
+  const list = (avatars ?? []).filter((a) => (!gender || a.gender === gender) && (!q.trim() || [a.name, ...a.tags].some((x) => x.toLowerCase().includes(q.trim().toLowerCase()))));
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Presenter">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!chosen}
+          onClick={() => onChange({ avatarId: '' })}
+          className={cn('rounded-lg border p-3 text-left', !chosen ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40')}
+        >
+          <span className="block text-sm font-semibold">No presenter</span>
+          <span className="text-xs text-muted-foreground">Voiceover over your background, B-roll and captions.</span>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={Boolean(chosen)}
+          disabled={!live}
+          onClick={() => avatars?.[0] && onChange({ avatarId: avatars[0].id })}
+          className={cn('rounded-lg border p-3 text-left disabled:opacity-50', chosen ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40')}
+        >
+          <span className="block text-sm font-semibold">Talking presenter</span>
+          <span className="text-xs text-muted-foreground">An AI presenter lip-synced to your voiceover. 5 credits per 30 s.</span>
+        </button>
+      </div>
+
+      {!live && meta && (
+        <Notice tone="info">Talking presenters need an avatar provider (HeyGen) to be connected on the server. Until then, videos are made without a presenter.</Notice>
+      )}
+      {live && chosen && (
+        <>
+          <Field id="presenter-layout" label="Layout" hint="Full frame: the presenter fills the video on your solid colour. Cut out: the presenter stands over your background (brand gradient, image or video).">
+            <Select value={settings.avatarLayout ?? 'full'} onChange={(e) => onChange({ avatarLayout: e.target.value as ProjectSettings['avatarLayout'] })}>
+              <option value="full">Full frame (solid colour)</option>
+              <option value="overlay">Cut out over the background</option>
+            </Select>
+          </Field>
+          <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
+            <Input aria-label="Search presenters" placeholder="Search presenters…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Select aria-label="Filter presenters by gender" value={gender} onChange={(e) => setGender(e.target.value)}>
+              <option value="">Any</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+            </Select>
+          </div>
+          {isError && <Notice tone="error">{errorMessage(error)}</Notice>}
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading presenters…</p>
+          ) : (
+            <ul className="grid max-h-[420px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4" role="radiogroup" aria-label="Presenters">
+              {list.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={a.id === chosen}
+                    onClick={() => onChange({ avatarId: a.id })}
+                    className={cn('w-full overflow-hidden rounded-lg border text-left', a.id === chosen ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40')}
+                  >
+                    {a.previewImageUrl ? (
+                      <img src={a.previewImageUrl} alt="" loading="lazy" className="aspect-[3/4] w-full bg-muted object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="grid aspect-[3/4] w-full place-items-center bg-muted text-xs text-muted-foreground">No preview</div>
+                    )}
+                    <span className="block truncate px-2 py-1.5 text-xs font-semibold">{a.name}</span>
+                  </button>
+                </li>
+              ))}
+              {list.length === 0 && <li className="col-span-full py-4 text-center text-sm text-muted-foreground">No presenters match.</li>}
+            </ul>
+          )}
+          {chosen && avatars && !avatars.some((a) => a.id === chosen) && <Notice tone="warning">The presenter saved on this project is no longer available. Choose another one.</Notice>}
+        </>
+      )}
     </div>
   );
 }
