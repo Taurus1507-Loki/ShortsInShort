@@ -110,6 +110,7 @@ export interface RenderStats {
   background?: string | null;
   presenter?: { avatarId: string; layout: string; reused: boolean } | null;
   sceneCount?: number;
+  titleCount?: number;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -355,4 +356,9 @@ export interface Scene {
   queries: string[];
   clip: SceneClip | null;
   candidates: SceneClip[];
+  /** Short title shown on screen during the scene. */
+  overlayText: string;
+  /** The user's own media for this scene (replaces the stock clip). */
+  assetId: string | null;
+  assetType: 'video' | 'image' | null;
 }

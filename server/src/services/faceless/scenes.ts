@@ -167,3 +167,13 @@ export function sceneTimings(scenes: Array<{ text: string }>, words: Array<{ sta
     return { start: Math.round(s * 1000) / 1000, end: Math.round(Math.max(end, s + 0.3) * 1000) / 1000 };
   });
 }
+
+/** Splits a scene's narration after `atWord` words. Exported for tests. */
+export function splitSceneText(text: string, atWord: number): [string, string] {
+  const w = tokens(text);
+  if (!Number.isInteger(atWord) || atWord < 1 || atWord >= w.length) throw new RangeError('Split point must be inside the scene.');
+  return [w.slice(0, atWord).join(' '), w.slice(atWord).join(' ')];
+}
+
+/** The script rebuilt from scene texts (after reordering or rewording scenes). */
+export const scriptFromScenes = (scenes: Array<{ text: string }>) => scenes.map((s) => s.text.trim()).filter(Boolean).join(' ');

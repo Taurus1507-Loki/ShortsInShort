@@ -10,7 +10,7 @@ pipeline (captions, logo, watermark, music, AI label) and the job queue/credits.
 | Step | Scope | Status |
 |---|---|---|
 | **4.1 Stock-footage faceless videos** | Faceless project: topic → AI script → voiceover → **AI scene plan** (script split into ~4–8 s scenes in code, the LLM only picks stock searches per scene) → best licensed Pixabay clip per scene (tag-relevance filter, no clip reused) → scene cards with thumbnails; edit a scene's search and pick another candidate → render: clips cut to each scene's exact voiceover timing, scaled to fill the frame, then captions, logo, music, label. | ✅ Built |
-| **4.2 Scene editor** | Reorder, split/merge scenes, edit on-screen text per scene, regenerate one scene, upload your own clip/image for a scene, Ken Burns motion on stills. | Planned |
+| **4.2 Scene editor** | Reorder, split/merge scenes, edit on-screen text per scene, regenerate one scene, upload your own clip/image for a scene, Ken Burns motion on stills. | ✅ Built |
 | **4.3 Motion Explainer** | Remotion templates (12–15: title card, card grid, pill list, chat typing, process flow, stat counter, CTA…), LLM fills template parameters as validated JSON, server-side render in its own worker (headless Chromium), Brand Kit colours/fonts, Indic typography. | Planned — Remotion licence needed before commercial launch (>3 people) |
 | **4.4 Sound & polish** | SFX cues per template, music bed defaults per style, per-scene transitions, render-cost measurement → final pricing. | Planned |
 
@@ -45,4 +45,22 @@ pipeline (captions, logo, watermark, music, AI label) and the job queue/credits.
   503 and fell back to keywords, which led to the retry + notice. Full render needs `ELEVENLABS_API_KEY`
   (voiceover); covered by tests with real FFmpeg.
 - **Tests:** 8 (`faceless.test.ts`) + Gemini retry unit test.
+
+## Step 4.2 — what's built (2026-11-11)
+
+Scene cards on Faceless projects are now an editor:
+- **Split** a scene at any word (click the word that starts the new scene) and **merge** with the next —
+  the narration is unchanged, so the voiceover stays valid. The new half gets the next unused candidate clip.
+- **Move** a scene up/down and **edit its words** — these change the script (rebuilt from the scenes), so
+  the voiceover is flagged out of date and must be generated again before rendering (`NARRATION_OUTDATED`).
+- **On-screen text** per scene (≤80 chars): burned in large in the upper third with a short fade, only during
+  that scene (overlay layer, same pass as watermark/label).
+- **Re-plan** one scene with AI (fresh searches, steering away from ones already tried; keyword fallback).
+- **Your own media** per scene: upload a video (looped/cut like stock) or an image (slow pan, alternating
+  direction); it replaces the stock clip and needs no attribution. Picking a stock clip again switches back.
+  Deleting the file clears it from scenes; a missing file blocks the render (`SCENE_MEDIA_MISSING`).
+- Edits are refused while the scene plan doesn't match the script (`SCENES_OUTDATED`) or the project is busy.
+- **Verified live (2026-11-11):** split (3 → 4 scenes, words unchanged), on-screen text saved, AI re-plan of a
+  scene with real Gemini + Pixabay ("morning cafe queue" → "cafe window order", new clip; ~40 s).
+- **Tests:** 7 (`scene_editor.test.ts`) incl. a real render with an own image + on-screen text.
 

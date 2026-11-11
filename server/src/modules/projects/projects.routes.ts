@@ -13,7 +13,9 @@ import { avatarCreditCost, editorCreditCost, facelessCreditCost, MAX_NARRATION_C
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { getStockProvider } from '../../services/ai/stock.js';
-import { findClips, scenesKey, splitScenes } from '../../services/faceless/scenes.js';
+import { MAX_SCENES, fallbackQuery, findClips, planSceneQueries, scenesKey, scriptFromScenes, splitSceneText, splitScenes } from '../../services/faceless/scenes.js';
+import { getLLMProvider } from '../../services/ai/llm.js';
+import { logger } from '../../config/logger.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
@@ -215,8 +217,13 @@ async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   if (!narration || !stats) throw badRequest('Generate the voiceover first.', 'NO_NARRATION');
   if (!project.scenes?.length) throw badRequest('Plan the scenes first.', 'NO_SCENES');
   if (project.scenesKey !== scenesKey(project.script ?? '')) throw conflict('The script changed since the scenes were planned. Plan the scenes again.', 'SCENES_OUTDATED');
-  const missing = project.scenes.findIndex((sc) => !sc.clip?.id);
-  if (missing >= 0) throw badRequest(`Scene ${missing + 1} has no clip yet. Search for one or edit its search.`, 'SCENE_WITHOUT_CLIP');
+  const missing = project.scenes.findIndex((sc) => !sc.clip?.id && !sc.assetId);
+  if (missing >= 0) throw badRequest(`Scene ${missing + 1} has no clip yet. Search for one, edit its search or use your own media.`, 'SCENE_WITHOUT_CLIP');
+  const ownIds = project.scenes.map((sc) => sc.assetId).filter(Boolean);
+  if (ownIds.length) {
+    const found = await Asset.countDocuments({ _id: { $in: ownIds }, workspaceId, deletedAt: null, status: 'ready' });
+    if (found < new Set(ownIds.map(String)).size) throw badRequest('One of your scene media files was deleted. Choose it again.', 'SCENE_MEDIA_MISSING');
+  }
   if (!getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
   const s = project.settings ?? {};
   if (stats.voiceId && (await CustomVoice.exists({ workspaceId, providerVoiceId: stats.voiceId })) && !(await ownCustomVoice(workspaceId, stats.voiceId))) {
@@ -534,20 +541,170 @@ projectsRouter.post(
   }),
 );
 
-/** Picks one of a scene's candidate clips. */
+const sceneEdit = z
+  .object({
+    clipId: z.string().min(1).max(40).optional(),
+    text: z.string().trim().min(1, 'A scene needs some narration.').max(1000).optional(),
+    overlayText: z.string().trim().max(80).optional(),
+    assetId: z.string().refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id').nullable().optional(),
+  })
+  .strict()
+  .refine((b) => Object.keys(b).length === 1, 'Change one thing at a time.');
+
+/** Keeps the script and the scene-plan fingerprint in step after scenes are reordered or reworded. */
+function syncScript(project: ProjectDoc) {
+  const script = scriptFromScenes(project.scenes ?? []);
+  project.set({ script, scenesKey: scenesKey(script) });
+}
+
+async function editableFaceless(req: Request, id: string) {
+  const project = await facelessProject(req, id);
+  if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+  if (project.scenesKey !== scenesKey(project.script ?? '')) throw conflict('The script changed since the scenes were planned. Plan the scenes again first.', 'SCENES_OUTDATED');
+  return project;
+}
+
+/**
+ * Edits one scene: pick a candidate clip, reword its narration (rewrites the script — the voiceover
+ * then needs regenerating), set on-screen text, or use your own video/image instead of stock.
+ */
 projectsRouter.patch(
   '/:id/scenes/:index',
-  validate({ params: sceneParams, body: z.object({ clipId: z.string().min(1).max(40) }).strict() }),
+  validate({ params: sceneParams, body: sceneEdit }),
   asyncHandler(async (req, res) => {
-    const project = await facelessProject(req, req.params.id!);
-    if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+    const project = await editableFaceless(req, req.params.id!);
     const index = Number(req.params.index);
     const scene = project.scenes?.[index];
     if (!scene) throw notFound('Scene not found.');
-    const clip = [...(scene.candidates ?? []), ...(scene.clip ? [scene.clip] : [])].find((c) => c.id === req.body.clipId);
-    if (!clip) throw badRequest('That clip isn’t one of this scene’s options. Search again.', 'INVALID_CLIP');
-    project.set(`scenes.${index}.clip`, clip);
+    const body = req.body as z.infer<typeof sceneEdit>;
+    if (body.clipId !== undefined) {
+      const clip = [...(scene.candidates ?? []), ...(scene.clip ? [scene.clip] : [])].find((c) => c.id === body.clipId);
+      if (!clip) throw badRequest('That clip isn’t one of this scene’s options. Search again.', 'INVALID_CLIP');
+      project.set(`scenes.${index}.clip`, clip);
+      // Picking stock footage means the user wants stock here again.
+      project.set(`scenes.${index}.assetId`, null);
+      project.set(`scenes.${index}.assetType`, null);
+    }
+    if (body.text !== undefined) {
+      project.set(`scenes.${index}.text`, body.text);
+      syncScript(project);
+    }
+    if (body.overlayText !== undefined) project.set(`scenes.${index}.overlayText`, body.overlayText);
+    if (body.assetId !== undefined) {
+      if (body.assetId === null) {
+        project.set(`scenes.${index}.assetId`, null);
+        project.set(`scenes.${index}.assetType`, null);
+      } else {
+        const asset = await Asset.findOne({ _id: body.assetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready', kind: { $in: ['source_video', 'background_image'] } });
+        if (!asset) throw badRequest('That file isn’t available. Upload it again.', 'INVALID_ASSET');
+        project.set(`scenes.${index}.assetId`, asset._id);
+        project.set(`scenes.${index}.assetType`, asset.kind === 'source_video' ? 'video' : 'image');
+      }
+    }
+    if ((project.script ?? '').length > MAX_NARRATION_CHARS) throw badRequest(`Scripts can be up to ${MAX_NARRATION_CHARS} characters.`, 'SCRIPT_TOO_LONG');
     await project.save();
     res.json({ data: await withMedia(project) });
+  }),
+);
+
+/** Splits a scene after a given word. The narration is unchanged, so the voiceover stays valid. */
+projectsRouter.post(
+  '/:id/scenes/:index/split',
+  validate({ params: sceneParams, body: z.object({ atWord: z.number().int().min(1) }).strict() }),
+  asyncHandler(async (req, res) => {
+    const project = await editableFaceless(req, req.params.id!);
+    const index = Number(req.params.index);
+    const scene = project.scenes?.[index];
+    if (!scene) throw notFound('Scene not found.');
+    if ((project.scenes?.length ?? 0) >= MAX_SCENES) throw badRequest(`Videos can have up to ${MAX_SCENES} scenes.`, 'TOO_MANY_SCENES');
+    let parts: [string, string];
+    try {
+      parts = splitSceneText(scene.text, req.body.atWord);
+    } catch {
+      throw badRequest('Choose a split point inside the scene.', 'INVALID_SPLIT');
+    }
+    const used = new Set((project.scenes ?? []).map((sc) => sc.clip?.id).filter(Boolean) as string[]);
+    const candidates = (scene.candidates ?? []).map((c) => (typeof (c as { toObject?: () => unknown }).toObject === 'function' ? (c as unknown as { toObject: () => object }).toObject() : c));
+    const next = candidates.find((c) => !used.has((c as { id: string }).id)) ?? null;
+    const scenes = project.toObject().scenes ?? [];
+    scenes.splice(index, 1, { ...scenes[index]!, text: parts[0] }, { text: parts[1], queries: scene.queries ?? [], clip: next, candidates, overlayText: '', assetId: null, assetType: null } as never);
+    project.set('scenes', scenes);
+    await project.save();
+    res.json({ data: await withMedia(project) });
+  }),
+);
+
+/** Merges a scene with the next one (keeps this scene's visual). */
+projectsRouter.post(
+  '/:id/scenes/:index/merge',
+  validate({ params: sceneParams }),
+  asyncHandler(async (req, res) => {
+    const project = await editableFaceless(req, req.params.id!);
+    const index = Number(req.params.index);
+    const scenes = project.toObject().scenes ?? [];
+    if (!scenes[index] || !scenes[index + 1]) throw badRequest('There is no next scene to merge with.', 'INVALID_MERGE');
+    const merged = `${scenes[index]!.text} ${scenes[index + 1]!.text}`;
+    if (merged.length > 1000) throw badRequest('That merged scene would be too long.', 'INVALID_MERGE');
+    scenes.splice(index, 2, { ...scenes[index]!, text: merged });
+    project.set('scenes', scenes);
+    await project.save();
+    res.json({ data: await withMedia(project) });
+  }),
+);
+
+/** Moves a scene (its narration moves too, so the script is rewritten and the voiceover must be redone). */
+projectsRouter.post(
+  '/:id/scenes/move',
+  validate({ params: idParams, body: z.object({ from: z.number().int().min(0), to: z.number().int().min(0) }).strict() }),
+  asyncHandler(async (req, res) => {
+    const project = await editableFaceless(req, req.params.id!);
+    const scenes = project.toObject().scenes ?? [];
+    const { from, to } = req.body as { from: number; to: number };
+    if (from >= scenes.length || to >= scenes.length) throw badRequest('Scene not found.', 'INVALID_MOVE');
+    const [moved] = scenes.splice(from, 1);
+    scenes.splice(to, 0, moved!);
+    project.set('scenes', scenes);
+    syncScript(project);
+    await project.save();
+    res.json({ data: await withMedia(project) });
+  }),
+);
+
+/** Re-plans one scene's visuals with AI (new searches + candidates; picks the best unused clip). */
+projectsRouter.post(
+  '/:id/scenes/:index/replan',
+  validate({ params: sceneParams }),
+  asyncHandler(async (req, res) => {
+    const project = await editableFaceless(req, req.params.id!);
+    const index = Number(req.params.index);
+    const scene = project.scenes?.[index];
+    if (!scene) throw notFound('Scene not found.');
+    const stock = getStockProvider();
+    if (!stock) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+    const llm = getLLMProvider();
+    let queries = [fallbackQuery(scene.text) || 'abstract background'];
+    let plannedWith: 'ai' | 'keywords' = 'keywords';
+    if (llm) {
+      try {
+        // Ask for fresh ideas, steering away from the searches already tried.
+        [queries] = (await planSceneQueries(llm, [{ text: scene.text }], { language: project.settings?.language ?? 'en', topic: [project.topic, scene.queries?.length ? `avoid repeating: ${scene.queries.join(', ')}` : ''].filter(Boolean).join(' — ') })) as [string[]];
+        plannedWith = 'ai';
+      } catch (err) {
+        logger.warn({ err }, 'Scene re-plan AI failed; using keywords');
+      }
+    }
+    const used = new Set((project.scenes ?? []).filter((_, i) => i !== index).map((sc) => sc.clip?.id).filter(Boolean) as string[]);
+    let candidates;
+    try {
+      candidates = await findClips(stock, queries, { minDurationSec: Math.min(12, scene.text.split(/\s+/).length / 2.5), used, max: 6 });
+    } catch {
+      throw new AppError(502, 'PROVIDER_ERROR', 'Stock search failed. Try again shortly.');
+    }
+    project.set(`scenes.${index}.queries`, queries);
+    project.set(`scenes.${index}.candidates`, candidates);
+    const best = candidates.find((c) => !used.has(c.id));
+    if (best) project.set(`scenes.${index}.clip`, best);
+    await project.save();
+    res.json({ data: await withMedia(project), meta: { found: candidates.length, plannedWith } });
   }),
 );

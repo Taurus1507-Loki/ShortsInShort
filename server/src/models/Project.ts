@@ -98,6 +98,11 @@ const sceneSchema = new Schema(
     clip: { type: stockClipSchema, default: null },
     /** Other relevant clips to swap in. */
     candidates: { type: [stockClipSchema], default: [] },
+    /** Short title shown on screen during the scene ('' = none). */
+    overlayText: { type: String, default: '', maxlength: 80 },
+    /** The user's own media for this scene (overrides the stock clip). */
+    assetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
+    assetType: { type: String, enum: ['video', 'image', null], default: null },
   },
   { _id: false },
 );
@@ -152,6 +157,7 @@ const projectSchema = new Schema(
       disclosure: { type: Boolean, default: false },
       presenter: { type: { _id: false, avatarId: String, layout: String, reused: Boolean }, default: null },
       sceneCount: { type: Number, default: 0 },
+      titleCount: { type: Number, default: 0 },
       background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
@@ -247,6 +253,9 @@ export function toPublicProject(p: ProjectDoc) {
       queries: s.queries,
       clip: s.clip ? publicClip(s.clip) : null,
       candidates: (s.candidates ?? []).map(publicClip),
+      overlayText: s.overlayText ?? '',
+      assetId: s.assetId?.toString() ?? null,
+      assetType: s.assetType ?? null,
     })),
     scenesKey: p.scenesKey ?? null,
     scenesPlannedWith: p.scenesPlannedWith ?? null,

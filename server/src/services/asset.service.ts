@@ -310,7 +310,7 @@ export async function deleteAsset(workspaceId: Types.ObjectId, assetId: string) 
     workspaceId,
     deletedAt: null,
     status: { $in: ['queued', 'processing'] },
-    $or: [{ sourceAssetId: asset._id }, { backgroundAssetId: asset._id }, { narrationAssetId: asset._id }],
+    $or: [{ sourceAssetId: asset._id }, { backgroundAssetId: asset._id }, { narrationAssetId: asset._id }, { 'scenes.assetId': asset._id }],
   });
   if (busy) throw conflict('This video is being processed. Try again when it finishes.', 'ASSET_BUSY');
   await purgeAsset(asset);
@@ -328,6 +328,11 @@ export async function purgeAsset(asset: AssetDoc) {
   await Project.updateMany({ workspaceId, outputAssetId: asset._id }, { $set: { outputAssetId: null } });
   await Project.updateMany({ workspaceId, narrationAssetId: asset._id }, { $set: { narrationAssetId: null } });
   await Project.updateMany({ workspaceId, backgroundAssetId: asset._id }, { $set: { backgroundAssetId: null } });
+  await Project.updateMany(
+    { workspaceId, 'scenes.assetId': asset._id },
+    { $set: { 'scenes.$[s].assetId': null, 'scenes.$[s].assetType': null } },
+    { arrayFilters: [{ 's.assetId': asset._id }] },
+  );
 
   if (asset.thumbnailAssetId) {
     const thumb = await Asset.findOne({ _id: asset.thumbnailAssetId, workspaceId, deletedAt: null });

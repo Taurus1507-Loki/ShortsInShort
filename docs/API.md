@@ -140,7 +140,11 @@ or 503 `NOT_CONFIGURED`.
 |---|---|---|
 | POST | `/scenes/plan` | 202 `{job}` — background job (free): splits the saved script into scenes, AI picks searches, one licensed clip per scene. 503 `NOT_CONFIGURED` without `PIXABAY_API_KEY`, 400 `NO_SCRIPT` |
 | POST | `/scenes/:index/search` | `{query}` → project with that scene's new `candidates` (meta `{found}`) |
-| PATCH | `/scenes/:index` | `{clipId}` — choose one of the scene's candidates (400 `INVALID_CLIP`) |
+| PATCH | `/scenes/:index` | One of: `{clipId}` (choose a candidate), `{text}` (reword — rewrites the script), `{overlayText}` (≤80), `{assetId}` (own `source_video`/`background_image`, or `null`) |
+| POST | `/scenes/:index/split` | `{atWord}` — split after that many words (voiceover stays valid) |
+| POST | `/scenes/:index/merge` | Merge with the next scene |
+| POST | `/scenes/move` | `{from, to}` — reorder (rewrites the script; voiceover must be redone) |
+| POST | `/scenes/:index/replan` | AI picks new searches + candidates for one scene (meta `{found, plannedWith}`) |
 
 Faceless projects return `scenes[]` (`text, queries, clip, candidates` — clips without download URLs),
 `scenesKey`, `scenesOutdated`, `scenesPlannedWith` (`ai|keywords`). Generate errors: `NO_NARRATION`, `NO_SCENES`,

@@ -242,6 +242,8 @@ export function buildWatermarkAss(input: {
   /** Default true. */
   watermark?: boolean;
   disclosure?: { text: string; corner: 'top-left' | 'bottom-left' } | null;
+  /** On-screen titles (faceless scenes), shown large in the upper third with a short fade. */
+  titles?: Array<{ start: number; end: number; text: string }>;
 }): string {
   const short = Math.min(input.width, input.height);
   const font = fontFor('en', 'semibold', input.platform);
@@ -259,10 +261,12 @@ export function buildWatermarkAss(input: {
     // White at ~60% opacity with a soft dark outline; alignment 9 = top-right.
     `Style: Mark,${font.family},${size},${assColor('#FFFFFF', 0x66)},${assColor('#FFFFFF', 0x66)},${assColor('#000000', 0x99)},${assColor('#000000', 0xff)},${font.bold ? -1 : 0},0,0,0,100,100,0,0,1,${Math.max(1, Math.round(size * 0.08))},0,9,${margin},${margin},${margin},1`,
     `Style: Disclose,${font.family},${Math.round(size * 0.85)},${assColor('#FFFFFF', 0x4d)},${assColor('#FFFFFF', 0x4d)},${assColor('#000000', 0x80)},${assColor('#000000', 0xff)},0,0,0,0,100,100,0,0,1,${Math.max(1, Math.round(size * 0.08))},0,${input.disclosure?.corner === 'bottom-left' ? 1 : 7},${margin},${margin},${margin},1`,
+    `Style: Title,${fontFor('en', 'black', input.platform).family},${Math.round(short * 0.068)},${assColor('#FFFFFF', 0)},${assColor('#FFFFFF', 0)},${assColor('#000000', 0x20)},${assColor('#000000', 0x80)},-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(short * 0.006))},${Math.max(1, Math.round(short * 0.004))},8,${Math.round(input.width * 0.08)},${Math.round(input.width * 0.08)},${Math.round(input.height * 0.14)},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
     ...(input.watermark === false ? [] : [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Mark,,0,0,0,,Made with ShortsInShort`]),
+    ...(input.titles ?? []).filter((t) => t.text.trim() && t.end > t.start).map((t) => `Dialogue: 2,${assTime(t.start)},${assTime(t.end)},Title,,0,0,0,,{\\fad(200,200)}${t.text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim()}`),
     ...(input.disclosure ? [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Disclose,,0,0,0,,${input.disclosure.text.replace(/[{}\\]/g, '')}`] : []),
     '',
   ].join(String.fromCharCode(10));

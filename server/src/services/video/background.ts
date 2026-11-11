@@ -105,8 +105,8 @@ export async function renderBackground(b: BackgroundInput, opts: RunOptions = {}
 export interface ScenesInput {
   width: number;
   height: number;
-  /** Clips in order with the seconds each must fill (from the voiceover timings). */
-  scenes: Array<{ path: string; durationSec: number }>;
+  /** Clips (or still images) in order with the seconds each must fill (from the voiceover timings). */
+  scenes: Array<{ path: string; durationSec: number; image?: boolean }>;
   audioPath: string;
   output: string;
   fps?: number;
@@ -125,6 +125,15 @@ export function buildScenesArgs(s: ScenesInput): string[] {
   const chains: string[] = [];
   s.scenes.forEach((sc, i) => {
     const d = Math.max(0.3, sc.durationSec).toFixed(3);
+    if (sc.image) {
+      // Stills get gentle motion: cover a 10% larger frame and pan across it (alternating direction).
+      const bw = even(W * 1.1);
+      const bh = even(H * 1.1);
+      const x = i % 2 === 0 ? `(iw-ow)*t/${d}` : `(iw-ow)*(1-t/${d})`;
+      inputs.push('-loop', '1', '-framerate', String(fps), '-t', d, '-i', sc.path);
+      chains.push(`[${i}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='${x}':y='(ih-oh)/2',setsar=1,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`);
+      return;
+    }
     inputs.push('-stream_loop', '-1', '-t', d, '-i', sc.path);
     chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`);
   });

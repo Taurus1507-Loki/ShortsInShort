@@ -310,41 +310,46 @@ async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal:
   if (!narration) throw new PermanentJobError('The voiceover is missing. Generate it again.');
   const scenes = project.scenes ?? [];
   if (!scenes.length || project.scenesKey !== scenesKey(project.script ?? '')) throw new PermanentJobError('Plan the scenes again — the script changed.');
-  const missing = scenes.findIndex((sc) => !sc.clip?.downloadUrl);
+  const missing = scenes.findIndex((sc) => !sc.clip?.downloadUrl && !sc.assetId);
   if (missing >= 0) throw new PermanentJobError(`Scene ${missing + 1} has no clip. Choose one first.`);
   const stock = getStockProvider();
-  if (!stock) throw new PermanentJobError('Stock footage is not configured on this server.');
+  if (!stock && scenes.some((sc) => !sc.assetId)) throw new PermanentJobError('Stock footage is not configured on this server.');
   const withWords = await Project.findById(project._id).select('+narrationWords').lean();
   const words = ((withWords?.narrationWords ?? []) as Array<{ text: string; start: number; end: number }>).map((w) => ({ text: w.text, start: w.start, end: w.end }));
   const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
   if (!(durationSec > 0)) throw new PermanentJobError('The voiceover has no length. Generate it again.');
   const timings = sceneTimings(scenes, words, durationSec);
 
-  const files: string[] = [];
+  // The user's own media is read straight from storage; stock clips are downloaded.
+  const files: Array<{ path: string; image: boolean }> = [];
   for (const [i, sc] of scenes.entries()) {
     await progress(4 + Math.round((i / scenes.length) * 8), 'downloading_clips');
+    if (sc.assetId) {
+      const own = await Asset.findOne({ _id: sc.assetId, workspaceId: project.workspaceId, deletedAt: null, status: 'ready' });
+      if (!own) throw new PermanentJobError(`Scene ${i + 1}: your media file was deleted. Choose it again.`);
+      files.push({ path: await storage.getProcessingInput(own.storageKey), image: own.kind === 'background_image' });
+      continue;
+    }
     const file = path.join(workDir, `scene-${i}.mp4`);
-    await stock.download(sc.clip as unknown as StockClip, file, { signal });
-    files.push(file);
+    await stock!.download(sc.clip as unknown as StockClip, file, { signal });
+    files.push({ path: file, image: false });
   }
   await progress(12, 'assembling_scenes');
   const settings = project.settings ?? {};
   const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
   const input = path.join(workDir, 'base.mp4');
   await renderScenes(
-    { width: size.width, height: size.height, scenes: files.map((f, i) => ({ path: f, durationSec: timings[i]!.end - timings[i]!.start })), audioPath: await storage.getProcessingInput(narration.storageKey), output: input },
+    { width: size.width, height: size.height, scenes: files.map((f, i) => ({ path: f.path, image: f.image, durationSec: timings[i]!.end - timings[i]!.start })), audioPath: await storage.getProcessingInput(narration.storageKey), output: input },
     { signal },
   );
-  const used = scenes.map((sc, i) => ({
-    path: files[i]!,
-    start: timings[i]!.start,
-    end: timings[i]!.end,
-    query: sc.queries?.[0] ?? '',
-    provider: sc.clip!.provider ?? '',
-    pageUrl: sc.clip!.pageUrl ?? '',
-    author: sc.clip!.author ?? '',
-  }));
-  return { input, words: words as Word[], scenes: used };
+  // Attribution only for stock footage (the user's own media needs none).
+  const used = scenes.flatMap((sc, i) =>
+    sc.assetId
+      ? []
+      : [{ path: files[i]!.path, start: timings[i]!.start, end: timings[i]!.end, query: sc.queries?.[0] ?? '', provider: sc.clip!.provider ?? '', pageUrl: sc.clip!.pageUrl ?? '', author: sc.clip!.author ?? '' }],
+  );
+  const titles = scenes.flatMap((sc, i) => (sc.overlayText?.trim() ? [{ start: timings[i]!.start, end: timings[i]!.end, text: sc.overlayText.trim() }] : []));
+  return { input, words: words as Word[], scenes: used, titles, sceneCount: scenes.length };
 }
 
 async function run({ job, signal, progress }: JobContext) {
@@ -372,11 +377,15 @@ async function run({ job, signal, progress }: JobContext) {
     let narrationWords: Word[] | null = null;
     let presenter: { avatarId: string; layout: string; reused: boolean } | null = null;
     let facelessScenes: UsedBroll[] | null = null;
+    let titles: Array<{ start: number; end: number; text: string }> = [];
+    let sceneCount = 0;
     if (faceless) {
       const base = await prepareFacelessBase(project, workDir, signal, progress);
       input = base.input;
       narrationWords = base.words;
       facelessScenes = base.scenes;
+      titles = base.titles;
+      sceneCount = base.sceneCount;
     } else if (avatar) {
       const base = await prepareVoiceoverBase(project, workDir, signal, progress);
       input = base.input;
@@ -535,9 +544,9 @@ async function run({ job, signal, progress }: JobContext) {
         ? { text: presenter ? 'AI-generated' : 'AI-generated voice', corner: (logo?.position === 'top-left' ? 'bottom-left' : 'top-left') as 'top-left' | 'bottom-left' }
         : null;
     let watermark: { assPath: string; fontsDir: string } | undefined;
-    if (plan.watermark || disclosure) {
+    if (plan.watermark || disclosure || titles.length) {
       const wmPath = path.join(workDir, 'watermark.ass');
-      await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec, watermark: plan.watermark, disclosure }), 'utf8');
+      await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec, watermark: plan.watermark, disclosure, titles }), 'utf8');
       watermark = { assPath: wmPath, fontsDir: env.captions.fontsDir };
     }
     const track = settings.musicMood && settings.musicMood !== 'none' ? pickTrack(loadLibrary(), settings.musicMood, project.style, project._id.toString()) : null;
@@ -627,7 +636,8 @@ async function run({ job, signal, progress }: JobContext) {
       framing,
       brollCount: facelessScenes ? facelessScenes.length : broll.length,
       broll: (facelessScenes ?? broll).map(({ path: _p, ...b }) => b),
-      sceneCount: facelessScenes?.length ?? 0,
+      sceneCount,
+      titleCount: titles.length,
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
       captionsFromEdits,
