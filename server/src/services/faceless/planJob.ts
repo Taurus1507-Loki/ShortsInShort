@@ -6,6 +6,7 @@ import { registerHandler, type JobContext } from '../queue/worker.js';
 import { getLLMProvider } from '../ai/llm.js';
 import { getStockProvider, type StockClip } from '../ai/stock.js';
 import { findClips, planSceneQueries, scenesKey, splitScenes, fallbackQuery } from './scenes.js';
+import { fallbackMotionScene, planMotionScenes } from './motion.js';
 
 export interface PlanPayload {
   projectId: string;
@@ -20,12 +21,35 @@ async function run({ job, signal, progress }: JobContext) {
   const { projectId, previousStatus } = job.payload as PlanPayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
-  const stock = getStockProvider();
-  if (!stock) throw new PermanentJobError('Stock footage search is not configured on this server.');
   const script = (project.script ?? '').trim();
   const language = project.settings?.language ?? 'en';
   const drafts = splitScenes(script, language);
   if (!drafts.length) throw new PermanentJobError('Write a script first.');
+  const nextStatus = previousStatus === 'completed' ? 'completed' : 'draft';
+
+  // Motion Explainer: AI picks a template and on-screen text per scene (no stock footage needed).
+  if (project.settings?.facelessStyle === 'motion') {
+    await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
+    await progress(15, 'designing_scenes');
+    const llmM = getLLMProvider();
+    let motion = drafts.map((d, i) => fallbackMotionScene(d.text, i));
+    let plannedWithM: 'ai' | 'keywords' = 'keywords';
+    if (llmM) {
+      try {
+        motion = (await planMotionScenes(llmM, drafts, { language, topic: project.topic }, signal)).scenes;
+        plannedWithM = 'ai';
+      } catch (err) {
+        if (signal.aborted) throw err;
+        logger.warn({ err }, 'Motion scene planning failed; using simple text scenes');
+      }
+    }
+    const scenesM = drafts.map((d, i) => ({ text: d.text, queries: [], clip: null, candidates: [], motion: motion[i] }));
+    await Project.updateOne({ _id: project._id }, { $set: { scenes: scenesM, scenesKey: scenesKey(script), scenesPlannedWith: plannedWithM, status: nextStatus, lastError: null } });
+    return { scenes: scenesM.length, style: 'motion' };
+  }
+
+  const stock = getStockProvider();
+  if (!stock) throw new PermanentJobError('Stock footage search is not configured on this server.');
   await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
 
   await progress(10, 'planning_scenes');

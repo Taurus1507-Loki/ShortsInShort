@@ -41,7 +41,7 @@ export interface Meta {
   plans: Plan[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
-  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'scriptWriting' | 'stockBroll' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
+  features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'scriptWriting' | 'stockBroll' | 'stockFootage' | 'motionExplainer' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
   uploads: { maxBytes: number; maxSourceDurationSec: number; storage: 'local' | 's3' };
 }
 
@@ -111,6 +111,7 @@ export interface RenderStats {
   presenter?: { avatarId: string; layout: string; reused: boolean } | null;
   sceneCount?: number;
   titleCount?: number;
+  facelessStyle?: 'stock' | 'motion' | null;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -159,6 +160,8 @@ export interface ProjectSettings {
   /** Talking presenter ('' = none). */
   avatarId: string;
   avatarLayout: 'full' | 'overlay';
+  /** Faceless: stock footage or animated Motion Explainer scenes. */
+  facelessStyle: 'stock' | 'motion';
 }
 
 export interface VoiceInfo {
@@ -361,4 +364,6 @@ export interface Scene {
   /** The user's own media for this scene (replaces the stock clip). */
   assetId: string | null;
   assetType: 'video' | 'image' | null;
+  /** Motion Explainer template + fields (see src/motion/types.ts). */
+  motion: import('@/motion/types').MotionScene | null;
 }

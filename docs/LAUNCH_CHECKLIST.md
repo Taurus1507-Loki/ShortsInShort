@@ -32,3 +32,10 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] `HEYGEN_API_KEY`: presenter list, one full-frame and one cut-out render, background field name, keying quality, timing.
 - [ ] Confirm presenter pricing (currently 5 credits / 30 s) against HeyGen's real price.
 
+## Motion Explainer (Phase 4.3)
+- [ ] Remotion Company License if the team is more than 3 people (required for commercial use).
+- [ ] Production render workers: Chrome Headless Shell installed (or allow Remotion to download it), fonts-noto
+      for Indic scripts, `MOTION_CONCURRENCY` tuned, ideally a separate worker pool for motion renders.
+- [ ] Prebuild the compositions (`MOTION_BUNDLE_DIR`) instead of bundling on first render.
+- [ ] Measure render time/cost per 30 s and confirm the 2 credits / 30 s price.
+

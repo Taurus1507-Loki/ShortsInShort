@@ -209,7 +209,7 @@ describe('faceless video flow', () => {
     expect((await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(400)).body.error.code).toBe('SCENE_WITHOUT_CLIP');
     setStockProvider(null);
     expect((await request(app).post(`/api/projects/${p.id}/scenes/plan`).set(auth).expect(503)).body.error.code).toBe('NOT_CONFIGURED');
-    expect((await request(app).get('/api/meta').expect(200)).body.data.features.facelessCreator).toBe(false);
+    expect((await request(app).get('/api/meta').expect(200)).body.data.features.stockFootage).toBe(false);
   }, 60_000);
 
   it('keeps scenes private to the workspace and only for faceless projects', async () => {

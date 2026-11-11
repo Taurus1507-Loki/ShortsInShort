@@ -1,6 +1,6 @@
 # Phase 4 feature spec — Motion Explainer videos
 
-Status: **Planned (Phase 4).** Not built. Added to the roadmap on 2026-11-08.
+Status: **Built in Phase 4.3 (2026-11-11)** — see [PHASE4.md](PHASE4.md) for what shipped. Added to the roadmap on 2026-11-08.
 
 ## Goal
 Type a topic (e.g. "What is Generative AI?") and get a polished, fully animated explainer — kinetic

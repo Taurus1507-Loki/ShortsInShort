@@ -9,6 +9,7 @@ import {
   ZOOM_INTENSITIES,
   BACKGROUNDS,
   AVATAR_LAYOUTS,
+  FACELESS_STYLES,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -42,33 +43,47 @@ const settingsSchema = z
     disclosure: z.boolean(),
     avatarId: z.string().regex(/^[A-Za-z0-9_-]{0,100}$/, 'Invalid presenter'),
     avatarLayout: z.enum(AVATAR_LAYOUTS),
+    facelessStyle: z.enum(FACELESS_STYLES),
   })
   .strict()
   .partial();
 
+const assetIdField = z
+  .string()
+  .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
+  .nullable()
+  .optional();
+
+/** Editable project fields, with no defaults (an update must only change what was sent). */
+const projectFields = {
+  title: z.string().trim().min(1, 'Give your project a title.').max(120),
+  aspectRatio: z.enum(ASPECT_RATIOS),
+  style: z.enum(EDITING_STYLES),
+  script: z.string().max(20000),
+  topic: z.string().trim().max(300),
+  settings: settingsSchema,
+  sourceAssetId: assetIdField,
+  backgroundAssetId: assetIdField,
+};
+
 export const createProjectSchema = z
   .object({
-    title: z.string().trim().min(1, 'Give your project a title.').max(120),
+    ...projectFields,
     mode: z.enum(PROJECT_MODES),
-    aspectRatio: z.enum(ASPECT_RATIOS).default('9:16'),
-    style: z.enum(EDITING_STYLES).default('viral'),
-    script: z.string().max(20000).default(''),
-    topic: z.string().trim().max(300).default(''),
+    aspectRatio: projectFields.aspectRatio.default('9:16'),
+    style: projectFields.style.default('viral'),
+    script: projectFields.script.default(''),
+    topic: projectFields.topic.default(''),
     settings: settingsSchema.default({}),
-    sourceAssetId: z
-      .string()
-      .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
-      .nullable()
-      .optional(),
-    backgroundAssetId: z
-      .string()
-      .refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id')
-      .nullable()
-      .optional(),
   })
   .strict();
 
-export const updateProjectSchema = createProjectSchema.omit({ mode: true }).partial().strict();
+/**
+ * Partial update. Built from the fields WITHOUT defaults: a `.partial()` of the create schema would
+ * still apply its defaults and silently blank the script/topic and reset style/format whenever a
+ * client sent only one field (e.g. attaching a video or changing one setting).
+ */
+export const updateProjectSchema = z.object(projectFields).partial().strict();
 
 export const listProjectsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

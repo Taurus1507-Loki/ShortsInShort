@@ -9,12 +9,13 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { avatarCreditCost, editorCreditCost, facelessCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { avatarCreditCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { getStockProvider } from '../../services/ai/stock.js';
 import { MAX_SCENES, fallbackQuery, findClips, planSceneQueries, scenesKey, scriptFromScenes, splitSceneText, splitScenes } from '../../services/faceless/scenes.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
+import { fallbackMotionScene, motionSceneSchema, parseMotionScene, planMotionScenes } from '../../services/faceless/motion.js';
 import { logger } from '../../config/logger.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
@@ -217,14 +218,19 @@ async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   if (!narration || !stats) throw badRequest('Generate the voiceover first.', 'NO_NARRATION');
   if (!project.scenes?.length) throw badRequest('Plan the scenes first.', 'NO_SCENES');
   if (project.scenesKey !== scenesKey(project.script ?? '')) throw conflict('The script changed since the scenes were planned. Plan the scenes again.', 'SCENES_OUTDATED');
-  const missing = project.scenes.findIndex((sc) => !sc.clip?.id && !sc.assetId);
-  if (missing >= 0) throw badRequest(`Scene ${missing + 1} has no clip yet. Search for one, edit its search or use your own media.`, 'SCENE_WITHOUT_CLIP');
+  const motionStyle = project.settings?.facelessStyle === 'motion';
+  const missing = motionStyle ? project.scenes.findIndex((sc) => !parseMotionScene(sc.motion)) : project.scenes.findIndex((sc) => !sc.clip?.id && !sc.assetId);
+  if (missing >= 0) {
+    throw motionStyle
+      ? badRequest(`Scene ${missing + 1} has no animation yet. Plan the scenes for Motion Explainer, or pick a template for it.`, 'SCENE_WITHOUT_ANIMATION')
+      : badRequest(`Scene ${missing + 1} has no clip yet. Search for one, edit its search or use your own media.`, 'SCENE_WITHOUT_CLIP');
+  }
   const ownIds = project.scenes.map((sc) => sc.assetId).filter(Boolean);
   if (ownIds.length) {
     const found = await Asset.countDocuments({ _id: { $in: ownIds }, workspaceId, deletedAt: null, status: 'ready' });
     if (found < new Set(ownIds.map(String)).size) throw badRequest('One of your scene media files was deleted. Choose it again.', 'SCENE_MEDIA_MISSING');
   }
-  if (!getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+  if (!motionStyle && !getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
   const s = project.settings ?? {};
   if (stats.voiceId && (await CustomVoice.exists({ workspaceId, providerVoiceId: stats.voiceId })) && !(await ownCustomVoice(workspaceId, stats.voiceId))) {
     throw new AppError(409, 'VOICE_WITHDRAWN', 'Consent for this custom voice was withdrawn, so its voiceover can’t be used in new videos. Choose another voice and generate the voiceover again.');
@@ -234,7 +240,7 @@ async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const resolution = s.resolution ?? '1080p';
   const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
   return {
-    credits: facelessCreditCost(durationSec, resolution),
+    credits: motionStyle ? motionCreditCost(durationSec, resolution) : facelessCreditCost(durationSec, resolution),
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: durationSec,
     resolution,
@@ -501,7 +507,7 @@ projectsRouter.post(
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
     const project = await facelessProject(req, req.params.id!);
-    if (!getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
+    if (project.settings?.facelessStyle !== 'motion' && !getStockProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
     if (!splitScenes(project.script ?? '', project.settings?.language ?? 'en').length) throw badRequest('Write a script first.', 'NO_SCRIPT');
     const data = await startProjectJob(req, project, {
       type: 'plan_scenes',
@@ -547,6 +553,7 @@ const sceneEdit = z
     text: z.string().trim().min(1, 'A scene needs some narration.').max(1000).optional(),
     overlayText: z.string().trim().max(80).optional(),
     assetId: z.string().refine((v) => Types.ObjectId.isValid(v), 'Invalid asset id').nullable().optional(),
+    motion: motionSceneSchema.optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length === 1, 'Change one thing at a time.');
@@ -590,6 +597,7 @@ projectsRouter.patch(
       syncScript(project);
     }
     if (body.overlayText !== undefined) project.set(`scenes.${index}.overlayText`, body.overlayText);
+    if (body.motion !== undefined) project.set(`scenes.${index}.motion`, body.motion);
     if (body.assetId !== undefined) {
       if (body.assetId === null) {
         project.set(`scenes.${index}.assetId`, null);
@@ -627,7 +635,8 @@ projectsRouter.post(
     const candidates = (scene.candidates ?? []).map((c) => (typeof (c as { toObject?: () => unknown }).toObject === 'function' ? (c as unknown as { toObject: () => object }).toObject() : c));
     const next = candidates.find((c) => !used.has((c as { id: string }).id)) ?? null;
     const scenes = project.toObject().scenes ?? [];
-    scenes.splice(index, 1, { ...scenes[index]!, text: parts[0] }, { text: parts[1], queries: scene.queries ?? [], clip: next, candidates, overlayText: '', assetId: null, assetType: null } as never);
+    const motionStyle = project.settings?.facelessStyle === 'motion';
+    scenes.splice(index, 1, { ...scenes[index]!, text: parts[0] }, { text: parts[1], queries: scene.queries ?? [], clip: next, candidates, overlayText: '', assetId: null, assetType: null, motion: motionStyle ? fallbackMotionScene(parts[1], index + 1) : null } as never);
     project.set('scenes', scenes);
     await project.save();
     res.json({ data: await withMedia(project) });
@@ -679,6 +688,27 @@ projectsRouter.post(
     const index = Number(req.params.index);
     const scene = project.scenes?.[index];
     if (!scene) throw notFound('Scene not found.');
+    if (project.settings?.facelessStyle === 'motion') {
+      const llmM = getLLMProvider();
+      let motion = fallbackMotionScene(scene.text, index);
+      let plannedWithM: 'ai' | 'keywords' = 'keywords';
+      if (llmM) {
+        try {
+          const current = parseMotionScene(scene.motion);
+          const r = await planMotionScenes(llmM, [{ text: scene.text }], { language: project.settings?.language ?? 'en', topic: [project.topic, current ? `use a different template than "${current.template}"` : ''].filter(Boolean).join(' — ') });
+          if (!r.fallbacks) {
+            motion = r.scenes[0]!;
+            plannedWithM = 'ai';
+          }
+        } catch (err) {
+          logger.warn({ err }, 'Motion scene re-plan failed; using a simple text scene');
+        }
+      }
+      project.set(`scenes.${index}.motion`, motion);
+      await project.save();
+      res.json({ data: await withMedia(project), meta: { found: 1, plannedWith: plannedWithM } });
+      return;
+    }
     const stock = getStockProvider();
     if (!stock) throw new AppError(503, 'NOT_CONFIGURED', 'Stock footage is not configured on this server.');
     const llm = getLLMProvider();

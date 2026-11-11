@@ -11,13 +11,13 @@ pipeline (captions, logo, watermark, music, AI label) and the job queue/credits.
 |---|---|---|
 | **4.1 Stock-footage faceless videos** | Faceless project: topic → AI script → voiceover → **AI scene plan** (script split into ~4–8 s scenes in code, the LLM only picks stock searches per scene) → best licensed Pixabay clip per scene (tag-relevance filter, no clip reused) → scene cards with thumbnails; edit a scene's search and pick another candidate → render: clips cut to each scene's exact voiceover timing, scaled to fill the frame, then captions, logo, music, label. | ✅ Built |
 | **4.2 Scene editor** | Reorder, split/merge scenes, edit on-screen text per scene, regenerate one scene, upload your own clip/image for a scene, Ken Burns motion on stills. | ✅ Built |
-| **4.3 Motion Explainer** | Remotion templates (12–15: title card, card grid, pill list, chat typing, process flow, stat counter, CTA…), LLM fills template parameters as validated JSON, server-side render in its own worker (headless Chromium), Brand Kit colours/fonts, Indic typography. | Planned — Remotion licence needed before commercial launch (>3 people) |
+| **4.3 Motion Explainer** | Remotion templates (12–15: title card, card grid, pill list, chat typing, process flow, stat counter, CTA…), LLM fills template parameters as validated JSON, server-side render in its own worker (headless Chromium), Brand Kit colours/fonts, Indic typography. | ✅ Built — Remotion licence needed before commercial launch (>3 people) |
 | **4.4 Sound & polish** | SFX cues per template, music bed defaults per style, per-scene transitions, render-cost measurement → final pricing. | Planned |
 
 ## Pricing (assumption until render costs are measured)
 - Stock-footage faceless video: **1 credit per started 30 s** of voiceover (×2 for 4K) — downloads and
   re-encodes several clips, so priced above the editor's 1/min.
-- Motion Explainer: higher (Chromium rendering) — set in 4.3 after measuring.
+- Motion Explainer: **2 credits per started 30 s** (×2 for 4K) — Chromium rendering; re-check after measuring render costs.
 - Voiceover is charged separately as in Phase 3 (1 per started 400 characters).
 
 ## Step 4.1 — what's built (2026-11-10)
@@ -63,4 +63,37 @@ Scene cards on Faceless projects are now an editor:
 - **Verified live (2026-11-11):** split (3 → 4 scenes, words unchanged), on-screen text saved, AI re-plan of a
   scene with real Gemini + Pixabay ("morning cafe queue" → "cafe window order", new clip; ~40 s).
 - **Tests:** 7 (`scene_editor.test.ts`) incl. a real render with an own image + on-screen text.
+
+## Step 4.3 — what's built (2026-11-11)
+
+- **Style switch** on Faceless projects: Stock footage | **Motion Explainer** (works without a stock key).
+- **10 templates** (React + Remotion, `client/src/motion/`): title card, statement (highlighted word), big
+  number (counts up), list, card grid, process (arrows), comparison, chat (typing + reply), icon orbit, call to
+  action. 48 whitelisted icons; drifting brand-colour backdrop; everything sized from the short side so all
+  4 aspect ratios work. Brand Kit primary/secondary drive the theme (dark base derived from the primary).
+  Telugu/Hindi text renders and shapes correctly (font stack with Nirmala UI / Noto Indic).
+- **AI planning:** scenes are split in code as before; Gemini picks a template per scene and fills its fields
+  (short on-screen text in the narration's language). Answers are validated with strict per-template zod
+  schemas (field limits, icon whitelist, no extra fields); invalid ones become safe text scenes and the page
+  says when AI wasn't available. No generated code is ever executed.
+- **Render:** Remotion `bundle` (cached per process; `MOTION_BUNDLE_DIR` for a prebuilt bundle) + `renderMedia`
+  in headless Chrome (downloaded by Remotion on first use, ~131 MB), each scene exactly as long as its
+  narration → silent MP4 → voiceover laid under it → normal pipeline (captions, logo, watermark, music, label).
+  Cancellable; `MOTION_CONCURRENCY` limits CPU.
+- **Editing:** per scene “Edit animation” (template picker + fields, validated by the server), AI re-plan of one
+  scene (asks for a different template), split gives the new half a simple scene. Live **preview player**
+  (`@remotion/player`) of the whole explainer and a still per scene, using the same compositions as the server
+  (preview timing is estimated; the video follows the voiceover).
+- **Fixes found while testing live:** (1) Gemini sometimes exceeded our 90 s limit and, given one flat schema
+  with every template's fields, filled unrelated fields with junk — now the schema is just
+  `{index, template, params-as-JSON}` with an output cap, and Gemini runs at `thinkingLevel: low`
+  (`GEMINI_THINKING_LEVEL`) for all our structured tasks: a 4-scene plan now takes ~3 s with no fallbacks.
+  (2) **Partial project updates were applying creation defaults** (blanking script/topic and resetting
+  style/format when only one field was sent, e.g. attaching a video or switching a setting) — fixed, with a
+  regression test.
+- **Verified live (2026-11-11):** templates rendered to stills (incl. Telugu/Hindi), a real Remotion MP4 render,
+  AI motion planning in the app (title → cards → statement) with the preview player.
+- **Tests:** 7 (`motion.test.ts`) incl. a real headless-Chrome render; plus the partial-update regression test.
+- **Licence:** Remotion is free for individuals and companies of up to 3 people; a Company License is needed
+  beyond that — before commercial launch (in the launch checklist).
 

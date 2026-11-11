@@ -25,6 +25,8 @@
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@node-rs/argon2": "^2.2.2",
+    "@remotion/bundler": "4.0.542",
+    "@remotion/renderer": "4.0.542",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
@@ -39,6 +41,9 @@
     "nodemailer": "^10.4.0",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.542",
     "zod": "^4.6.7"
   },
   "devDependencies": {

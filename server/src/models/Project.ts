@@ -25,6 +25,8 @@ export const ZOOM_INTENSITIES = ['off', 'subtle', 'dynamic'] as const;
 export const BACKGROUNDS = ['brand', 'color', 'image', 'video'] as const;
 /** full = presenter fills the frame on a solid colour; overlay = presenter cut out over the background. */
 export const AVATAR_LAYOUTS = ['full', 'overlay'] as const;
+/** Faceless styles: licensed stock footage, or animated Motion Explainer scenes. */
+export const FACELESS_STYLES = ['stock', 'motion'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -58,6 +60,7 @@ const settingsSchema = new Schema(
     /** Talking presenter (avatar provider look id); '' = voiceover video without a presenter. */
     avatarId: { type: String, default: '', maxlength: 100 },
     avatarLayout: { type: String, enum: AVATAR_LAYOUTS, default: 'full' },
+    facelessStyle: { type: String, enum: FACELESS_STYLES, default: 'stock' },
   },
   { _id: false },
 );
@@ -103,6 +106,8 @@ const sceneSchema = new Schema(
     /** The user's own media for this scene (overrides the stock clip). */
     assetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     assetType: { type: String, enum: ['video', 'image', null], default: null },
+    /** Motion Explainer: the scene's template and fields (validated before saving). */
+    motion: { type: Schema.Types.Mixed, default: null },
   },
   { _id: false },
 );
@@ -158,6 +163,7 @@ const projectSchema = new Schema(
       presenter: { type: { _id: false, avatarId: String, layout: String, reused: Boolean }, default: null },
       sceneCount: { type: Number, default: 0 },
       titleCount: { type: Number, default: 0 },
+      facelessStyle: { type: String, default: null },
       background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
@@ -256,6 +262,7 @@ export function toPublicProject(p: ProjectDoc) {
       overlayText: s.overlayText ?? '',
       assetId: s.assetId?.toString() ?? null,
       assetType: s.assetType ?? null,
+      motion: s.motion ?? null,
     })),
     scenesKey: p.scenesKey ?? null,
     scenesPlannedWith: p.scenesPlannedWith ?? null,

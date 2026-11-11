@@ -26,6 +26,7 @@ const STAGES: Record<string, string> = {
   presenter_rendering: 'The presenter is being animated (usually a few minutes)',
   saving_presenter: 'Saving the presenter video',
   downloading_clips: 'Downloading your scene clips',
+  animating_scenes: 'Animating your scenes (Motion Explainer)',
   assembling_scenes: 'Cutting each clip to its words',
   planning_scenes: 'Planning scenes',
   finding_clips: 'Finding clips',

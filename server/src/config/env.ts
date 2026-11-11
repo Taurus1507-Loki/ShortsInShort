@@ -71,6 +71,8 @@ const schema = z.object({
   DEEPGRAM_MODEL: z.string().default('nova-3'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-3.5-flash'),
+  /** Gemini 3 thinking level for our structured JSON tasks ('' = model default). Low keeps them fast. */
+  GEMINI_THINKING_LEVEL: z.enum(['', 'minimal', 'low', 'medium', 'high']).default('low'),
   PIXABAY_API_KEY: z.string().optional(),
   /** Text-to-speech (Avatar Studio voiceovers). */
   ELEVENLABS_API_KEY: z.string().optional(),
@@ -80,6 +82,10 @@ const schema = z.object({
   ELEVENLABS_MODEL_INDIC: z.string().default('eleven_v3'),
   /** Talking-avatar presenters (Avatar Studio step 3.4). */
   HEYGEN_API_KEY: z.string().optional(),
+  /** Motion Explainer (Remotion): entry file, optional prebuilt bundle, render concurrency. */
+  MOTION_ENTRY: z.string().optional(),
+  MOTION_BUNDLE_DIR: z.string().optional(),
+  MOTION_CONCURRENCY: z.coerce.number().int().min(1).max(16).optional(),
   /** Folder with licensed music + music.json manifest (see services/ai/music.ts). */
   MUSIC_LIBRARY_DIR: z.string().optional(),
   /** Directory of TTF/OTF fonts for burned-in captions (defaults to the OS font folder). */
@@ -177,13 +183,18 @@ export const env = {
   },
   ai: {
     deepgram: e.DEEPGRAM_API_KEY ? { apiKey: e.DEEPGRAM_API_KEY, model: e.DEEPGRAM_MODEL } : null,
-    gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL } : null,
+    gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL, thinkingLevel: e.GEMINI_THINKING_LEVEL || null } : null,
     pixabay: e.PIXABAY_API_KEY ? { apiKey: e.PIXABAY_API_KEY } : null,
     heygen: e.HEYGEN_API_KEY ? { apiKey: e.HEYGEN_API_KEY } : null,
     elevenlabs: e.ELEVENLABS_API_KEY ? { apiKey: e.ELEVENLABS_API_KEY, model: e.ELEVENLABS_MODEL, indicModel: e.ELEVENLABS_MODEL_INDIC } : null,
   },
   music: {
     libraryDir: e.MUSIC_LIBRARY_DIR ? path.resolve(e.MUSIC_LIBRARY_DIR) : null,
+  },
+  motion: {
+    entry: e.MOTION_ENTRY ? path.resolve(e.MOTION_ENTRY) : null,
+    bundleDir: e.MOTION_BUNDLE_DIR ?? null,
+    concurrency: e.MOTION_CONCURRENCY ?? null,
   },
   captions: {
     fontsDir: path.resolve(e.CAPTION_FONTS_DIR ?? (process.platform === 'win32' ? 'C:/Windows/Fonts' : '/usr/share/fonts')),

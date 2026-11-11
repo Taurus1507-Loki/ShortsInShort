@@ -35,6 +35,9 @@ import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, renderScenes, type BackgroundKind } from './background.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
+import { parseMotionScene } from '../faceless/motion.js';
+import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
+import { runFfmpeg } from './ffmpeg.js';
 import { AvatarError, getAvatarProvider } from '../ai/avatar.js';
 
 export interface RenderPayload {
@@ -310,6 +313,8 @@ async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal:
   if (!narration) throw new PermanentJobError('The voiceover is missing. Generate it again.');
   const scenes = project.scenes ?? [];
   if (!scenes.length || project.scenesKey !== scenesKey(project.script ?? '')) throw new PermanentJobError('Plan the scenes again — the script changed.');
+  const withWordsEarly = project.settings?.facelessStyle === 'motion';
+  if (withWordsEarly) return prepareMotionBase(project, narration, workDir, signal, progress);
   const missing = scenes.findIndex((sc) => !sc.clip?.downloadUrl && !sc.assetId);
   if (missing >= 0) throw new PermanentJobError(`Scene ${missing + 1} has no clip. Choose one first.`);
   const stock = getStockProvider();
@@ -350,6 +355,48 @@ async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal:
   );
   const titles = scenes.flatMap((sc, i) => (sc.overlayText?.trim() ? [{ start: timings[i]!.start, end: timings[i]!.end, text: sc.overlayText.trim() }] : []));
   return { input, words: words as Word[], scenes: used, titles, sceneCount: scenes.length };
+}
+
+/**
+ * Motion Explainer: every scene is an animated template (Remotion, headless Chrome) lasting exactly as
+ * long as its narration; the silent animation is then laid under the voiceover.
+ */
+async function prepareMotionBase(project: ProjectDoc, narration: AssetDoc, workDir: string, signal: AbortSignal, progress: JobContext['progress']) {
+  const scenes = project.scenes ?? [];
+  const parsed = scenes.map((sc) => parseMotionScene(sc.motion));
+  const bad = parsed.findIndex((m) => !m);
+  if (bad >= 0) throw new PermanentJobError(`Scene ${bad + 1} has no valid animation. Re-plan it or pick a template.`);
+  const withWords = await Project.findById(project._id).select('+narrationWords').lean();
+  const words = ((withWords?.narrationWords ?? []) as Array<{ text: string; start: number; end: number }>).map((w) => ({ text: w.text, start: w.start, end: w.end }));
+  const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
+  if (!(durationSec > 0)) throw new PermanentJobError('The voiceover has no length. Generate it again.');
+  const timings = sceneTimings(scenes, words, durationSec);
+  const settings = project.settings ?? {};
+  const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
+  const kit = await BrandKit.findOne({ workspaceId: project.workspaceId }).lean();
+
+  await progress(4, 'animating_scenes');
+  const silent = path.join(workDir, 'motion.mp4');
+  let last = 4;
+  await getMotionRenderer()({
+    scenes: parsed.map((m, i) => ({ ...m!, durationInFrames: Math.max(1, Math.round((timings[i]!.end - timings[i]!.start) * MOTION_FPS)) })),
+    theme: motionTheme(kit?.primaryColor ?? undefined, kit?.secondaryColor ?? undefined),
+    width: size.width,
+    height: size.height,
+    output: silent,
+    signal,
+    onProgress: (f) => {
+      const pct = 4 + Math.round(f * 9);
+      if (pct > last) {
+        last = pct;
+        void progress(pct, 'animating_scenes');
+      }
+    },
+  });
+  const input = path.join(workDir, 'base.mp4');
+  await runFfmpeg(['-i', silent, '-i', await storage.getProcessingInput(narration.storageKey), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', input], { signal });
+  const titles = scenes.flatMap((sc, i) => (sc.overlayText?.trim() ? [{ start: timings[i]!.start, end: timings[i]!.end, text: sc.overlayText.trim() }] : []));
+  return { input, words: words as Word[], scenes: [] as UsedBroll[], titles, sceneCount: scenes.length };
 }
 
 async function run({ job, signal, progress }: JobContext) {
@@ -638,6 +685,7 @@ async function run({ job, signal, progress }: JobContext) {
       broll: (facelessScenes ?? broll).map(({ path: _p, ...b }) => b),
       sceneCount,
       titleCount: titles.length,
+      facelessStyle: faceless ? (settings.facelessStyle ?? 'stock') : null,
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
       captionsFromEdits,

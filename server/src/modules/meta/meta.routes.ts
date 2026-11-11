@@ -40,8 +40,10 @@ metaRouter.get('/meta', (_req, res) => {
         stockBroll: Boolean(getLLMProvider()) && Boolean(getStockProvider()),
         // Talking-avatar video needs an avatar provider (step 3.4).
         avatarStudio: Boolean(getAvatarProvider()),
-        // Faceless stock-footage videos: scene clips come from the stock provider.
-        facelessCreator: Boolean(getStockProvider()),
+        // Faceless videos: Motion Explainer needs nothing extra; the stock style needs a stock provider.
+        facelessCreator: true,
+        stockFootage: Boolean(getStockProvider()),
+        motionExplainer: true,
         payments: false,
       },
       uploads: { maxBytes: env.uploads.maxBytes, maxSourceDurationSec: env.uploads.maxSourceDurationSec, storage: env.storage.driver },

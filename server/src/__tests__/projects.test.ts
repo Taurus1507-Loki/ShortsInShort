@@ -73,6 +73,23 @@ describe('projects', () => {
     expect(page.body.data).toHaveLength(1);
     expect(page.body.meta).toMatchObject({ total: 5, totalPages: 3, page: 3 });
   });
+
+  it('partial updates only change the fields that were sent', async () => {
+    const { auth } = await registerUser({ verify: true });
+    const created = await request(app)
+      .post('/api/projects')
+      .set(auth)
+      .send({ ...draft, aspectRatio: '16:9', style: 'podcast', script: 'Keep this script.', topic: 'Keep this topic', settings: { language: 'hi' } })
+      .expect(201);
+    const id = created.body.data.id;
+    // A single setting (e.g. switching the faceless style) must not reset anything else.
+    const r1 = await request(app).patch(`/api/projects/${id}`).set(auth).send({ settings: { captionPosition: 'top' } }).expect(200);
+    expect(r1.body.data).toMatchObject({ script: 'Keep this script.', topic: 'Keep this topic', aspectRatio: '16:9', style: 'podcast' });
+    expect(r1.body.data.settings).toMatchObject({ language: 'hi', captionPosition: 'top' });
+    // Clearing an asset reference alone keeps everything too.
+    const r2 = await request(app).patch(`/api/projects/${id}`).set(auth).send({ sourceAssetId: null }).expect(200);
+    expect(r2.body.data).toMatchObject({ script: 'Keep this script.', aspectRatio: '16:9', style: 'podcast', title: 'My first reel' });
+  });
 });
 
 describe('dashboard', () => {

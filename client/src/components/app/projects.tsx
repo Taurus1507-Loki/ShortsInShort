@@ -93,6 +93,7 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   disclosure: true,
   avatarId: '',
   avatarLayout: 'full',
+  facelessStyle: 'stock',
 };
 
 function Choice<T extends string>({

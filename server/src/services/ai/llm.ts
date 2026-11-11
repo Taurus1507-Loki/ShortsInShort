@@ -13,7 +13,7 @@ export interface JsonSchema {
 /** Provider-independent LLM interface: every call returns schema-validated JSON, never free text. */
 export interface LLMProvider {
   readonly name: string;
-  generateJson<T>(prompt: string, schema: JsonSchema, opts?: { signal?: AbortSignal; temperature?: number }): Promise<T>;
+  generateJson<T>(prompt: string, schema: JsonSchema, opts?: { signal?: AbortSignal; temperature?: number; maxOutputTokens?: number }): Promise<T>;
 }
 
 export class LLMError extends Error {
@@ -45,13 +45,17 @@ export function parseGeminiResponse<T>(body: unknown): T {
  */
 export class GeminiProvider implements LLMProvider {
   readonly name = 'gemini';
+  private thinking: string | null;
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
-  ) {}
+    thinkingLevel: string | null = 'low',
+  ) {
+    this.thinking = thinkingLevel;
+  }
 
   /** Retries temporary failures (overloaded / rate limited) twice with a short backoff. */
-  async generateJson<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number } = {}): Promise<T> {
+  async generateJson<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number; maxOutputTokens?: number } = {}): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.once<T>(prompt, schema, opts);
@@ -63,19 +67,42 @@ export class GeminiProvider implements LLMProvider {
     }
   }
 
-  private async once<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number }): Promise<T> {
-    const timeout = AbortSignal.timeout(90_000);
+  private async once<T>(prompt: string, schema: JsonSchema, opts: { signal?: AbortSignal; temperature?: number; maxOutputTokens?: number }): Promise<T> {
+    const timeout = AbortSignal.timeout(120_000);
     const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`, {
+    let res: Response;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': this.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: opts.temperature ?? 0.3 },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: schema,
+          temperature: opts.temperature ?? 0.3,
+          ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+          // Structured tasks don't need deep reasoning; a low thinking level keeps them fast.
+          ...(this.thinking ? { thinkingConfig: { thinkingLevel: this.thinking } } : {}),
+        },
       }),
-      signal,
-    });
+        signal,
+      });
+    } catch (err) {
+      if (opts.signal?.aborted) throw err;
+      if (err instanceof Error && err.name === 'TimeoutError') throw new LLMError('The AI provider took too long to answer.', 504);
+      throw new LLMError('Could not reach the AI provider.', 502);
+    }
     if (!res.ok) {
+      // Models without thinking levels reject the field: drop it once and ask again.
+      if (res.status === 400 && this.thinking) {
+        const detail = await res.text().catch(() => '');
+        if (/thinking/i.test(detail)) {
+          this.thinking = null;
+          return this.once<T>(prompt, schema, opts);
+        }
+        throw new LLMError('The AI provider rejected the request (check GEMINI_API_KEY / GEMINI_MODEL).', 400);
+      }
       if (res.status === 400 || res.status === 403) throw new LLMError('The AI provider rejected the request (check GEMINI_API_KEY / GEMINI_MODEL).', res.status);
       if (res.status === 429) throw new LLMError('The AI provider is rate-limiting requests; try again shortly.', 429);
       if (res.status === 503) throw new LLMError('The AI provider is overloaded right now; try again shortly.', 503);
@@ -98,5 +125,5 @@ export function setLLMProvider(p: LLMProvider | null | undefined) {
 }
 export function getLLMProvider(): LLMProvider | null {
   if (override !== undefined) return override;
-  return env.ai.gemini ? new GeminiProvider(env.ai.gemini.apiKey, env.ai.gemini.model) : null;
+  return env.ai.gemini ? new GeminiProvider(env.ai.gemini.apiKey, env.ai.gemini.model, env.ai.gemini.thinkingLevel) : null;
 }

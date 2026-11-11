@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, Clapperboard, ExternalLink, Film, Loader2, Merge, RefreshCw, Scissors, Search, Sparkles, Upload, X } from 'lucide-react';
@@ -10,10 +10,17 @@ import { keys, queryClient, useAssetUrl, useJob, useMeta } from '@/lib/queries';
 import { uploadVideo } from '@/lib/upload';
 import { cn } from '@/lib/utils';
 import type { Project, SceneClip } from '@/types/api';
+import type { MotionScene } from '@/motion/types';
+
+// Remotion (preview player) is loaded only for Motion Explainer projects.
+const MotionPreview = lazy(() => import('./MotionScenes').then((m) => ({ default: m.MotionPreview })));
+const MotionThumb = lazy(() => import('./MotionScenes').then((m) => ({ default: m.MotionThumb })));
+const MotionEditor = lazy(() => import('./MotionScenes').then((m) => ({ default: m.MotionEditor })));
 
 const STAGES: Record<string, string> = {
   queued: 'Waiting in queue',
   planning_scenes: 'AI is choosing visuals for each scene',
+  designing_scenes: 'AI is designing animated scenes',
   finding_clips: 'Finding licensed clips',
 };
 
@@ -27,7 +34,7 @@ function Thumb({ clip, className }: { clip: SceneClip | null; className?: string
   );
 }
 
-type Mode = 'none' | 'clip' | 'split' | 'words';
+type Mode = 'none' | 'clip' | 'split' | 'words' | 'motion';
 
 /**
  * One scene: its narration and visual, with the editor's tools — move, split, merge, reword,
@@ -35,6 +42,7 @@ type Mode = 'none' | 'clip' | 'split' | 'words';
  */
 function SceneCard({ project, index, disabled }: { project: Project; index: number; disabled: boolean }) {
   const scene = project.scenes![index]!;
+  const motionStyle = project.settings.facelessStyle === 'motion';
   const total = project.scenes!.length;
   const [mode, setMode] = useState<Mode>('none');
   const [query, setQuery] = useState(scene.queries[0] ?? '');
@@ -83,7 +91,11 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
   return (
     <li className="grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-[180px_1fr]">
       <div className="grid content-start gap-1.5">
-        {scene.assetId ? (
+        {motionStyle ? (
+          <Suspense fallback={<div className="aspect-video w-full rounded-md bg-muted" />}>
+            <MotionThumb scene={scene} aspect={project.aspectRatio} />
+          </Suspense>
+        ) : scene.assetId ? (
           scene.assetType === 'image' && ownImage.data ? (
             <img src={ownImage.data} alt="" className="aspect-video w-full rounded-md bg-muted object-cover" />
           ) : (
@@ -147,6 +159,7 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
           </button>
         )}
 
+        {!motionStyle && (
         <div className="flex items-center gap-2">
           <Input
             aria-label={`On-screen text for scene ${index + 1}`}
@@ -160,9 +173,12 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
             disabled={busy}
           />
         </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {scene.assetId ? (
+          {motionStyle ? (
+            <span>{scene.motion ? `Animation: ${scene.motion.template}` : <span className="text-warning">No animation yet — re-plan or pick a template.</span>}</span>
+          ) : scene.assetId ? (
             <span>Your own {scene.assetType}</span>
           ) : scene.clip ? (
             <a href={scene.clip.pageUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-foreground">
@@ -171,15 +187,21 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
           ) : (
             <span className="text-warning">No matching clip yet — search, re-plan or use your own media.</span>
           )}
-          {!scene.assetId && scene.queries[0] && <span>· search: “{scene.queries[0]}”</span>}
+          {!motionStyle && !scene.assetId && scene.queries[0] && <span>· search: “{scene.queries[0]}”</span>}
           <span className="ml-auto flex flex-wrap gap-1">
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => setMode(mode === 'clip' ? 'none' : 'clip')} disabled={busy}>
-              <RefreshCw /> Change clip
-            </Button>
+            {motionStyle ? (
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setMode(mode === 'motion' ? 'none' : 'motion')} disabled={busy}>
+                <RefreshCw /> Edit animation
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setMode(mode === 'clip' ? 'none' : 'clip')} disabled={busy}>
+                <RefreshCw /> Change clip
+              </Button>
+            )}
             <Button size="sm" variant="ghost" className="h-7" onClick={() => call.mutate({ path: `/${index}/replan`, method: 'POST', note: 'New visuals picked for this scene' })} disabled={busy} loading={call.isPending && call.variables?.path.endsWith('/replan')} title="Let AI pick new visuals for this scene (can take up to a minute)">
               {!(call.isPending && call.variables?.path.endsWith('/replan')) && <Sparkles />} Re-plan
             </Button>
-            {scene.assetId ? (
+            {motionStyle ? null : scene.assetId ? (
               <Button size="sm" variant="ghost" className="h-7" onClick={() => edit({ assetId: null }, 'Back to stock footage')} disabled={busy}>
                 <X /> Remove my media
               </Button>
@@ -202,6 +224,11 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
           </span>
         </div>
 
+        {mode === 'motion' && (
+          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading editor…</p>}>
+            <MotionEditor scene={scene} saving={call.isPending} onSave={(m: MotionScene) => edit({ motion: m }, 'Animation saved')} />
+          </Suspense>
+        )}
         {mode === 'clip' && (
           <div className="grid gap-2 rounded-md bg-muted/40 p-2">
             <form
@@ -248,7 +275,18 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
   const job = useJob(project.id, busy);
   const planning = busy && job.data?.type === 'plan_scenes';
   const scenes = project.scenes ?? [];
-  const live = Boolean(meta?.features.facelessCreator);
+  const motionStyle = project.settings.facelessStyle === 'motion';
+  const live = motionStyle || Boolean(meta?.features.stockFootage);
+  const needsReplan = scenes.length > 0 && (motionStyle ? scenes.some((sc) => !sc.motion) : scenes.some((sc) => !sc.clip && !sc.assetId));
+
+  const setStyle = useMutation({
+    mutationFn: (facelessStyle: 'stock' | 'motion') => api<{ data: Project }>(`/projects/${project.id}`, { method: 'PATCH', body: { settings: { facelessStyle } } }).then((r) => r.data),
+    onSuccess: (p) => {
+      queryClient.setQueryData(keys.project(project.id), p);
+      queryClient.invalidateQueries({ queryKey: keys.estimate(project.id) });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
 
   const plan = useMutation({
     mutationFn: async () => {
@@ -278,7 +316,32 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
         </Button>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {!live && meta && <Notice tone="warning">Stock footage isn’t configured on this server (PIXABAY_API_KEY).</Notice>}
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Video style">
+          {([
+            ['stock', 'Stock footage', 'Real licensed video clips for each scene'],
+            ['motion', 'Motion Explainer', 'Animated cards, icons, numbers and diagrams in your brand colours'],
+          ] as const).map(([id, name, sub]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={project.settings.facelessStyle === id || (!project.settings.facelessStyle && id === 'stock')}
+              disabled={busy || dirty || setStyle.isPending}
+              onClick={() => project.settings.facelessStyle !== id && setStyle.mutate(id)}
+              className={cn('rounded-lg border p-3 text-left text-sm disabled:opacity-60', (project.settings.facelessStyle ?? 'stock') === id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40')}
+            >
+              <span className="block font-semibold">{name}</span>
+              <span className="text-xs text-muted-foreground">{sub}</span>
+            </button>
+          ))}
+        </div>
+        {!live && meta && <Notice tone="warning">Stock footage isn’t configured on this server (PIXABAY_API_KEY). Motion Explainer works without it.</Notice>}
+        {needsReplan && !busy && <Notice tone="info" title={motionStyle ? 'Plan the animations' : 'Plan the footage'}>Some scenes don’t have {motionStyle ? 'an animation' : 'a clip'} for this style yet. Click “Re-plan scenes”, or set them one by one below.</Notice>}
+        {motionStyle && scenes.some((sc) => sc.motion) && !busy && (
+          <Suspense fallback={<div className="mx-auto aspect-[9/16] w-full max-w-[300px] rounded-lg bg-muted" />}>
+            <MotionPreview scenes={scenes} aspect={project.aspectRatio} language={project.settings.language} />
+          </Suspense>
+        )}
         {planning && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
             <Loader2 className="h-4 w-4 animate-spin text-primary" /> {STAGES[job.data?.stage ?? 'queued'] ?? 'Working'}… {job.data?.progress ?? 0}%
@@ -288,8 +351,10 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
         {project.lastError?.startsWith('Planning scenes failed') && !busy && <Notice tone="error">{project.lastError}</Notice>}
         {dirty && scenes.length > 0 && !busy && <p className="text-xs text-muted-foreground">Save your changes above to edit scenes.</p>}
         {project.scenesPlannedWith === 'keywords' && !busy && scenes.length > 0 && (
-          <Notice tone="info" title="Searches were picked from keywords">
-            The AI wasn’t available when these scenes were planned, so footage was searched using words from your script. Re-plan to let AI choose, or change any clip below.
+          <Notice tone="info" title={motionStyle ? 'Simple text scenes were used' : 'Searches were picked from keywords'}>
+            {motionStyle
+              ? 'The AI wasn’t available when these scenes were planned, so each scene shows its own narration as text. Re-plan to let AI design them, or edit any animation below.'
+              : 'The AI wasn’t available when these scenes were planned, so footage was searched using words from your script. Re-plan to let AI choose, or change any clip below.'}
           </Notice>
         )}
         {scenes.length > 0 ? (
