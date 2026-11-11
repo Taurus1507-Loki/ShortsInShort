@@ -33,7 +33,8 @@ import type { LogoPosition } from './render.js';
 import type { AssetDoc } from '../../models/Asset.js';
 import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
-import { renderBackground, renderScenes, type BackgroundKind } from './background.js';
+import { renderBackground, renderScenes, type BackgroundKind, type SceneTransition } from './background.js';
+import { mixSfx, sfxCues } from '../audio/sfx.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -344,7 +345,14 @@ async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal:
   const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
   const input = path.join(workDir, 'base.mp4');
   await renderScenes(
-    { width: size.width, height: size.height, scenes: files.map((f, i) => ({ path: f.path, image: f.image, durationSec: timings[i]!.end - timings[i]!.start })), audioPath: await storage.getProcessingInput(narration.storageKey), output: input },
+    {
+      width: size.width,
+      height: size.height,
+      scenes: files.map((f, i) => ({ path: f.path, image: f.image, durationSec: timings[i]!.end - timings[i]!.start })),
+      audioPath: await storage.getProcessingInput(narration.storageKey),
+      output: input,
+      transition: (settings.sceneTransition ?? 'fade') as SceneTransition,
+    },
     { signal },
   );
   // Attribution only for stock footage (the user's own media needs none).
@@ -354,7 +362,10 @@ async function prepareFacelessBase(project: ProjectDoc, workDir: string, signal:
       : [{ path: files[i]!.path, start: timings[i]!.start, end: timings[i]!.end, query: sc.queries?.[0] ?? '', provider: sc.clip!.provider ?? '', pageUrl: sc.clip!.pageUrl ?? '', author: sc.clip!.author ?? '' }],
   );
   const titles = scenes.flatMap((sc, i) => (sc.overlayText?.trim() ? [{ start: timings[i]!.start, end: timings[i]!.end, text: sc.overlayText.trim() }] : []));
-  return { input, words: words as Word[], scenes: used, titles, sceneCount: scenes.length };
+  // Whooshes on scene changes (only when scenes transition rather than hard-cut).
+  const cues = settings.soundEffects === false ? [] : sfxCues(timings, { transitions: (settings.sceneTransition ?? 'fade') !== 'cut' });
+  const withSfx = await mixSfx(input, path.join(workDir, 'base-sfx.mp4'), cues, { signal });
+  return { input: withSfx, words: words as Word[], scenes: used, titles, sceneCount: scenes.length, sfxCount: cues.length };
 }
 
 /**
@@ -396,10 +407,14 @@ async function prepareMotionBase(project: ProjectDoc, narration: AssetDoc, workD
   const input = path.join(workDir, 'base.mp4');
   await runFfmpeg(['-i', silent, '-i', await storage.getProcessingInput(narration.storageKey), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', input], { signal });
   const titles = scenes.flatMap((sc, i) => (sc.overlayText?.trim() ? [{ start: timings[i]!.start, end: timings[i]!.end, text: sc.overlayText.trim() }] : []));
-  return { input, words: words as Word[], scenes: [] as UsedBroll[], titles, sceneCount: scenes.length };
+  // Effects timed to each template's animation (pops, ticks, typing, bell) plus whooshes between scenes.
+  const cues = settings.soundEffects === false ? [] : sfxCues(timings.map((t, i) => ({ ...t, motion: parsed[i] })), { transitions: true });
+  const withSfx = await mixSfx(input, path.join(workDir, 'base-sfx.mp4'), cues, { signal });
+  return { input: withSfx, words: words as Word[], scenes: [] as UsedBroll[], titles, sceneCount: scenes.length, sfxCount: cues.length };
 }
 
 async function run({ job, signal, progress }: JobContext) {
+  const renderStartedAt = Date.now();
   const { projectId } = job.payload as RenderPayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
@@ -426,6 +441,7 @@ async function run({ job, signal, progress }: JobContext) {
     let facelessScenes: UsedBroll[] | null = null;
     let titles: Array<{ start: number; end: number; text: string }> = [];
     let sceneCount = 0;
+    let sfxCount = 0;
     if (faceless) {
       const base = await prepareFacelessBase(project, workDir, signal, progress);
       input = base.input;
@@ -433,6 +449,7 @@ async function run({ job, signal, progress }: JobContext) {
       facelessScenes = base.scenes;
       titles = base.titles;
       sceneCount = base.sceneCount;
+      sfxCount = base.sfxCount;
     } else if (avatar) {
       const base = await prepareVoiceoverBase(project, workDir, signal, progress);
       input = base.input;
@@ -686,6 +703,9 @@ async function run({ job, signal, progress }: JobContext) {
       sceneCount,
       titleCount: titles.length,
       facelessStyle: faceless ? (settings.facelessStyle ?? 'stock') : null,
+      sceneTransition: faceless && settings.facelessStyle !== 'motion' ? (settings.sceneTransition ?? 'fade') : null,
+      sfxCount,
+      renderMs: Date.now() - renderStartedAt,
       aiKeywords: aiKeywordsUsed,
       captionsTranslatedTo: translatedTo,
       captionsFromEdits,

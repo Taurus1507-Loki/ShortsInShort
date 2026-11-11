@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { SarvamProvider } from './sarvam.js';
 
 /** A voice the user can pick. Provider-neutral. */
 export interface VoiceInfo {
@@ -61,6 +62,10 @@ export interface TtsProvider {
   cloneVoice(opts: CloneOptions): Promise<string>;
   /** Deletes a cloned voice at the provider (idempotent: a missing voice is not an error). */
   deleteVoice(voiceId: string, signal?: AbortSignal): Promise<void>;
+  /** Longest text per synthesis request for this voice (default 2500). */
+  maxChars?(voiceId: string): number;
+  /** When set, cloning uses one reference clip of at most this many seconds. */
+  readonly cloneSampleSec?: number;
 }
 
 export class TtsError extends Error {
@@ -311,10 +316,17 @@ export function setTtsProvider(p: TtsProvider | null | undefined) {
 }
 
 /** The configured provider, or null when no credentials are set. */
+/**
+ * The configured voice provider: Sarvam AI by default when its key is set (Indian languages, lower
+ * cost), ElevenLabs otherwise or when TTS_PROVIDER=elevenlabs. null when neither is configured.
+ */
 export function getTtsProvider(): TtsProvider | null {
   if (override !== undefined) return override;
-  const c = env.ai.elevenlabs;
-  return c ? new ElevenLabsProvider(c.apiKey, c.model, c.indicModel) : null;
+  const { ttsProvider, sarvam, elevenlabs } = env.ai;
+  const useSarvam = sarvam && ttsProvider !== 'elevenlabs';
+  if (useSarvam) return new SarvamProvider(sarvam.apiKey, sarvam.model);
+  if (elevenlabs && ttsProvider !== 'sarvam') return new ElevenLabsProvider(elevenlabs.apiKey, elevenlabs.model, elevenlabs.indicModel);
+  return null;
 }
 
 let voiceCache: { at: number; voices: VoiceInfo[] } | null = null;

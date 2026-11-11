@@ -56,5 +56,7 @@ export const refreshLimiter = limiter(MIN, 30);
 export const apiLimiter = limiter(MIN, 300);
 /** AI script writing (paid LLM calls). */
 export const aiWriteLimiter = limiter(60 * MIN, 30, { byUser: true });
+/** Generated voice samples (cached after the first request per voice + language). */
+export const voiceSampleLimiter = limiter(60 * MIN, 120, { byUser: true });
 /** Public consent links (confirm / withdraw / lookup). */
 export const consentLimiter = limiter(15 * MIN, 30);

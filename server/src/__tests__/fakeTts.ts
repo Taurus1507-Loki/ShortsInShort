@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runFfmpeg } from '../services/video/ffmpeg.js';
-import type { CloneOptions, SynthesisOptions, TtsProvider, VoiceInfo } from '../services/ai/tts.js';
+import type { CloneOptions, SynthesisOptions, SynthesisResult, TtsProvider, VoiceInfo } from '../services/ai/tts.js';
 
 export const SEC_PER_CHAR = 0.04;
 
@@ -23,7 +23,7 @@ export class FakeTts implements TtsProvider {
   async listVoices() {
     return VOICES;
   }
-  async synthesize(text: string, opts: SynthesisOptions) {
+  async synthesize(text: string, opts: SynthesisOptions): Promise<SynthesisResult> {
     this.calls.push({ text, opts });
     if (this.failWith) throw this.failWith;
     const dur = Math.max(0.5, text.length * SEC_PER_CHAR);

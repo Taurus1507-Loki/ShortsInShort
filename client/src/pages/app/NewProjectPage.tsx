@@ -226,7 +226,7 @@ function NewProjectWizard() {
                 </Select>
               </Field>
             </div>
-            <VoicePicker value={custom.settings.voiceId} onChange={(v) => setCustom({ ...custom, settings: { ...custom.settings, voiceId: v.id } })} />
+            <VoicePicker language={custom.settings.language} value={custom.settings.voiceId} onChange={(v) => setCustom({ ...custom, settings: { ...custom.settings, voiceId: v.id } })} />
           </div>
         )}
 

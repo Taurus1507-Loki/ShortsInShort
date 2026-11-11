@@ -7,9 +7,28 @@ for any real person's face or voice.
 
 | Capability | Provider | Status |
 |---|---|---|
-| Text-to-speech + voice cloning | **ElevenLabs** (`ELEVENLABS_API_KEY`) | Chosen. Free tier is enough to build and test. |
+| Text-to-speech + voice cloning | **Sarvam AI** (`SARVAM_API_KEY`) — default since 2026-11-11; ElevenLabs optional | See the provider switch section below. |
 | Talking avatar / lip-sync | **HeyGen API v3** (`HEYGEN_API_KEY`) | Chosen 2026-11-10 (user: build without waiting for keys). Behind an `AvatarProvider` interface, so D-ID could be added. Not yet tested against the live API. |
 | Script writing help | Gemini (already configured) | Reused from Phase 2. |
+
+## Voice provider switch: Sarvam AI (2026-11-11)
+
+Voiceovers now default to **Sarvam AI (Bulbul v3)** — voices made for Indian languages (Hindi, Telugu, Tamil,
+Marathi, English + 6 more), ~₹3 per 1,000 characters (v3) with ₹100 free credit. ElevenLabs stays available
+(`TTS_PROVIDER=elevenlabs`, or automatically when only its key is set).
+- **Adapter** `server/src/services/ai/sarvam.ts`: `POST /text-to-speech` (speaker, `language_code` xx-IN, pace,
+  MP3 44.1 kHz), cloned voices via `POST /voices/create` + `POST /voices/clone`, `DELETE /voices/delete/{id}`.
+  37 Bulbul v3 speakers listed in code (Sarvam has no stock-voice list endpoint).
+- **No timestamps from Sarvam** → the voiceover job times the script's words from the finished audio: Deepgram
+  transcript matched word-by-word to the script (`services/audio/align.ts`, fuzzy LCS; captions always show the
+  script's words), or an estimate by word length when speech-to-text isn't available.
+  `narrationStats.timingSource` = provider | transcript | estimate.
+- **Samples:** Sarvam hosts no preview clips, so ▶ in the voice picker asks the server for a short sample in
+  the project's language; it's generated once per voice + language and cached in storage.
+- **Cloning:** Sarvam clones from one 10–15 s reference, so the samples are joined and trimmed to 15 s; consent
+  flow (3.2) unchanged. Cloned-voice requests are limited to ~1,000 characters, so scripts are chunked smaller.
+- **Needs a live check with `SARVAM_API_KEY`:** audio format of `output_audio_codec: mp3`, cloned-voice response
+  field name (`audio`/`audio_b64`), voice quality per language, Deepgram alignment accuracy in Telugu/Hindi.
 
 ## Steps
 

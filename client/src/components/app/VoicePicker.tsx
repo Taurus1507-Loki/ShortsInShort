@@ -1,32 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Pause, Play, Search } from 'lucide-react';
+import { Check, Loader2, Pause, Play, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input, Select } from '../ui/input';
 import { Notice, Skeleton } from '../ui/primitives';
 import { useMeta, useVoices } from '@/lib/queries';
-import { errorMessage } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { VoiceInfo } from '@/types/api';
 
 /** One shared <audio> so only one sample plays at a time. */
-function usePreviewPlayer() {
+function usePreviewPlayer(language: string) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
+  const [loading, setLoading] = useState<string | null>(null);
   useEffect(() => () => audio.current?.pause(), []);
-  const toggle = (v: VoiceInfo) => {
-    if (!v.previewUrl) return;
+  const toggle = async (v: VoiceInfo) => {
     if (playing === v.id) {
       audio.current?.pause();
       setPlaying(null);
       return;
     }
     audio.current?.pause();
-    const a = new Audio(v.previewUrl);
+    let url = v.previewUrl;
+    if (!url) {
+      // Providers without hosted samples (Sarvam): the server makes one once per voice + language.
+      setLoading(v.id);
+      try {
+        url = (await api<{ data: { url: string } }>(`/voices/${encodeURIComponent(v.id)}/sample?language=${language}`)).data.url;
+      } catch (e) {
+        toast.error(errorMessage(e));
+        return;
+      } finally {
+        setLoading(null);
+      }
+    }
+    const a = new Audio(url);
     a.onended = () => setPlaying(null);
     a.onerror = () => setPlaying(null);
     audio.current = a;
     void a.play().then(() => setPlaying(v.id)).catch(() => setPlaying(null));
   };
-  return { playing, toggle };
+  return { playing, loading, toggle };
 }
 
 const titleCase = (s: string | null) => (s ? s.replace(/\b\w/g, (c) => c.toUpperCase()) : null);
@@ -35,11 +49,11 @@ const titleCase = (s: string | null) => (s ? s.replace(/\b\w/g, (c) => c.toUpper
  * Browse and (optionally) choose a voice. Samples are streamed from the provider's public preview
  * clips — no credits are used for listening.
  */
-export function VoicePicker({ value, onChange, compact }: { value?: string; onChange?: (v: VoiceInfo) => void; compact?: boolean }) {
+export function VoicePicker({ value, onChange, compact, language = 'en' }: { value?: string; onChange?: (v: VoiceInfo) => void; compact?: boolean; language?: string }) {
   const { data: meta } = useMeta();
   const live = Boolean(meta?.features.voices);
   const { data: voices, isLoading, isError, error } = useVoices(live);
-  const { playing, toggle } = usePreviewPlayer();
+  const { playing, loading, toggle } = usePreviewPlayer(language);
   const [q, setQ] = useState('');
   const [gender, setGender] = useState('');
   const [accent, setAccent] = useState('');
@@ -58,7 +72,7 @@ export function VoicePicker({ value, onChange, compact }: { value?: string; onCh
   if (meta && !live) {
     return (
       <Notice tone="warning" title="AI voices aren’t switched on yet">
-        Add an ElevenLabs API key (<code>ELEVENLABS_API_KEY</code>) to <code>server/.env</code> and restart the API. Until then no voices can be listed or generated.
+        Add a Sarvam AI key (<code>SARVAM_API_KEY</code>) — or ElevenLabs (<code>ELEVENLABS_API_KEY</code>) — to <code>server/.env</code> and restart the API. Until then no voices can be listed or generated.
       </Notice>
     );
   }
@@ -98,7 +112,7 @@ export function VoicePicker({ value, onChange, compact }: { value?: string; onCh
       </div>
       {value && !selected && <Notice tone="warning">The voice saved on this project is no longer available. Choose another one.</Notice>}
       <p className="text-xs text-muted-foreground">
-        {filtered.length} of {voices.length} voices · ▶ plays a free sample. Every voice can speak all supported languages; accent describes how it sounds in English.
+        {filtered.length} of {voices.length} voices · ▶ plays a short sample (free). Every voice can speak all supported languages.
       </p>
       <ul className={cn('grid gap-2 overflow-y-auto pr-1 sm:grid-cols-2', compact ? 'max-h-[340px]' : 'max-h-[620px]')} role={onChange ? 'radiogroup' : undefined} aria-label="Voices">
         {filtered.map((v) => {
@@ -115,12 +129,12 @@ export function VoicePicker({ value, onChange, compact }: { value?: string; onCh
               >
                 <button
                   type="button"
-                  onClick={() => toggle(v)}
-                  disabled={!v.previewUrl}
+                  onClick={() => void toggle(v)}
+                  disabled={loading === v.id}
                   aria-label={playing === v.id ? `Stop ${v.name} sample` : `Play ${v.name} sample`}
                   className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-primary hover:text-white disabled:opacity-40"
                 >
-                  {playing === v.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {loading === v.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playing === v.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                 </button>
                 <button
                   type="button"

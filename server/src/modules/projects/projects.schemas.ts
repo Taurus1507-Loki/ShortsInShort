@@ -10,6 +10,7 @@ import {
   BACKGROUNDS,
   AVATAR_LAYOUTS,
   FACELESS_STYLES,
+  SCENE_TRANSITIONS,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -44,6 +45,8 @@ const settingsSchema = z
     avatarId: z.string().regex(/^[A-Za-z0-9_-]{0,100}$/, 'Invalid presenter'),
     avatarLayout: z.enum(AVATAR_LAYOUTS),
     facelessStyle: z.enum(FACELESS_STYLES),
+    sceneTransition: z.enum(SCENE_TRANSITIONS),
+    soundEffects: z.boolean(),
   })
   .strict()
   .partial();

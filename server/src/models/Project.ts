@@ -27,6 +27,7 @@ export const BACKGROUNDS = ['brand', 'color', 'image', 'video'] as const;
 export const AVATAR_LAYOUTS = ['full', 'overlay'] as const;
 /** Faceless styles: licensed stock footage, or animated Motion Explainer scenes. */
 export const FACELESS_STYLES = ['stock', 'motion'] as const;
+export const SCENE_TRANSITIONS = ['cut', 'fade', 'slide', 'wipe'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -61,6 +62,10 @@ const settingsSchema = new Schema(
     avatarId: { type: String, default: '', maxlength: 100 },
     avatarLayout: { type: String, enum: AVATAR_LAYOUTS, default: 'full' },
     facelessStyle: { type: String, enum: FACELESS_STYLES, default: 'stock' },
+    /** Faceless: how stock scenes change (Motion Explainer scenes animate in and out themselves). */
+    sceneTransition: { type: String, enum: SCENE_TRANSITIONS, default: 'fade' },
+    /** Faceless: generated whooshes/pops/ticks timed to scene changes and animations. */
+    soundEffects: { type: Boolean, default: true },
   },
   { _id: false },
 );
@@ -164,6 +169,10 @@ const projectSchema = new Schema(
       sceneCount: { type: Number, default: 0 },
       titleCount: { type: Number, default: 0 },
       facelessStyle: { type: String, default: null },
+      sceneTransition: { type: String, default: null },
+      sfxCount: { type: Number, default: 0 },
+      /** Wall-clock render time (ms) — used to measure costs per output minute. */
+      renderMs: { type: Number, default: null },
       background: { type: String, default: null },
       music: { type: { _id: false, title: String, artist: String, license: String }, default: null },
       warnings: { type: [String], default: [] },
@@ -204,6 +213,8 @@ const projectSchema = new Schema(
         chunks: Number,
         wordCount: Number,
         timingsAvailable: Boolean,
+        /** provider = voice service timestamps; transcript = matched from speech-to-text; estimate = from word length. */
+        timingSource: String,
         voiceId: String,
         voiceName: String,
         provider: String,

@@ -117,32 +117,58 @@ export interface ScenesInput {
  * cut to its scene length, scaled to fill the frame, then all are joined and laid under the
  * voiceover. Exported for tests.
  */
-export function buildScenesArgs(s: ScenesInput): string[] {
+export type SceneTransition = 'cut' | 'fade' | 'slide' | 'wipe';
+/** Seconds each transition overlaps the next scene. */
+export const TRANSITION_SEC = 0.35;
+const XFADE: Record<Exclude<SceneTransition, 'cut'>, string> = { fade: 'fade', slide: 'slideleft', wipe: 'wipeleft' };
+
+export function buildScenesArgs(s: ScenesInput & { transition?: SceneTransition }): string[] {
   const fps = s.fps ?? 30;
   const W = s.width;
   const H = s.height;
+  const n = s.scenes.length;
+  const durations = s.scenes.map((sc) => Math.max(0.3, sc.durationSec));
+  // Transitions overlap neighbours, so every scene but the last runs a little longer; offsets put each
+  // transition at the moment the next scene's narration starts, keeping the total length unchanged.
+  const T = s.transition && s.transition !== 'cut' && n > 1 ? Math.min(TRANSITION_SEC, Math.min(...durations) / 2) : 0;
   const inputs: string[] = [];
   const chains: string[] = [];
   s.scenes.forEach((sc, i) => {
-    const d = Math.max(0.3, sc.durationSec).toFixed(3);
+    // Each transition is centred on the scene change (offset − T/2), so the last scene needs T/2 extra.
+    const d = (durations[i]! + (i < n - 1 ? T : T / 2)).toFixed(3);
     if (sc.image) {
       // Stills get gentle motion: cover a 10% larger frame and pan across it (alternating direction).
       const bw = even(W * 1.1);
       const bh = even(H * 1.1);
       const x = i % 2 === 0 ? `(iw-ow)*t/${d}` : `(iw-ow)*(1-t/${d})`;
       inputs.push('-loop', '1', '-framerate', String(fps), '-t', d, '-i', sc.path);
-      chains.push(`[${i}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='${x}':y='(ih-oh)/2',setsar=1,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`);
+      chains.push(`[${i}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='${x}':y='(ih-oh)/2',setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB[v${i}]`);
       return;
     }
     inputs.push('-stream_loop', '-1', '-t', d, '-i', sc.path);
-    chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,trim=duration=${d},setpts=PTS-STARTPTS[v${i}]`);
+    chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB[v${i}]`);
   });
-  const n = s.scenes.length;
-  const total = s.scenes.reduce((t, sc) => t + Math.max(0.3, sc.durationSec), 0).toFixed(3);
+  const total = durations.reduce((t, x) => t + x, 0).toFixed(3);
+  let joined: string;
+  if (T > 0) {
+    const kind = XFADE[s.transition as Exclude<SceneTransition, 'cut'>];
+    const steps: string[] = [];
+    let prev = 'v0';
+    let offset = 0;
+    for (let i = 1; i < n; i++) {
+      offset += durations[i - 1]!;
+      const out = i === n - 1 ? 'v' : `x${i}`;
+      steps.push(`[${prev}][v${i}]xfade=transition=${kind}:duration=${T.toFixed(3)}:offset=${(offset - T / 2).toFixed(3)}${out === 'v' ? ',format=yuv420p' : ''}[${out}]`);
+      prev = out;
+    }
+    joined = steps.join(';');
+  } else {
+    joined = `${s.scenes.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0,format=yuv420p[v]`;
+  }
   return [
     ...inputs,
     '-i', s.audioPath,
-    '-filter_complex', `${chains.join(';')};${s.scenes.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0,format=yuv420p[v]`,
+    '-filter_complex', `${chains.join(';')};${joined}`,
     '-map', '[v]', '-map', `${n}:a:0`,
     '-t', total,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-r', String(fps),
@@ -152,7 +178,7 @@ export function buildScenesArgs(s: ScenesInput): string[] {
   ];
 }
 
-export async function renderScenes(s: ScenesInput, opts: RunOptions = {}) {
+export async function renderScenes(s: ScenesInput & { transition?: SceneTransition }, opts: RunOptions = {}) {
   const total = s.scenes.reduce((t, sc) => t + sc.durationSec, 0);
   await runFfmpeg(buildScenesArgs(s), { timeoutMs: Math.max(180_000, total * 12_000), ...opts });
 }

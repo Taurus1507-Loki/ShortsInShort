@@ -38,6 +38,16 @@ async function run({ job, signal, progress }: JobContext) {
       files.push({ filename: `sample-${i + 1}.mp3`, data: await readFile(out), mimeType: 'audio/mpeg' });
     }
 
+    // Providers that clone from one short reference (Sarvam: 10–15 s) get the samples joined and trimmed.
+    if (provider.cloneSampleSec && files.length) {
+      const list = path.join(dir, 'samples.txt');
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(list, files.map((_, i) => `file '${path.join(dir, `sample-${i + 1}.mp3`).replace(/\\/g, '/')}'`).join('\n'));
+      const ref = path.join(dir, 'reference.mp3');
+      await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-t', String(provider.cloneSampleSec), '-ac', '1', '-ar', '44100', '-c:a', 'libmp3lame', '-b:a', '192k', ref], { signal });
+      files.splice(0, files.length, { filename: 'reference.mp3', data: await readFile(ref), mimeType: 'audio/mpeg' });
+    }
+
     await progress(50, 'creating voice');
     let providerVoiceId: string;
     try {

@@ -12,7 +12,7 @@ pipeline (captions, logo, watermark, music, AI label) and the job queue/credits.
 | **4.1 Stock-footage faceless videos** | Faceless project: topic → AI script → voiceover → **AI scene plan** (script split into ~4–8 s scenes in code, the LLM only picks stock searches per scene) → best licensed Pixabay clip per scene (tag-relevance filter, no clip reused) → scene cards with thumbnails; edit a scene's search and pick another candidate → render: clips cut to each scene's exact voiceover timing, scaled to fill the frame, then captions, logo, music, label. | ✅ Built |
 | **4.2 Scene editor** | Reorder, split/merge scenes, edit on-screen text per scene, regenerate one scene, upload your own clip/image for a scene, Ken Burns motion on stills. | ✅ Built |
 | **4.3 Motion Explainer** | Remotion templates (12–15: title card, card grid, pill list, chat typing, process flow, stat counter, CTA…), LLM fills template parameters as validated JSON, server-side render in its own worker (headless Chromium), Brand Kit colours/fonts, Indic typography. | ✅ Built — Remotion licence needed before commercial launch (>3 people) |
-| **4.4 Sound & polish** | SFX cues per template, music bed defaults per style, per-scene transitions, render-cost measurement → final pricing. | Planned |
+| **4.4 Sound & polish** | SFX cues per template, music bed defaults per style, per-scene transitions, render-cost measurement → final pricing. | ✅ Built |
 
 ## Pricing (assumption until render costs are measured)
 - Stock-footage faceless video: **1 credit per started 30 s** of voiceover (×2 for 4K) — downloads and
@@ -96,4 +96,40 @@ Scene cards on Faceless projects are now an editor:
 - **Tests:** 7 (`motion.test.ts`) incl. a real headless-Chrome render; plus the partial-update regression test.
 - **Licence:** Remotion is free for individuals and companies of up to 3 people; a Company License is needed
   beyond that — before commercial launch (in the launch checklist).
+
+## Step 4.4 — what's built (2026-11-11)
+
+- **Sound effects, synthesised in code** (`services/audio/sfx.ts`): whoosh, pop, tick, ding, typing click,
+  impact — generated with FFmpeg (no third-party samples, nothing to license), cached once per server.
+  **Cues** follow the animations: whoosh between scenes; Motion Explainer pops as list/card/process/orbit items
+  appear, ticks while a number counts then a bell, typing clicks in chat, a low hit on titles, a bell on the
+  call to action (timings mirror `client/src/motion/scenes.tsx`). Stock videos get whooshes on transitions only.
+  Mixed quietly under the voice (each sound read once and split to its cues), before music ducking and
+  loudness normalisation. Setting: **Sound effects** (on by default).
+- **Scene transitions for stock footage:** Fade (default) / Slide / Wipe / Cut via FFmpeg `xfade`, centred on
+  each scene change; scenes are extended so the video stays exactly as long as the voiceover (checked to the
+  millisecond in tests). Motion Explainer scenes already animate in and out.
+- **Music per style:** unchanged and still library-dependent — "Match the style" maps the editing style to a
+  mood; music plays only once a licensed library is configured.
+- **Render-cost measurement:** every render now records `renderMs`; `npm --prefix server run metrics:render`
+  reports render seconds per output minute by video type / style / resolution from real projects.
+- **Tests:** 5 (`sfx.unit.test.ts`: cue timing per template, mixing graph, real generated sounds placed exactly
+  at their cue, transitions keep length) + end-to-end checks in the faceless and motion flows.
+
+### Measured render times (this dev laptop: Intel Core Ultra 5 125H, 18 threads, 17 GB; 2026-11-11)
+
+```
+Step (30 s of output)                         Time
+Motion Explainer 720x1280 (Remotion)          39.8 s   (was 238.8 s before removing CSS blur → ~6x faster)
+Motion Explainer 1080x1920 (Remotion)         81.4 s   (was 476.9 s)
+Motion first-render warm-up (bundle+browser)  ~7–12 s  (once per worker process)
+Stock scenes 1080x1920, fade transitions       18.6 s
+Sound-effects mix                              2.6 s
+Final pipeline 1080p (no captions/B-roll)      7.9 s
+=> 30 s stock faceless @1080p ≈ 30 s of render; 30 s Motion Explainer @1080p ≈ 90 s
+```
+
+Pricing note: these are single-render wall-clock times on a laptop; production costs depend on the server
+size and concurrency. Use `metrics:render` on real traffic before finalising prices. Current prices stay:
+stock faceless 1 credit / 30 s, Motion Explainer 2 credits / 30 s, editor 1 credit / minute.
 

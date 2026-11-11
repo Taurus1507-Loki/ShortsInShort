@@ -14,8 +14,9 @@ function Backdrop({ primary, secondary, background }: { primary: string; seconda
   const y2 = interpolate(Math.sin(frame / 85), [-1, 1], [0.6, 0.9]) * height;
   return (
     <AbsoluteFill style={{ background }}>
-      <div style={{ position: 'absolute', left: x1 - s * 0.35, top: y1 - s * 0.35, width: s * 0.7, height: s * 0.7, borderRadius: '50%', background: primary, opacity: 0.28, filter: `blur(${s * 0.12}px)` }} />
-      <div style={{ position: 'absolute', left: x2 - s * 0.3, top: y2 - s * 0.3, width: s * 0.6, height: s * 0.6, borderRadius: '50%', background: secondary, opacity: 0.22, filter: `blur(${s * 0.12}px)` }} />
+      {/* Soft glows as radial gradients — a CSS blur filter this large made every frame very slow to render. */}
+      <div style={{ position: 'absolute', left: x1 - s * 0.5, top: y1 - s * 0.5, width: s, height: s, background: `radial-gradient(circle, ${primary}5c 0%, ${primary}00 62%)` }} />
+      <div style={{ position: 'absolute', left: x2 - s * 0.45, top: y2 - s * 0.45, width: s * 0.9, height: s * 0.9, background: `radial-gradient(circle, ${secondary}47 0%, ${secondary}00 62%)` }} />
       <AbsoluteFill style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: `${s * 0.03}px ${s * 0.03}px` }} />
     </AbsoluteFill>
   );

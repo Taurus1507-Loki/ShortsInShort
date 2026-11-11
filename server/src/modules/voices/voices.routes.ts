@@ -20,6 +20,11 @@ import { audit } from '../../services/audit.service.js';
 import { emails, sendEmail } from '../../services/email.service.js';
 import { storage } from '../../services/storage/storage.js';
 import { randomToken, sha256 } from '../../utils/crypto.js';
+import { keys } from '../../services/storage/storage.js';
+import { voiceSampleLimiter } from '../../middleware/security.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { SUPPORTED_LANGUAGES } from '../projects/projects.schemas.js';
 
 export const voicesRouter = Router();
@@ -64,6 +69,51 @@ voicesRouter.get(
       }),
     );
     res.json({ data: [...custom, ...library], meta: { provider: provider.name } });
+  }),
+);
+
+const SAMPLE_LINES: Record<string, (name: string) => string> = {
+  en: (n) => `Hi, I'm ${n}. This is how your videos will sound with my voice.`,
+  hi: (n) => `नमस्ते, मैं ${n} हूँ। आपके वीडियो मेरी आवाज़ में ऐसे सुनाई देंगे।`,
+  te: (n) => `నమస్కారం, నేను ${n}. మీ వీడియోలు నా గొంతులో ఇలా వినిపిస్తాయి.`,
+  ta: (n) => `வணக்கம், நான் ${n}. உங்கள் வீடியோக்கள் என் குரலில் இப்படி ஒலிக்கும்.`,
+  mr: (n) => `नमस्कार, मी ${n}. तुमचे व्हिडिओ माझ्या आवाजात असे ऐकू येतील.`,
+};
+
+/**
+ * A short sample of a library voice in a language, for providers that host no preview clips (Sarvam).
+ * Generated once per provider + voice + language and kept in storage, so listening costs almost nothing.
+ */
+voicesRouter.get(
+  '/:id/sample',
+  voiceSampleLimiter,
+  validate({ params: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/) }), query: z.object({ language: z.enum(SUPPORTED_LANGUAGES).default('en') }) }),
+  asyncHandler(async (req, res) => {
+    const provider = getTtsProvider();
+    if (!provider) throw notConfigured('AI voices');
+    const language = String(req.query.language ?? 'en');
+    const voice = (await listVoicesCached()).find((v) => v.id === req.params.id);
+    if (!voice) throw notFound('Voice not found.');
+    if (voice.previewUrl) {
+      res.json({ data: { url: voice.previewUrl } });
+      return;
+    }
+    const key = keys.voiceSample(provider.name, voice.id, language);
+    if (!(await storage.stat(key))) {
+      const dir = await mkdtemp(path.join(tmpdir(), 'sis-sample-'));
+      try {
+        const r = await provider.synthesize((SAMPLE_LINES[language] ?? SAMPLE_LINES.en!)(voice.name), { voiceId: voice.id, language });
+        const file = path.join(dir, 'sample.mp3');
+        await writeFile(file, r.audio);
+        await storage.uploadFile(key, file, 'audio/mpeg');
+      } catch (err) {
+        logger.warn({ err, voice: voice.id }, 'Voice sample failed');
+        throw new AppError(502, 'PROVIDER_ERROR', err instanceof TtsError ? err.message : 'Could not create a sample right now.');
+      } finally {
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+    res.json({ data: { url: await storage.getDownloadUrl(key, { expiresSec: 3600 }) } });
   }),
 );
 

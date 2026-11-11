@@ -12,14 +12,14 @@ import { BackgroundPicker, PresenterPicker, ScriptAssist } from '@/components/ap
 import { ScenesPanel } from '@/components/app/ScenesPanel';
 import { VideoUploader } from '@/components/app/VideoUploader';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Field, Skeleton } from '@/components/ui/primitives';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/overlays';
 import { keys, queryClient, useProjectLive } from '@/lib/queries';
 import { api, errorMessage } from '@/lib/api';
 import { modeName } from '@/config/options';
 import { timeAgo } from '@/lib/utils';
-import type { Asset, Project } from '@/types/api';
+import type { Asset, Project, ProjectSettings } from '@/types/api';
 
 export default function ProjectDetailPage() {
   const { id = '' } = useParams();
@@ -276,6 +276,35 @@ export default function ProjectDetailPage() {
                     <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown when a cloned voice is used.</span>
                   </span>
                 </label>
+                <section className="grid gap-4 sm:grid-cols-2">
+                  {(custom.settings.facelessStyle ?? 'stock') === 'stock' && (
+                    <Field id="scene-transition" label="Scene transitions" hint="How one clip changes to the next. Fade is smooth; Cut is instant.">
+                      <Select value={custom.settings.sceneTransition ?? 'fade'} onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, sceneTransition: e.target.value as ProjectSettings['sceneTransition'] } })}>
+                        <option value="fade">Fade</option>
+                        <option value="slide">Slide</option>
+                        <option value="wipe">Wipe</option>
+                        <option value="cut">Cut (no transition)</option>
+                      </Select>
+                    </Field>
+                  )}
+                  <label className="flex items-start gap-2 self-end text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                      checked={custom.settings.soundEffects !== false}
+                      onChange={(e) => setCustom({ ...custom, settings: { ...custom.settings, soundEffects: e.target.checked } })}
+                    />
+                    <span>
+                      Sound effects
+                      <span className="block text-xs text-muted-foreground">
+                        {(custom.settings.facelessStyle ?? 'stock') === 'motion'
+                          ? 'Soft pops, ticks, typing and a bell timed to the animations, plus a whoosh between scenes.'
+                          : 'A soft whoosh at each scene change (not with Cut).'}{' '}
+                        Kept quiet under your voice.
+                      </span>
+                    </span>
+                  </label>
+                </section>
                 <CustomizeForm value={custom} onChange={setCustom} mode="faceless" />
               </CardContent>
             </Card>

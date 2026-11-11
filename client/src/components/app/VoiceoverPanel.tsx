@@ -155,7 +155,7 @@ export function VoiceoverPanel({
 
         <fieldset disabled={busy} className="grid gap-6 disabled:opacity-60">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="vo-language" label="Spoken language" hint="The language your script is written in. Telugu and Marathi use ElevenLabs’ newer v3 model.">
+            <Field id="vo-language" label="Spoken language" hint="The language your script is written in. The voice speaks it natively (Sarvam AI voices are made for Indian languages).">
               <Select value={settings.language} onChange={(e) => set('language', e.target.value as ProjectSettings['language'])}>
                 {LANGUAGES.map((l) => (
                   <option key={l.id} value={l.id}>
@@ -178,6 +178,7 @@ export function VoiceoverPanel({
             <span className="text-sm font-medium">Voice{voiceName ? `: ${voiceName}` : ''}</span>
             <VoicePicker
               compact
+              language={settings.language}
               value={settings.voiceId}
               onChange={(v) => {
                 setVoiceName(v.name);

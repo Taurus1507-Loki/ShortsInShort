@@ -74,6 +74,11 @@ const schema = z.object({
   /** Gemini 3 thinking level for our structured JSON tasks ('' = model default). Low keeps them fast. */
   GEMINI_THINKING_LEVEL: z.enum(['', 'minimal', 'low', 'medium', 'high']).default('low'),
   PIXABAY_API_KEY: z.string().optional(),
+  /** Text-to-speech provider: sarvam (default when its key is set) or elevenlabs. */
+  TTS_PROVIDER: z.enum(['auto', 'sarvam', 'elevenlabs']).default('auto'),
+  /** Sarvam AI (Bulbul) — Indian-language voices. */
+  SARVAM_API_KEY: z.string().optional(),
+  SARVAM_TTS_MODEL: z.string().default('bulbul:v3'),
   /** Text-to-speech (Avatar Studio voiceovers). */
   ELEVENLABS_API_KEY: z.string().optional(),
   /** Model for English/Hindi/Tamil (multilingual v2 covers these). */
@@ -186,6 +191,8 @@ export const env = {
     gemini: e.GEMINI_API_KEY ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL, thinkingLevel: e.GEMINI_THINKING_LEVEL || null } : null,
     pixabay: e.PIXABAY_API_KEY ? { apiKey: e.PIXABAY_API_KEY } : null,
     heygen: e.HEYGEN_API_KEY ? { apiKey: e.HEYGEN_API_KEY } : null,
+    ttsProvider: e.TTS_PROVIDER,
+    sarvam: e.SARVAM_API_KEY ? { apiKey: e.SARVAM_API_KEY, model: e.SARVAM_TTS_MODEL } : null,
     elevenlabs: e.ELEVENLABS_API_KEY ? { apiKey: e.ELEVENLABS_API_KEY, model: e.ELEVENLABS_MODEL, indicModel: e.ELEVENLABS_MODEL_INDIC } : null,
   },
   music: {

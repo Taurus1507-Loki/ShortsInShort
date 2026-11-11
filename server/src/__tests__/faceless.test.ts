@@ -177,6 +177,9 @@ describe('faceless video flow', () => {
     expect(done.renderStats.broll).toHaveLength(planned.scenes.length);
     expect(done.renderStats.broll[0]).toMatchObject({ provider: 'fake-stock', author: expect.any(String), start: 0 });
     expect(done.renderStats.captionsAdded).toBe(true);
+    // 4.4: default fade transitions, a whoosh at every scene change, render time recorded.
+    expect(done.renderStats).toMatchObject({ sceneTransition: 'fade', sfxCount: planned.scenes.length - 1 });
+    expect(done.renderStats.renderMs).toBeGreaterThan(0);
     expect(stock.downloads).toBe(planned.scenes.length);
   }, 180_000);
 

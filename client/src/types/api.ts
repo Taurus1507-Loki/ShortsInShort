@@ -112,6 +112,9 @@ export interface RenderStats {
   sceneCount?: number;
   titleCount?: number;
   facelessStyle?: 'stock' | 'motion' | null;
+  sceneTransition?: string | null;
+  sfxCount?: number;
+  renderMs?: number | null;
   music?: { title: string; artist: string; license: string } | null;
   warnings: string[];
 }
@@ -162,6 +165,8 @@ export interface ProjectSettings {
   avatarLayout: 'full' | 'overlay';
   /** Faceless: stock footage or animated Motion Explainer scenes. */
   facelessStyle: 'stock' | 'motion';
+  sceneTransition: 'cut' | 'fade' | 'slide' | 'wipe';
+  soundEffects: boolean;
 }
 
 export interface VoiceInfo {

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Types } from 'mongoose';
-import { logger } from '../../config/logger.js';
 import { Project } from '../../models/Project.js';
 import { Asset } from '../../models/Asset.js';
 import type { JobDoc } from '../../models/Job.js';
@@ -15,6 +14,9 @@ import { registerHandler, type JobContext } from '../queue/worker.js';
 import { probe, runFfmpeg } from '../video/ffmpeg.js';
 import { alignmentToWords, getTtsProvider, listVoicesCached, splitScript, TtsError, type TimedWord } from '../ai/tts.js';
 import { ownCustomVoice } from '../voice/consent.js';
+import { alignWords, estimateWords } from './align.js';
+import { getTranscriptionProvider } from '../ai/transcription.js';
+import { logger } from '../../config/logger.js';
 
 export interface NarrationPayload {
   projectId: string;
@@ -51,9 +53,11 @@ async function run({ job, signal, progress }: JobContext) {
   const rate = project.settings?.speakingRate ?? 1;
 
   try {
-    const chunks = splitScript(script);
-    const words: TimedWord[] = [];
+    // Provider request limits differ (e.g. Sarvam cloned voices take ~1,000 characters).
+    const chunks = splitScript(script, Math.min(2500, provider.maxChars?.(payload.voiceId) ?? 2500));
+    let words: TimedWord[] = [];
     const parts: string[] = [];
+    const spans: Array<{ start: number; end: number }> = [];
     let offset = 0;
     let timingsAvailable = true;
     let model = '';
@@ -81,6 +85,7 @@ async function run({ job, signal, progress }: JobContext) {
       if (result.alignment) words.push(...alignmentToWords(result.alignment, offset));
       else timingsAvailable = false;
       parts.push(file);
+      spans.push({ start: offset, end: offset + info.durationSec });
       offset += info.durationSec;
     }
 
@@ -96,6 +101,30 @@ async function run({ job, signal, progress }: JobContext) {
     const out = await probe(outFile, { signal });
     if (!out.audio || Math.abs(out.durationSec - offset) > Math.max(1, offset * 0.05)) {
       throw new Error('The finished voiceover failed validation.');
+    }
+
+    // No timings from the provider (e.g. Sarvam): time the script's words from the finished audio with
+    // speech-to-text when configured, otherwise estimate them from word length within each part.
+    let timingSource: 'provider' | 'transcript' | 'estimate' = 'provider';
+    if (!timingsAvailable || !words.length) {
+      timingSource = 'estimate';
+      words = chunks.flatMap((c, i) => estimateWords(c.split(/\s+/).filter(Boolean), spans[i]!.start, spans[i]!.end));
+      const stt = getTranscriptionProvider();
+      if (stt) {
+        try {
+          await progress(90, 'timing words');
+          const heard = await stt.transcribe(outFile, { language, signal });
+          const aligned = alignWords(script, heard.words, out.durationSec);
+          if (aligned.matched > 0) {
+            words = aligned.words;
+            timingSource = 'transcript';
+          }
+        } catch (err) {
+          if (signal.aborted) throw err;
+          logger.warn({ err }, 'Word timing from transcript failed; using estimated timings');
+        }
+      }
+      timingsAvailable = words.length > 0;
     }
 
     await progress(95, 'saving');
@@ -122,6 +151,7 @@ async function run({ job, signal, progress }: JobContext) {
       chunks: chunks.length,
       wordCount: words.length,
       timingsAvailable: timingsAvailable && words.length > 0,
+      timingSource,
       voiceId: payload.voiceId,
       voiceName: payload.voiceName,
       provider: provider.name,

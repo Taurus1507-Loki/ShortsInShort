@@ -151,3 +151,6 @@ Faceless projects return `scenes[]` (`text, queries, clip, candidates` — clips
 `SCENES_OUTDATED`, `SCENE_WITHOUT_CLIP`, `NARRATION_OUTDATED`, `VOICE_WITHDRAWN`; estimate adds `sceneCount`.
 Voiceover endpoints (`/narrate`, `/narration/estimate`) accept faceless projects too.
 
+Faceless settings (4.4): `settings.sceneTransition` (`cut|fade|slide|wipe`, stock style) and
+`settings.soundEffects` (boolean). Render stats add `sceneTransition`, `sfxCount` and `renderMs`.
+

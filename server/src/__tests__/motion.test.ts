@@ -152,6 +152,8 @@ describe('Motion Explainer videos', () => {
     expect(done.status).toBe('completed');
     expect(done.renderStats).toMatchObject({ facelessStyle: 'motion', sceneCount: planned.scenes.length, captionsAdded: true });
     expect(done.renderStats.broll).toHaveLength(0);
+    expect(done.renderStats.sfxCount).toBeGreaterThan(0); // effects follow the animations
+    expect(done.renderStats.sceneTransition).toBeNull();
     expect(renders).toHaveLength(1);
     expect(renders[0]!.theme.primary).toBe('#E11D48');
     expect(renders[0]).toMatchObject({ width: 720, height: 1280 });

@@ -403,7 +403,7 @@ export function CustomVoices() {
   const blocked = !status
     ? 'loading'
     : !status.voicesConfigured
-      ? 'AI voices aren’t configured on this server (ELEVENLABS_API_KEY).'
+      ? 'AI voices aren’t configured on this server (SARVAM_API_KEY or ELEVENLABS_API_KEY).'
       : !status.consentCheckConfigured
         ? 'Consent recordings can’t be checked: speech-to-text (DEEPGRAM_API_KEY) isn’t configured.'
         : status.limit === 0
