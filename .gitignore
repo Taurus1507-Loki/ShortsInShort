@@ -13,6 +13,6 @@ uploads/
 legacy/uploads/
 legacy/server/uploads/
 legacy/server/data/
-# local media storage (STORAGE_DRIVER=local)
-storage/
-server/storage/
+# local media storage (STORAGE_DRIVER=local). Anchored: src/**/storage/ folders are source code.
+/storage/
+/server/storage/
