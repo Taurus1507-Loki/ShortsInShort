@@ -94,6 +94,7 @@ export class PixabayProvider implements StockVideoProvider {
   }
 
   async download(clip: StockClip, dest: string, opts: { signal?: AbortSignal } = {}) {
+    if (!/^https:\/\//.test(clip.downloadUrl)) throw new StockError('The stock provider returned an invalid download link.');
     const res = await fetch(clip.downloadUrl, { signal: opts.signal ?? AbortSignal.timeout(60_000) });
     if (!res.ok || !res.body) throw new StockError(`Could not download stock clip (HTTP ${res.status}).`);
     const max = 80 * 1024 * 1024;

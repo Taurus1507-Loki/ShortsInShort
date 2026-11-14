@@ -47,3 +47,11 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Final plan and credit-pack prices (currently business assumptions).
 - [ ] Live Razorpay keys only after the test run passes.
 
+## Admin & security (Phase 6) — see docs/SECURITY_AUDIT.md
+- [ ] Create the production super admin with `npm run seed:admin -- <email> super_admin` (verified email first).
+- [ ] Redis-backed rate limiters so limits hold across instances.
+- [ ] Wrap credit charge + job enqueue in a MongoDB transaction (replica set).
+- [ ] CSP for the SPA on the static host (self, Razorpay checkout, Google sign-in, media origin).
+- [ ] Fresh JWT/cookie secrets; never reuse `legacy/server/.env.example` values.
+- [ ] Post-launch: TOTP 2FA for admins; Dependabot/Renovate.
+

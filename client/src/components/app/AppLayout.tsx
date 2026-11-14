@@ -18,6 +18,7 @@ import {
   UserRound,
   Wand2,
   Mic,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { Logo, ThemeToggle } from '../brand';
@@ -72,7 +73,9 @@ const NAV: { section?: string; items: NavItem[] }[] = [
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { workspace } = useAuth();
+  const { workspace, user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const groups = isAdmin ? [...NAV, { section: 'Team', items: [{ to: '/app/admin', label: 'Admin', icon: ShieldCheck }] }] : NAV;
   // NavLink ignores the query string, so /app/new?mode=… links need their own check.
   const { search } = useLocation();
   const mode = new URLSearchParams(search).get('mode');
@@ -88,7 +91,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         <Logo to="/app" />
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4" aria-label="App">
-        {NAV.map((group, gi) => (
+        {groups.map((group, gi) => (
           <div key={gi} className="mt-4 first:mt-1">
             {group.section && <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{group.section}</p>}
             <ul className="grid gap-0.5">

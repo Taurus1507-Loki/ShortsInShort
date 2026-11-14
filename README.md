@@ -15,10 +15,12 @@ strategy, cost estimates, MVP scope and roadmap, and [docs/API.md](docs/API.md) 
 | 3 Avatar Studio | **3.1 built:** AI voices (Sarvam AI by default; ElevenLabs optional) — voice library, script → voiceover MP3 with word timings, credits + refunds. **3.2 built:** consented voice cloning (spoken consent checked by speech-to-text, email confirmation for other people, withdrawal deletes everything). **3.3 built:** AI script writing and finished voiceover videos (background + voiceover + timed captions, B-roll, logo, AI label). Needs `ELEVENLABS_API_KEY` (cloning: ElevenLabs Starter+). **3.4 built:** talking presenters via HeyGen API v3 (full frame or cut out over the background, reused on re-render). Needs `HEYGEN_API_KEY` — see [docs/PHASE3.md](docs/PHASE3.md) | 🟡 In progress |
 | 4 Faceless & Motion Explainer | **4.1 built:** topic → AI script → voiceover → AI scene plan with licensed Pixabay clips (swappable) → video timed to the voiceover. **4.2 built:** scene editor (split/merge/move/reword, on-screen text, re-plan one scene, own video/image with motion). **4.3 built:** Motion Explainer — 10 animated templates (Remotion), AI template planning, live preview, headless-Chrome render. **4.4 built:** generated sound effects timed to scenes/animations, stock scene transitions, render timing + cost report. **Phase 4 complete** — see [docs/PHASE4.md](docs/PHASE4.md) | ✅ Built (live voice render needs keys) |
 | 5 Payments | Razorpay credit top-ups, subscriptions (renew, cancel, upgrade/downgrade), webhooks, GST invoices (PDF) — see [docs/PHASE5.md](docs/PHASE5.md) | ✅ Built (Razorpay test-mode run needs keys) |
-| 6 Admin · 7 Launch | | Not started |
+| 6 Admin & security | Admin console (overview metrics + daily charts, user search, credit/plan/suspend/role actions with mandatory reasons, free retry of failed jobs, payments, voice-consent takedown, audit log), abuse limits on job starts, security audit — see [docs/PHASE6.md](docs/PHASE6.md) and [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | ✅ Built |
+| 7 Launch | | Not started |
 
-**Not production-ready.** Captions/B-roll/music, payments and deployment are not built yet; the UI
-marks those areas "Soon" and no feature pretends to work. The previous prototype is archived,
+**Not production-ready.** Deployment (Phase 7) is not done, and live checks of the keyed providers
+(Sarvam/ElevenLabs, HeyGen, Razorpay) are pending; unfinished areas are marked "Soon" and no feature
+pretends to work. The previous prototype is archived,
 untouched and not built, in [`legacy/`](legacy/).
 
 ## Prerequisites

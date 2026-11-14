@@ -56,6 +56,10 @@ export const refreshLimiter = limiter(MIN, 30);
 export const apiLimiter = limiter(MIN, 300);
 /** AI script writing (paid LLM calls). */
 export const aiWriteLimiter = limiter(60 * MIN, 30, { byUser: true });
+/** Admin console (per admin). */
+export const adminLimiter = limiter(MIN, 120, { byUser: true });
+/** Starting paid/expensive work: renders, voiceovers, scene planning, clip searches. */
+export const jobStartLimiter = limiter(60 * MIN, 120, { byUser: true });
 /** Razorpay webhook deliveries (generous: retries arrive in bursts). */
 export const webhookLimiter = limiter(MIN, 600);
 /** Generated voice samples (cached after the first request per voice + language). */

@@ -84,7 +84,7 @@ export async function verifyStatementRecording(assetId: Types.ObjectId, statemen
  * marks the voice revoked. The consent record itself is kept (who, when, how) as evidence.
  * Idempotent.
  */
-export async function revokeConsent(consent: ConsentDoc, by: 'subject' | 'workspace', meta: { actorId?: Types.ObjectId | null } = {}) {
+export async function revokeConsent(consent: ConsentDoc, by: 'subject' | 'workspace' | 'admin', meta: { actorId?: Types.ObjectId | null } = {}) {
   if (consent.status !== 'revoked') {
     consent.set({ status: 'revoked', revokedAt: new Date(), revokedBy: by, confirmTokenHash: null, confirmExpiresAt: null });
     await consent.save();

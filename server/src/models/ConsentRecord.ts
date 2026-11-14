@@ -38,7 +38,7 @@ const consentSchema = new Schema(
     /** Emailed to the subject; works for as long as the consent exists. */
     revokeTokenHash: { type: String, required: true },
     revokedAt: { type: Date, default: null },
-    revokedBy: { type: String, enum: ['subject', 'workspace', null], default: null },
+    revokedBy: { type: String, enum: ['subject', 'workspace', 'admin', null], default: null },
   },
   { timestamps: true },
 );

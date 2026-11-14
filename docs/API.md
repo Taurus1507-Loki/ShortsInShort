@@ -170,3 +170,23 @@ Faceless settings (4.4): `settings.sceneTransition` (`cut|fade|slide|wipe`, stoc
 
 `POST /api/billing/webhook` (public, Razorpay): `X-Razorpay-Signature` over the raw body; `x-razorpay-event-id` deduplicated.
 
+## Admin — `/admin` (auth, role `admin` or `super_admin`; 120 req/min per admin)
+
+Every mutation needs a `reason` (3–300 chars) and is written to the audit log as `admin.*` with `targetUserId`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/overview` | Users, plans, live subscriptions, revenue (30 d / month), credits, projects, jobs + failure rate, queue, storage, failed webhooks |
+| GET | `/metrics?days=1..90` | Daily series (IST): signups, renders completed/failed, revenuePaise, creditsUsed |
+| GET | `/users?q&status&page&limit` | Search by email/name |
+| GET | `/users/:id` | Profile, workspace, projects, subscription, payments, credit history, sessions, recent audit |
+| POST | `/users/:id/credits` | `{amount, reason, requestId(uuid)}` — idempotent per requestId; 402 if the balance would go below 0 |
+| POST | `/users/:id/plan` | `{plan, reason}` — 409 `HAS_SUBSCRIPTION` while a paid subscription is live |
+| POST | `/users/:id/status` | `{status: active\|suspended, reason}` — suspension revokes all sessions |
+| POST | `/users/:id/role` | Super admin only; `{role, reason}`; admin roles need a verified email (400 `NOT_VERIFIED`) |
+| GET | `/jobs?status` · POST `/jobs/:id/retry` | Failed (dead) jobs; retry requeues free of charge |
+| GET | `/payments?status` | Paid/failed payments with customer email and invoice number |
+| GET | `/consents?status` · POST `/consents/:id/revoke` | Voice consent takedown (deletes the clone and recordings) |
+| GET | `/audit?action&userId` · `/webhooks` · `/storage` | Audit log (action prefix filter), webhook events, storage by workspace |
+
+Admins can't act on themselves; only a super admin can act on admins. Bootstrap the first super admin with `npm --prefix server run seed:admin -- <email> super_admin`.

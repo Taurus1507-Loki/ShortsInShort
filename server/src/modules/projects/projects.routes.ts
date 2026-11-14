@@ -20,6 +20,7 @@ import { logger } from '../../config/logger.js';
 import { applyCreditChange } from '../../services/credit.service.js';
 import { enqueue } from '../../services/queue/queue.js';
 import { audit } from '../../services/audit.service.js';
+import { jobStartLimiter } from '../../middleware/security.js';
 import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
 import { ownCustomVoice } from '../../services/voice/consent.js';
 import { scriptHash } from '../../services/audio/narrationJob.js';
@@ -350,6 +351,7 @@ async function startProjectJob(
 
 projectsRouter.post(
   '/:id/generate',
+  jobStartLimiter,
   requireVerifiedEmail,
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
@@ -398,6 +400,7 @@ projectsRouter.get(
 /** Generates the voiceover for the saved script with the chosen voice. */
 projectsRouter.post(
   '/:id/narrate',
+  jobStartLimiter,
   requireVerifiedEmail,
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
@@ -503,6 +506,7 @@ async function facelessProject(req: Request, id: string) {
 /** Plans scenes from the saved script (background job; free). */
 projectsRouter.post(
   '/:id/scenes/plan',
+  jobStartLimiter,
   requireVerifiedEmail,
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
@@ -523,6 +527,7 @@ projectsRouter.post(
 /** Searches stock clips for one scene with the user's own words; saves the results as its candidates. */
 projectsRouter.post(
   '/:id/scenes/:index/search',
+  jobStartLimiter,
   validate({ params: sceneParams, body: z.object({ query: z.string().trim().min(2).max(60) }).strict() }),
   asyncHandler(async (req, res) => {
     const project = await facelessProject(req, req.params.id!);
@@ -682,6 +687,7 @@ projectsRouter.post(
 /** Re-plans one scene's visuals with AI (new searches + candidates; picks the best unused clip). */
 projectsRouter.post(
   '/:id/scenes/:index/replan',
+  jobStartLimiter,
   validate({ params: sceneParams }),
   asyncHandler(async (req, res) => {
     const project = await editableFaceless(req, req.params.id!);

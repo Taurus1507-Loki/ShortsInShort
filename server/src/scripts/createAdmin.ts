@@ -1,7 +1,7 @@
 /**
  * Promote an existing, verified user to admin or super_admin:
  *   npm run seed:admin -- you@example.com super_admin
- * Roles are never assignable through the public API.
+ * Bootstraps the first super admin; after that, super admins manage roles in the admin panel.
  */
 import { env } from '../config/env.js';
 import { connectDB, disconnectDB } from '../config/db.js';
