@@ -5,8 +5,11 @@
 **/.env
 **/.env.*
 !**/.env.example
-**/storage
-**/uploads
+# Local media only. Not **/storage: server/src/**/storage/ folders are source code.
+storage
+server/storage
+uploads
+server/uploads
 **/*.log
 **/*.tsbuildinfo
 .git
