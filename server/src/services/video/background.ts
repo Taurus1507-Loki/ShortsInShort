@@ -142,11 +142,11 @@ export function buildScenesArgs(s: ScenesInput & { transition?: SceneTransition 
       const bh = even(H * 1.1);
       const x = i % 2 === 0 ? `(iw-ow)*t/${d}` : `(iw-ow)*(1-t/${d})`;
       inputs.push('-loop', '1', '-framerate', String(fps), '-t', d, '-i', sc.path);
-      chains.push(`[${i}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='${x}':y='(ih-oh)/2',setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB[v${i}]`);
+      chains.push(`[${i}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},crop=${W}:${H}:x='${x}':y='(ih-oh)/2',setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps}[v${i}]`);
       return;
     }
     inputs.push('-stream_loop', '-1', '-t', d, '-i', sc.path);
-    chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB[v${i}]`);
+    chains.push(`[${i}:v]fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS,settb=AVTB,fps=${fps}[v${i}]`);
   });
   const total = durations.reduce((t, x) => t + x, 0).toFixed(3);
   let joined: string;
