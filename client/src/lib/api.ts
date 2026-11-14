@@ -95,3 +95,21 @@ export async function api<T>(path: string, opts: Options = {}, retried = false):
 
 export const errorMessage = (e: unknown) =>
   e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.';
+
+/** Authenticated file download (e.g. invoice PDFs): fetches with the in-memory token and saves it. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  let res = await fetch(`/api${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'same-origin' });
+  if (res.status === 401 && (await refreshSession())) {
+    res = await fetch(`/api${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'same-origin' });
+  }
+  if (!res.ok) throw new ApiError(res.status, 'DOWNLOAD_FAILED', 'The file could not be downloaded.');
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+

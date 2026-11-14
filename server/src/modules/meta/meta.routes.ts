@@ -8,6 +8,7 @@ import { getStockProvider } from '../../services/ai/stock.js';
 import { loadLibrary } from '../../services/ai/music.js';
 import { getTtsProvider } from '../../services/ai/tts.js';
 import { getAvatarProvider } from '../../services/ai/avatar.js';
+import { getPaymentProvider } from '../../services/payments/razorpay.js';
 
 export const metaRouter = Router();
 
@@ -44,7 +45,8 @@ metaRouter.get('/meta', (_req, res) => {
         facelessCreator: true,
         stockFootage: Boolean(getStockProvider()),
         motionExplainer: true,
-        payments: false,
+        // Razorpay checkout, subscriptions and GST invoices (Phase 5): live when keys are configured.
+        payments: Boolean(getPaymentProvider()),
       },
       uploads: { maxBytes: env.uploads.maxBytes, maxSourceDurationSec: env.uploads.maxSourceDurationSec, storage: env.storage.driver },
     },

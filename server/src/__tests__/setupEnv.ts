@@ -12,7 +12,7 @@ process.env.REQUIRE_EMAIL_VERIFICATION = 'true';
 process.env.FREE_PLAN_CREDITS = '3';
 // Blank (not delete) every external credential: dotenv never overrides an existing variable, so
 // this guarantees tests can't pick up real keys from server/.env and call paid services.
-for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'DEEPGRAM_API_KEY', 'GEMINI_API_KEY', 'PIXABAY_API_KEY', 'ELEVENLABS_API_KEY', 'SARVAM_API_KEY', 'HEYGEN_API_KEY', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
+for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'DEEPGRAM_API_KEY', 'GEMINI_API_KEY', 'PIXABAY_API_KEY', 'ELEVENLABS_API_KEY', 'SARVAM_API_KEY', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'HEYGEN_API_KEY', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
   process.env[k] = '';
 }
 process.env.STORAGE_DRIVER = 'local';

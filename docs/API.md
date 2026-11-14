@@ -154,3 +154,19 @@ Voiceover endpoints (`/narrate`, `/narration/estimate`) accept faceless projects
 Faceless settings (4.4): `settings.sceneTransition` (`cut|fade|slide|wipe`, stock style) and
 `settings.soundEffects` (boolean). Render stats add `sceneTransition`, `sfxCount` and `renderMs`.
 
+## Billing — `/billing` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/` | `{configured, keyId, pricesIncludeGst, gstRate, plan, plans[], packs[], subscription, billing}` |
+| PUT | `/profile` | `{legalName, gstin, address, stateCode}` — GSTIN must start with the state code |
+| POST | `/orders` | `{packId}` → `{orderId, amountPaise, keyId, credits, prefill}` for Razorpay Checkout |
+| POST | `/orders/verify` | `{orderId, paymentId, signature}` → credits once; 400 `INVALID_SIGNATURE` |
+| POST | `/subscriptions` | `{planId, period}` → `{subscriptionId, keyId}`; 409 `ALREADY_SUBSCRIBED` |
+| POST | `/subscriptions/verify` | `{subscriptionId, paymentId, signature}` → plan + credits |
+| POST | `/subscriptions/cancel` | Cancels at the end of the cycle |
+| POST | `/subscriptions/change` | `{planId}` → upgrade now / downgrade at cycle end; 409 `PLAN_CHANGE_UNSUPPORTED` (UPI/e-mandate) |
+| GET | `/payments`, `/invoices`, `/invoices/:id/pdf` | History and GST invoice PDFs |
+
+`POST /api/billing/webhook` (public, Razorpay): `X-Razorpay-Signature` over the raw body; `x-razorpay-event-id` deduplicated.
+

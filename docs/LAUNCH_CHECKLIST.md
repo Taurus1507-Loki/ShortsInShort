@@ -40,3 +40,10 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Prebuild the compositions (`MOTION_BUNDLE_DIR`) instead of bundling on first render.
 - [ ] Measure render time/cost per 30 s and confirm the 2 credits / 30 s price.
 
+## Payments (Phase 5)
+- [ ] Razorpay test-mode run-through (packs, subscribe, renew via test webhook, cancel, upgrade/downgrade) — see docs/PHASE5.md.
+- [ ] Webhook on the public HTTPS domain with payment.captured, payment.failed, order.paid, subscription.*; auto-capture on.
+- [ ] Seller GST details (`BILLING_*`) filled; CA review of SAC code, GST-inclusive pricing and invoice layout.
+- [ ] Final plan and credit-pack prices (currently business assumptions).
+- [ ] Live Razorpay keys only after the test run passes.
+

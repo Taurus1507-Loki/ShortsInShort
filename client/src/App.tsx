@@ -6,7 +6,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RedirectIfAuthed, RequireAuth } from '@/features/auth/guards';
 import LandingPage from '@/pages/marketing/LandingPage';
 import { AppLayout } from '@/components/app/AppLayout';
-import { BillingPage, ComingSoonPage, HelpPage, NotFoundPage } from '@/pages/app/MiscPages';
+import { ComingSoonPage, HelpPage, NotFoundPage } from '@/pages/app/MiscPages';
 
 // Route-level code splitting: marketing visitors don't download the app bundle.
 const AuthPages = () => import('@/pages/auth/AuthPages');
@@ -27,6 +27,7 @@ const SettingsPage = lazy(() => import('@/pages/app/SettingsPage'));
 const MediaLibraryPage = lazy(() => import('@/pages/app/MediaLibraryPage'));
 const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
 const VoicesPage = lazy(() => import('@/pages/app/VoicesPage'));
+const BillingPage = lazy(() => import('@/pages/app/BillingPage'));
 const ConsentPage = lazy(() => import('@/pages/consent/ConsentPage'));
 
 const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [

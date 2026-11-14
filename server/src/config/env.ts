@@ -87,6 +87,20 @@ const schema = z.object({
   ELEVENLABS_MODEL_INDIC: z.string().default('eleven_v3'),
   /** Talking-avatar presenters (Avatar Studio step 3.4). */
   HEYGEN_API_KEY: z.string().optional(),
+  /** Payments (Razorpay) — test keys first; live keys only after test-mode checks. */
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  /** GST invoices: seller details and tax settings. */
+  BILLING_LEGAL_NAME: z.string().default('ShortsInShort'),
+  BILLING_GSTIN: z.string().default(''),
+  BILLING_ADDRESS: z.string().default(''),
+  /** Two-digit GST state code of the seller, e.g. 36 = Telangana, 37 = Andhra Pradesh, 29 = Karnataka. */
+  BILLING_STATE_CODE: z.string().regex(/^\d{2}$/).default('36'),
+  BILLING_SAC: z.string().default('998314'),
+  BILLING_INVOICE_PREFIX: z.string().regex(/^[A-Z]{2,5}$/).default('SIS'),
+  PRICES_INCLUDE_GST: bool(true),
+  GST_RATE_PERCENT: z.coerce.number().min(0).max(28).default(18),
   /** Motion Explainer (Remotion): entry file, optional prebuilt bundle, render concurrency. */
   MOTION_ENTRY: z.string().optional(),
   MOTION_BUNDLE_DIR: z.string().optional(),
@@ -197,6 +211,19 @@ export const env = {
   },
   music: {
     libraryDir: e.MUSIC_LIBRARY_DIR ? path.resolve(e.MUSIC_LIBRARY_DIR) : null,
+  },
+  payments: {
+    razorpay: e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET ? { keyId: e.RAZORPAY_KEY_ID, keySecret: e.RAZORPAY_KEY_SECRET, webhookSecret: e.RAZORPAY_WEBHOOK_SECRET ?? null } : null,
+  },
+  billing: {
+    legalName: e.BILLING_LEGAL_NAME,
+    gstin: e.BILLING_GSTIN,
+    address: e.BILLING_ADDRESS,
+    stateCode: e.BILLING_STATE_CODE,
+    sac: e.BILLING_SAC,
+    invoicePrefix: e.BILLING_INVOICE_PREFIX,
+    pricesIncludeGst: e.PRICES_INCLUDE_GST,
+    gstRate: e.GST_RATE_PERCENT,
   },
   motion: {
     entry: e.MOTION_ENTRY ? path.resolve(e.MOTION_ENTRY) : null,

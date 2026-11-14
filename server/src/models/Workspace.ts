@@ -22,6 +22,13 @@ const workspaceSchema = new Schema(
     plan: { type: String, enum: PLAN_IDS, default: 'free', required: true },
     creditBalance: { type: Number, default: 0, min: 0, required: true },
     storageBytesUsed: { type: Number, default: 0, min: 0 },
+    /** Billing details printed on GST invoices (GSTIN only for business buyers). */
+    billing: {
+      legalName: { type: String, default: '', maxlength: 120 },
+      gstin: { type: String, default: '', maxlength: 15 },
+      address: { type: String, default: '', maxlength: 300 },
+      stateCode: { type: String, default: '', maxlength: 2 },
+    },
   },
   { timestamps: true },
 );

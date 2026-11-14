@@ -225,7 +225,7 @@ export function Pricing() {
               })}
         </div>
         {!paymentsLive && !isLoading && (
-          <p className="mt-6 text-center text-xs text-muted-foreground">Paid plans open with online billing soon. Prices are indicative and exclude GST.</p>
+          <p className="mt-6 text-center text-xs text-muted-foreground">Prices include 18% GST. Pay securely with Razorpay — cancel any time.</p>
         )}
       </div>
     </section>

@@ -85,3 +85,19 @@ export const PLANS: Record<PlanId, Plan> = {
 };
 
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];
+
+/** One-time credit top-ups (prices in paise, GST as configured). Subscriptions stay cheaper per credit. */
+export interface CreditPack {
+  id: string;
+  credits: number;
+  pricePaise: number;
+}
+export const CREDIT_PACKS: CreditPack[] = [
+  { id: 'pack_10', credits: 10, pricePaise: 299_00 },
+  { id: 'pack_25', credits: 25, pricePaise: 699_00 },
+  { id: 'pack_60', credits: 60, pricePaise: 1_499_00 },
+  { id: 'pack_150', credits: 150, pricePaise: 3_499_00 },
+];
+
+/** Paid plans that can be subscribed to (Free has no subscription). */
+export const PAID_PLAN_IDS = PLAN_IDS.filter((id) => PLANS[id].monthlyPricePaise > 0);

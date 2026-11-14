@@ -18,6 +18,8 @@ import { storageRouter } from './modules/storage/storage.routes.js';
 import { brandKitRouter } from './modules/brandkit/brandkit.routes.js';
 import { consentRouter, voicesRouter } from './modules/voices/voices.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
+import { billingRouter, razorpayWebhook } from './modules/billing/billing.routes.js';
+import { webhookLimiter } from './middleware/security.js';
 
 export function createApp() {
   const app = express();
@@ -56,6 +58,11 @@ export function createApp() {
       maxAge: 600,
     }),
   );
+  // Razorpay webhooks need the exact raw bytes for signature checks, and come without an Origin header,
+  // so they are handled before the JSON parser and the origin check.
+  app.post('/api/billing/webhook', webhookLimiter, express.raw({ type: '*/*', limit: '1mb' }), (req, res, next) => {
+    razorpayWebhook(req, res).catch(next);
+  });
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
   app.use(originCheck);
@@ -74,6 +81,7 @@ export function createApp() {
   app.use('/api/voices', voicesRouter);
   app.use('/api/consent', consentLimiter, consentRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/billing', billingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

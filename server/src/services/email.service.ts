@@ -172,4 +172,22 @@ ${subjectName} withdrew their consent. The custom voice "${voiceName}" and its r
       ),
     };
   },
+  paymentReceipt(to: string, name: string, amountInr: string, what: string, invoiceNumber: string): EmailMessage {
+    const url = `${env.appUrl}/app/billing`;
+    return {
+      to,
+      tag: 'payment_receipt',
+      subject: `Payment received — invoice ${invoiceNumber}`,
+      text: `Hi ${name},
+
+We received your payment of INR ${amountInr}. ${what}
+
+Your GST invoice ${invoiceNumber} is on the Billing page: ${url}`,
+      html: layout(
+        'Payment received',
+        `<p>Hi ${escapeHtml(name)}, we received your payment of <strong>INR ${escapeHtml(amountInr)}</strong>. ${escapeHtml(what)}</p><p>Your GST invoice <strong>${escapeHtml(invoiceNumber)}</strong> is ready to download.</p>`,
+        { label: 'View invoice', url },
+      ),
+    };
+  },
 };
