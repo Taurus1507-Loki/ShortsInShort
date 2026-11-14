@@ -1,0 +1,19 @@
+# Keep the build context small and free of secrets and user media.
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+**/storage
+**/uploads
+**/*.log
+**/*.tsbuildinfo
+.git
+.github
+.claude
+.kilo
+legacy
+docs
+*.docx
+motion-bundle

@@ -1,0 +1,91 @@
+# Every push and pull request: typecheck, lint, build, run the test suite against a real MongoDB,
+# and build the production Docker image. Tests never call paid APIs (setupEnv blanks all keys).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      mongo:
+        image: mongo:7.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      # Use the service container instead of downloading a throwaway mongod.
+      TEST_MONGODB_URI: mongodb://127.0.0.1:27017/shortsinshort_test
+      MONGOMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      - run: npm --prefix server ci --no-audit --no-fund
+      - run: npm --prefix client ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm --prefix server run typecheck && npm --prefix client run typecheck
+      - name: Lint (web app)
+        run: npm --prefix client run lint --if-present
+      - name: Build
+        run: npm --prefix server run build && npm --prefix client run build
+      - name: Tests
+        run: npm --prefix server test
+      - name: Dependency audit (high and above)
+        run: npm --prefix server audit --omit=dev --audit-level=high && npm --prefix client audit --omit=dev --audit-level=high
+
+  docker:
+    runs-on: ubuntu-24.04
+    needs: test
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: shortsinshort:ci
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test (API + web app + health)
+        run: |
+          docker network create sis
+          docker run -d --name mongo --network sis mongo:7.0
+          docker run -d --name app --network sis -p 5000:5000 \
+            -e MONGODB_URI=mongodb://mongo:27017/sis_smoke \
+            -e JWT_ACCESS_SECRET=ci-smoke-only-secret-0123456789abcdef \
+            -e APP_URL=http://localhost:5000 -e SMTP_HOST=smtp.invalid \
+            shortsinshort:ci
+          for i in $(seq 1 30); do curl -fs localhost:5000/api/health && break; sleep 2; done
+          curl -fs localhost:5000/api/health | grep '"status":"ok"'
+          curl -fs localhost:5000/api/health/live
+          curl -fsI localhost:5000/ | grep -i 'content-security-policy'
+          curl -fs localhost:5000/app/projects | grep -q '<div id="root">'
+          docker run --rm --network sis --entrypoint node \
+            -e MONGODB_URI=mongodb://mongo:27017/sis_smoke -e JWT_ACCESS_SECRET=ci-smoke-only-secret-0123456789abcdef \
+            -e APP_URL=http://localhost:5000 -e SMTP_HOST=smtp.invalid \
+            shortsinshort:ci -e "import('/app/server/dist/worker.js'); setTimeout(() => process.exit(0), 8000)"
+      - name: Logs on failure
+        if: failure()
+        run: docker logs app || true

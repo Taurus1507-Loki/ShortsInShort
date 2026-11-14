@@ -1,0 +1,16 @@
+# Automatic HTTPS (Let's Encrypt) for $DOMAIN, proxying everything to the API container,
+# which serves both /api and the web app.
+{$DOMAIN} {
+	encode zstd gzip
+	# Uploads go to signed storage URLs; keep request bodies bounded here too.
+	request_body {
+		max_size 2GB
+	}
+	reverse_proxy api:5000 {
+		header_up X-Request-Id {http.request.uuid}
+	}
+	log {
+		output stdout
+		format json
+	}
+}

@@ -19,7 +19,8 @@
     "seed:admin": "tsx src/scripts/createAdmin.ts",
     "email:test": "tsx src/scripts/testEmail.ts",
     "admin:plan": "tsx src/scripts/setPlan.ts",
-    "metrics:render": "tsx src/scripts/renderMetrics.ts"
+    "metrics:render": "tsx src/scripts/renderMetrics.ts",
+    "motion:prepare": "tsx src/scripts/prepareMotion.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1164.0",

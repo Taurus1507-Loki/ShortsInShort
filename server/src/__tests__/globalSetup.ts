@@ -13,6 +13,13 @@ const FALLBACK_URI = process.env.TEST_MONGODB_URI ?? 'mongodb://127.0.0.1:27017/
 let mongod: MongoMemoryServer | undefined;
 
 export async function setup(project: TestProject) {
+  // CI provides a MongoDB service container: use it directly.
+  if (process.env.TEST_MONGODB_URI) {
+    const db = new URL(FALLBACK_URI).pathname.slice(1);
+    if (!/test/i.test(db)) throw new Error(`Refusing to run tests against "${db}": the test database name must contain "test".`);
+    project.provide('mongoUri', FALLBACK_URI);
+    return;
+  }
   if (!process.env.MONGOMS_SYSTEM_BINARY && existsSync(LOCAL_MONGOD)) {
     process.env.MONGOMS_SYSTEM_BINARY = LOCAL_MONGOD;
   }

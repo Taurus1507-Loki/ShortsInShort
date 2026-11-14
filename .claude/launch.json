@@ -1,7 +1,45 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "api", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "server", "run", "dev"], "port": 5000 },
-    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "client", "run", "dev"], "port": 5173 }
+    {
+      "name": "api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "server",
+        "run",
+        "dev"
+      ],
+      "port": 5000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "client",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "prod-like",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "server",
+        "run",
+        "dev"
+      ],
+      "port": 5056,
+      "env": {
+        "PORT": "5056",
+        "CLIENT_DIST_DIR": "../client/dist",
+        "WORKER_MODE": "off",
+        "APP_URL": "http://localhost:5056"
+      },
+      "autoPort": false
+    }
   ]
 }

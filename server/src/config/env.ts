@@ -20,6 +20,12 @@ const schema = z.object({
   APP_URL: z.url().default('http://localhost:5173'),
   /** Extra comma-separated origins allowed by CORS (APP_URL is always allowed). */
   CORS_ORIGINS: z.string().default(''),
+  /** Built web app (client/dist) to serve from the API on the same origin; unset = the SPA is hosted elsewhere. */
+  CLIENT_DIST_DIR: z.string().optional(),
+  /** Extra comma-separated origins the web app may load media from / upload to (e.g. an R2 custom domain). */
+  MEDIA_ORIGINS: z.string().default(''),
+  /** Release identifier shown by /api/health (the image build sets the git commit). */
+  APP_VERSION: z.string().max(64).default('dev'),
   /** Number of reverse proxies in front of the API (for correct client IPs). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
@@ -128,6 +134,11 @@ if (e.STORAGE_DRIVER === 's3' && !(e.S3_BUCKET && e.S3_ACCESS_KEY_ID && e.S3_SEC
   process.exit(1);
 }
 
+if (isProd && !/^https:\/\//.test(e.APP_URL) && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(e.APP_URL)) {
+  console.error('APP_URL must use https:// in production (secure cookies and OAuth redirects depend on it).');
+  process.exit(1);
+}
+
 if (isProd && !smtpConfigured) {
   console.error('SMTP_HOST must be configured in production (verification and reset emails).');
   process.exit(1);
@@ -146,6 +157,9 @@ export const env = {
     ...e.CORS_ORIGINS.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean),
   ],
   trustProxy: e.TRUST_PROXY,
+  clientDistDir: e.CLIENT_DIST_DIR ? path.resolve(e.CLIENT_DIST_DIR) : null,
+  mediaOrigins: e.MEDIA_ORIGINS.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean),
+  appVersion: e.APP_VERSION,
   jwt: {
     accessSecret: e.JWT_ACCESS_SECRET,
     accessTtlSec: e.ACCESS_TOKEN_TTL_MIN * 60,

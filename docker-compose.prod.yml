@@ -1,0 +1,80 @@
+# Self-hosted production stack (one VPS): Caddy (HTTPS) → API + web app, separate render worker,
+# MongoDB as a single-node replica set (transactions-ready). Managed MongoDB (Atlas) is recommended
+# instead of the bundled one: set MONGODB_URI in deploy/.env.production and drop the mongo service.
+#
+#   cp deploy/.env.production.example deploy/.env.production   # fill in secrets
+#   DOMAIN=app.example.com docker compose -f docker-compose.prod.yml up -d --build
+#
+# See docs/DEPLOY.md.
+services:
+  api:
+    build: { context: ., args: { APP_VERSION: '${APP_VERSION:-dev}' } }
+    image: shortsinshort:${APP_VERSION:-latest}
+    env_file: deploy/.env.production
+    environment:
+      WORKER_MODE: 'off'
+      TRUST_PROXY: '1'
+    volumes:
+      - media:/data/storage
+    depends_on:
+      mongo: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker:
+    image: shortsinshort:${APP_VERSION:-latest}
+    command: ['node', 'dist/worker.js']
+    env_file: deploy/.env.production
+    volumes:
+      - media:/data/storage   # local storage only; with R2 (STORAGE_DRIVER=s3) workers share nothing
+    healthcheck: { disable: true }
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+    # Rendering is CPU/RAM heavy: keep it from starving the API.
+    deploy: { resources: { limits: { cpus: '2', memory: 3g } } }
+
+  mongo:
+    image: mongo:7.0
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the single-node replica set on first start, then reports healthy once it is primary.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # Nightly compressed database dump kept for BACKUP_KEEP_DAYS (default 14) in the `backups` volume.
+  # Copy them off the server too (docs/DEPLOY.md → Backups). Not needed with Atlas (it backs up itself).
+  backup:
+    image: mongo:7.0
+    entrypoint: ['/bin/sh', '/backup.sh']
+    environment:
+      MONGO_URI: mongodb://mongo:27017/shortsinshort?replicaSet=rs0
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - backups:/backups
+    depends_on:
+      mongo: { condition: service_healthy }
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    ports: ['80:80', '443:443']
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to your public hostname}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  media:
+  mongo-data:
+  backups:
+  caddy-data:

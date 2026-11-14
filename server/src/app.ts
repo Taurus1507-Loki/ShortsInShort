@@ -21,6 +21,7 @@ import { aiRouter } from './modules/ai/ai.routes.js';
 import { billingRouter, razorpayWebhook } from './modules/billing/billing.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
 import { webhookLimiter } from './middleware/security.js';
+import { spaRouter, storageOrigins } from './services/web/spa.js';
 
 export function createApp() {
   const app = express();
@@ -35,7 +36,7 @@ export function createApp() {
         res.setHeader('x-request-id', id);
         return id;
       },
-      autoLogging: { ignore: (req) => req.url === '/api/health' },
+      autoLogging: { ignore: (req) => req.url === '/api/health' || req.url === '/api/health/live' || (!req.url?.startsWith('/api') && (req.method === 'GET' || req.method === 'HEAD')) },
       // Log the essentials only. Query strings are dropped: signed storage URLs carry signatures.
       serializers: {
         req: (req: { id: string; method: string; url: string }) => ({ id: req.id, method: req.method, path: req.url.split('?')[0] }),
@@ -43,6 +44,8 @@ export function createApp() {
       },
     }),
   );
+  // Production single-origin hosting: the built web app with its own CSP (everything outside /api).
+  if (env.clientDistDir) app.use(spaRouter(env.clientDistDir, { mediaOrigins: [...storageOrigins(env.storage.s3), ...env.mediaOrigins] }));
   app.use(
     helmet({
       // API returns JSON only; the SPA's CSP is set by the web server that serves it.

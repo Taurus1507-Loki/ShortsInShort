@@ -51,7 +51,16 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Create the production super admin with `npm run seed:admin -- <email> super_admin` (verified email first).
 - [ ] Redis-backed rate limiters so limits hold across instances.
 - [ ] Wrap credit charge + job enqueue in a MongoDB transaction (replica set).
-- [ ] CSP for the SPA on the static host (self, Razorpay checkout, Google sign-in, media origin).
+- [x] CSP for the web app (served by the API; see docs/DEPLOY.md). Recheck Razorpay Checkout under it with test keys.
 - [ ] Fresh JWT/cookie secrets; never reuse `legacy/server/.env.example` values.
 - [ ] Post-launch: TOTP 2FA for admins; Dependabot/Renovate.
+
+## Deployment (Phase 7) — see docs/DEPLOY.md
+- [ ] First CI run green on GitHub (typecheck, tests, Docker build + smoke test).
+- [ ] Choose hosting (VPS + Compose, or managed containers) and create MongoDB Atlas + Cloudflare R2.
+- [ ] Domain DNS → server; HTTPS via Caddy or the platform.
+- [ ] deploy/.env.production filled with fresh secrets (never committed).
+- [ ] Backups on (Atlas continuous, or the compose `backup` service + off-site copy); test a restore.
+- [ ] External uptime monitor on https://<domain>/api/health with alerts.
+- [ ] Google OAuth redirect URI and Razorpay webhook URL updated to the production domain.
 

@@ -53,7 +53,13 @@ metaRouter.get('/meta', (_req, res) => {
   });
 });
 
+/** Readiness: 200 only when the database is connected (load balancers route traffic on this). */
 metaRouter.get('/health', (_req, res) => {
   const db = dbState();
-  res.status(db === 'connected' ? 200 : 503).json({ status: db === 'connected' ? 'ok' : 'degraded', db, uptimeSec: Math.round(process.uptime()) });
+  res.status(db === 'connected' ? 200 : 503).json({ status: db === 'connected' ? 'ok' : 'degraded', db, version: env.appVersion, uptimeSec: Math.round(process.uptime()) });
+});
+
+/** Liveness: the process is up and serving (container restarts key on this, not on the database). */
+metaRouter.get('/health/live', (_req, res) => {
+  res.json({ status: 'ok' });
 });

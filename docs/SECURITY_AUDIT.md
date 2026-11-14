@@ -15,7 +15,7 @@ A review of the codebase as it stands after Phase 6 (admin panel). It covers wha
 | Payments | Signatures and webhooks are verified, idempotent and deduplicated |
 | Voice cloning consent | Recorded statement is verified; revocable by the subject, workspace or admin |
 | Outbound requests (SSRF) | Only provider-issued https URLs are fetched |
-| HTTP headers | Helmet + strict API CSP. The SPA CSP is set at deploy time (**Launch**, Phase 7) |
+| HTTP headers | Helmet + strict API CSP; the web app gets its own strict CSP when served by the API (Phase 7) |
 
 ## What is in place
 
@@ -69,7 +69,7 @@ A review of the codebase as it stands after Phase 6 (admin panel). It covers wha
 |---|---|---|---|
 | 1 | Rate-limit counters are in memory, so each instance counts separately | Back limiters with Redis (Upstash) | **Launch** |
 | 2 | The ledger and job writes aren't in a single MongoDB transaction. Idempotency keys prevent double charges, but a crash between the two writes can leave a job without its charge | Use a replica set (Atlas has one) and wrap charge + enqueue in `withTransaction` | **Launch** |
-| 3 | The SPA has no CSP yet (the API sends `default-src 'none'`) | Set a CSP on the static host: self, Razorpay checkout, Google sign-in, media origin | Phase 7 |
+| 3 | ~~The SPA has no CSP yet~~ | Done in Phase 7: `services/web/spa.ts` (verified in the browser; Razorpay Checkout to be rechecked with keys) | Done |
 | 4 | `legacy/server/.env.example` contains placeholder secrets | Never reuse them. Generate fresh JWT/cookie secrets for production | **Launch** |
 | 5 | The Gmail app password was exposed earlier in development | Rotate it and move mail to Resend/Brevo/SES on the own domain | **Launch** |
 | 6 | Local media storage | Move to R2 with private buckets and signed URLs | **Launch** |
