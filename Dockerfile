@@ -4,10 +4,13 @@
 #   Worker:         docker run … image node dist/worker.js (renders; scale by running more)
 # Build: docker build --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t shortsinshort .
 
-ARG NODE_IMAGE=node:22-bookworm-slim
+# Node 24 LTS (npm 11) — the lockfiles are written by npm 11, which npm 10 rejects.
+ARG NODE_IMAGE=node:24-bookworm-slim
 
 # ── Dependencies (cached until a lockfile changes) ──
 FROM ${NODE_IMAGE} AS deps
+# Tests aren't run in the image: skip mongodb-memory-server's ~100 MB mongod download.
+ENV MONGOMS_DISABLE_POSTINSTALL=1
 WORKDIR /app
 COPY server/package.json server/package-lock.json server/
 COPY client/package.json client/package-lock.json client/

@@ -25,7 +25,7 @@ untouched and not built, in [`legacy/`](legacy/).
 
 ## Prerequisites
 
-- Node.js 20.11+ (tested on 24)
+- Node.js 24 LTS (npm 11 — the lockfiles need it; CI and the Docker image use it too)
 - MongoDB 7+ running locally (`mongodb://127.0.0.1:27017`) — or `docker compose up -d mongo`
 
 ## Run locally

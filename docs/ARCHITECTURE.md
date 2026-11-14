@@ -65,7 +65,7 @@ ShortsInShort/
 │       ├── lib/            api client, query client, theme, utils
 │       ├── pages/          route-level pages (marketing, auth, app, legal)
 │       └── config/         plans, nav, content constants
-├── server/                 Node 22+ / Express / TS (ESM) / Mongoose
+├── server/                 Node 24 / Express / TS (ESM) / Mongoose
 │   └── src/
 │       ├── config/         env validation (zod), db, logger
 │       ├── middleware/     auth, rbac, validate, rate limits, origin check, errors
