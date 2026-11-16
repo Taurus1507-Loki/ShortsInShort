@@ -21,6 +21,7 @@ import { applyCreditChange } from '../../services/credit.service.js';
 import { audit } from '../../services/audit.service.js';
 import { revokeConsent } from '../../services/voice/consent.js';
 import { dailySeries } from '../../services/admin/metrics.js';
+import { musicAdminRouter } from './music.routes.js';
 
 /**
  * Admin console API. Every route needs an admin role; every change needs a reason and is written to
@@ -351,3 +352,6 @@ adminRouter.get(
     res.json({ data: { top: top.map((w) => ({ id: w._id.toString(), name: w.name, plan: w.plan, bytes: w.storageBytesUsed })), byKind: counts } });
   }),
 );
+
+/* ── Background music library (Pixabay Music tracks added by admins) ── */
+adminRouter.use('/music', musicAdminRouter);

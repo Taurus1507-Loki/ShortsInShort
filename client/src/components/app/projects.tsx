@@ -350,8 +350,8 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
             status={musicLive ? 'applied' : 'soon'}
             help={
               musicLive
-                ? 'Music mood under your voice. It dips automatically while you speak and fades out at the end. “Match the style” picks a mood from your editing style. Only licensed tracks from your library are used.'
-                : 'Music mood under your voice (dips while you speak). Saved now; the server has no licensed music library configured yet, so no music is added.'
+                ? 'Music mood under your voice. It dips automatically while you speak and fades out at the end. “Match the style” picks a mood from your editing style. Tracks come from the Pixabay Music library (free for commercial use).'
+                : 'Music mood under your voice (dips while you speak). Saved now; no music has been added to the library yet (an admin adds Pixabay tracks in Admin → Music library), so videos are made without music for now.'
             }
           >
             <Select id="music" value={s.musicMood} onChange={(e) => set('musicMood', e.target.value as ProjectSettings['musicMood'])}>

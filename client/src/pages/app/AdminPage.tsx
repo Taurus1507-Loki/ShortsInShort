@@ -11,14 +11,16 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { api, errorMessage } from '@/lib/api';
 import { queryClient } from '@/lib/queries';
 import { cn, formatBytes, formatInr } from '@/lib/utils';
+import { MusicLibrary } from '@/components/app/MusicLibrary';
 
-type Tab = 'overview' | 'users' | 'jobs' | 'payments' | 'voices' | 'audit';
+type Tab = 'overview' | 'users' | 'jobs' | 'payments' | 'voices' | 'music' | 'audit';
 const TABS: Array<[Tab, string]> = [
   ['overview', 'Overview'],
   ['users', 'Users'],
   ['jobs', 'Failed jobs'],
   ['payments', 'Payments'],
   ['voices', 'Voice consents'],
+  ['music', 'Music library'],
   ['audit', 'Audit log'],
 ];
 const when = (d: string | null) => (d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
@@ -46,6 +48,7 @@ export default function AdminPage() {
       {tab === 'jobs' && <Jobs />}
       {tab === 'payments' && <Payments />}
       {tab === 'voices' && <Voices />}
+      {tab === 'music' && <MusicLibrary />}
       {tab === 'audit' && <Audit />}
     </div>
   );

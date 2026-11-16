@@ -38,4 +38,7 @@ SOFTWARE.
 - Free for individuals and companies of up to 3 people. Larger teams need a Company License (see LAUNCH_CHECKLIST.md).
 - `@remotion/transitions` and `@remotion/lottie` (4.0.542) fall under the same licence. Only CSS-based transitions are used; the WebGL ones need an experimental Chrome feature.
 
+## Pixabay Music: Pixabay Content License
+- Background music tracks in `<storage>/music`, added by admins from pixabay.com/music. Commercial use is allowed and no attribution is required (https://pixabay.com/service/license-summary/). Each track records its licence in `music.json`.
+
 ## lottie-web (via @remotion/lottie): MIT

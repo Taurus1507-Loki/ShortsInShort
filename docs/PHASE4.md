@@ -170,3 +170,17 @@ Previously it was one clip per 20/12/7 s, at most 3.5 s each. A cutaway may now 
 - **Stock-footage videos** get new FFmpeg transitions: Mix (a different xfade at every cut, now the default), Smooth push, Zoom in, Circle reveal, Motion blur and Pixelate.
 - **Speed:** the effects make animated renders about 1.3× slower (measured on a 12.5 s, 720p sample). A 6 s, 720p export took 13 s end to end.
 - Credits and licences: `/legal/credits` and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Background music from Pixabay (2026-11-16)
+- Pixabay's API has **no music endpoint** (only images and videos), and its terms forbid scraping or mass downloads, so tracks are added by hand.
+- How to add music:
+  1. An admin downloads tracks from pixabay.com/music. They're free under the Pixabay Content License: commercial use is fine and no credit is needed.
+  2. Drop them on **Admin → Music library**, or run `npm run music:import -- <folder>` (development only, because the production image has no dev tools).
+- Each upload goes through these checks and steps:
+  - It must be real audio (checked by its first bytes) and 10 s–15 min long.
+  - It's converted to a 192 kbps MP3 at **−16 LUFS**, so every track sits at the same level under the voice.
+  - Title and artist come from the Pixabay file name, and moods are guessed from it (upbeat, calm, cinematic, corporate or lo-fi).
+  - Re-uploading the same file is ignored.
+- Admins can play, re-tag or remove tracks, and see how many tracks each mood has (aim for at least 3 per mood).
+- The library lives in `<STORAGE_LOCAL_DIR>/music` by default (`/data/storage/music` in Docker, on the storage volume). The render picks a track for the project's mood ("Match the style" follows the editing style), lowers it under speech and fades it out. This uses the existing music engine.
+- API: `GET/POST /api/admin/music`, `PATCH/DELETE /api/admin/music/:file`, `GET /api/admin/music/:file/audio`. All are admin-only and audited.

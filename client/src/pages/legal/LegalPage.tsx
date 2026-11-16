@@ -66,7 +66,7 @@ const DOCS: Record<string, { title: string; sections: [string, string][] }> = {
     sections: [
       ['Animated emoji', 'Animated emoji in Motion Explainer videos are Noto Animated Emoji by Google, licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/. They are used as provided, resized and placed in your video.'],
       ['Animated icons', 'Animated line icons come from useAnimations (https://useanimations.com), © 2018–2026 useAnimations, MIT licence. Colours are changed to match your video’s theme.'],
-      ['Stock footage', 'Stock clips are provided by Pixabay under the Pixabay Content License. Each video lists the clips and authors it used.'],
+      ['Stock footage and music', 'Stock clips and background music come from Pixabay under the Pixabay Content License. Each video lists the clips and authors it used, and the music track it used.'],
       ['Video engine', 'Animations are rendered with Remotion (https://remotion.dev) and edited with FFmpeg (https://ffmpeg.org).'],
     ],
   },

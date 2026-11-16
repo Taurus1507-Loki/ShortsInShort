@@ -66,7 +66,7 @@ function pendingFeatureWarnings(
     else if (captions.error) w.push(`Captions were not added: ${captions.error}`);
     else w.push('Captions were not added: no speech was detected.');
   }
-  if (settings.musicMood && settings.musicMood !== 'none' && !captions.musicAdded) w.push('Background music was not added: no licensed music library is configured yet.');
+  if (settings.musicMood && settings.musicMood !== 'none' && !captions.musicAdded) w.push('Background music was not added: no licensed music library has been set up yet (an admin adds Pixabay tracks in Admin → Music library).');
   return w;
 }
 

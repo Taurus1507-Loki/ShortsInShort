@@ -96,6 +96,35 @@ export async function api<T>(path: string, opts: Options = {}, retried = false):
 export const errorMessage = (e: unknown) =>
   e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.';
 
+/** Sends a file as the raw request body (admin music uploads), with the same auth/refresh as api(). */
+export async function uploadRaw<T>(path: string, file: Blob): Promise<T> {
+  const send = () =>
+    fetch(`/api${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+      body: file,
+      credentials: 'same-origin',
+    });
+  let res = await send();
+  if (res.status === 401 && (await refreshSession())) res = await send();
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = json?.error ?? {};
+    throw new ApiError(res.status, err.code ?? 'ERROR', err.message ?? 'Upload failed.', err.details);
+  }
+  return json as T;
+}
+
+/** Fetches an authenticated media file and returns a blob: URL for an <audio>/<video> element. */
+export async function blobUrl(path: string): Promise<string> {
+  let res = await fetch(`/api${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'same-origin' });
+  if (res.status === 401 && (await refreshSession())) {
+    res = await fetch(`/api${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'same-origin' });
+  }
+  if (!res.ok) throw new ApiError(res.status, 'FETCH_FAILED', 'The file could not be loaded.');
+  return URL.createObjectURL(await res.blob());
+}
+
 /** Authenticated file download (e.g. invoice PDFs): fetches with the in-memory token and saves it. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   let res = await fetch(`/api${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'same-origin' });

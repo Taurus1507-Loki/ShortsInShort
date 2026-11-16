@@ -224,7 +224,9 @@ export const env = {
     elevenlabs: e.ELEVENLABS_API_KEY ? { apiKey: e.ELEVENLABS_API_KEY, model: e.ELEVENLABS_MODEL, indicModel: e.ELEVENLABS_MODEL_INDIC } : null,
   },
   music: {
-    libraryDir: e.MUSIC_LIBRARY_DIR ? path.resolve(e.MUSIC_LIBRARY_DIR) : null,
+    // Defaults to <storage>/music, so tracks added from the admin Music library survive restarts and
+    // live on the same volume as uploads (Docker: /data/storage/music).
+    libraryDir: path.resolve(e.MUSIC_LIBRARY_DIR ?? path.join(e.STORAGE_LOCAL_DIR, 'music')),
   },
   payments: {
     razorpay: e.RAZORPAY_KEY_ID && e.RAZORPAY_KEY_SECRET ? { keyId: e.RAZORPAY_KEY_ID, keySecret: e.RAZORPAY_KEY_SECRET, webhookSecret: e.RAZORPAY_WEBHOOK_SECRET ?? null } : null,
