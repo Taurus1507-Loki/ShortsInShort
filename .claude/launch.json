@@ -24,22 +24,25 @@
       "port": 5173
     },
     {
-      "name": "prod-like",
+      "name": "prod-local",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "--prefix",
         "server",
         "run",
-        "dev"
+        "start"
       ],
       "port": 5056,
+      "autoPort": false,
       "env": {
+        "NODE_ENV": "production",
         "PORT": "5056",
+        "APP_URL": "http://localhost:5056",
         "CLIENT_DIST_DIR": "../client/dist",
-        "WORKER_MODE": "off",
-        "APP_URL": "http://localhost:5056"
-      },
-      "autoPort": false
+        "WORKER_MODE": "embedded",
+        "APP_VERSION": "local-84ac667",
+        "MOTION_BUNDLE_DIR": "C:/Users/nalam/AppData/Local/Temp/claude/744698077875587b/852a9309-37f8-4798-abfa-b6d7a17d6ab5/scratchpad/motion-bundle"
+      }
     }
   ]
 }

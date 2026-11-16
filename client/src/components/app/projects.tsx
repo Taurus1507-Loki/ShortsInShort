@@ -167,11 +167,11 @@ const INTENSITY: { id: Intensity; label: string }[] = [
   { id: 'high', label: 'High' },
 ];
 
-const BROLL: { id: ProjectSettings['bRollIntensity']; label: string }[] = [
-  { id: 'none', label: 'Off' },
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
+const BROLL: { id: ProjectSettings['bRollIntensity']; label: string; sub: string }[] = [
+  { id: 'none', label: 'Off', sub: 'Only your footage' },
+  { id: 'low', label: 'Low', sub: 'A few cutaways' },
+  { id: 'medium', label: 'Medium', sub: '≈ 40% stock' },
+  { id: 'high', label: 'High', sub: '≈ 70% stock' },
 ];
 
 const ZOOMS: { id: ProjectSettings['zoomIntensity']; label: string; sub: string }[] = [
@@ -297,7 +297,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
             status={brollLive ? 'applied' : 'soon'}
             help={
               brollLive
-                ? 'Short licensed stock clips (from Pixabay) that cut in over your video to illustrate what you say — AI picks the moments, never during your opening line. Your voice keeps playing. Low ≈ one clip per 20 s, Medium ≈ 12 s, High ≈ 7 s. Off = none.'
+                ? 'Short licensed stock clips (from Pixabay) that cut in over your video to illustrate what you say — AI picks the moments, never during your opening line. Your voice keeps playing. Low ≈ a 3 s clip every 15 s; Medium ≈ a 4 s clip every 8 s (about 40% of the video); High ≈ a 4–6 s clip every 5 s (about 70%). Off = none. Clips are only used when a matching one exists. Want the whole video made of stock footage over a voiceover? Use Faceless Videos instead.'
                 : 'Short stock clips that cut in to illustrate what you say. Saved now; needs stock-media and AI keys on the server.'
             }
           >

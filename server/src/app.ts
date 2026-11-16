@@ -20,6 +20,7 @@ import { consentRouter, voicesRouter } from './modules/voices/voices.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
 import { billingRouter, razorpayWebhook } from './modules/billing/billing.routes.js';
 import { adminRouter } from './modules/admin/admin.routes.js';
+import { templatesRouter } from './modules/templates/templates.routes.js';
 import { webhookLimiter } from './middleware/security.js';
 import { spaRouter, storageOrigins } from './services/web/spa.js';
 
@@ -87,6 +88,7 @@ export function createApp() {
   app.use('/api/ai', aiRouter);
   app.use('/api/billing', billingRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/templates', templatesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -17,6 +17,8 @@ const userSchema = new Schema(
     avatarUrl: { type: String, default: null, maxlength: 2048 },
     defaultWorkspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
     lastLoginAt: { type: Date, default: null },
+    /** Template ids the user starred in the Templates gallery. */
+    favoriteTemplates: { type: [String], default: [] },
     passwordChangedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
   },

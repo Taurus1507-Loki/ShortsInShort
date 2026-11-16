@@ -190,3 +190,12 @@ Every mutation needs a `reason` (3–300 chars) and is written to the audit log 
 | GET | `/audit?action&userId` · `/webhooks` · `/storage` | Audit log (action prefix filter), webhook events, storage by workspace |
 
 Admins can't act on themselves; only a super admin can act on admins. Bootstrap the first super admin with `npm --prefix server run seed:admin -- <email> super_admin`.
+
+## Templates — `/templates` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/` | All templates: `{id, name, category, description, mode, aspectRatio, style, settings, title, topic, script, bestFor, motionScenes?, preview: motion\|stock\|none, favorite}` |
+| PUT · DELETE | `/:id/favorite` | Star / unstar for the current user (idempotent; 404 for an unknown template) |
+| GET | `/:id/preview` | `{thumbnails: string[]}` — up to 3 https stock thumbnails for the template's sample search (cached 6 h; empty without a stock provider) |
+

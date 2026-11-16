@@ -126,7 +126,22 @@ describe('B-roll planning', () => {
       { start: 9, end: 12, text: 'Then go running.' },
     ];
     const out = await planBroll(fakeLLM({ moments: [{ sentence: 0, queries: ['hook'] }, { sentence: 1, queries: ['coffee cup', 'morning coffee'] }, { sentence: 9, queries: ['bad'] }] }), sentences, { intensity: 'high', durationSec: 14, language: 'en' });
-    expect(out).toEqual([{ start: 3.65, end: 7.15, query: 'coffee cup', alternatives: ['morning coffee'] }]);
+    // High: runs past the 8 s sentence end towards the preferred 4.5 s length.
+    expect(out).toEqual([{ start: 3.65, end: 8.15, query: 'coffee cup', alternatives: ['morning coffee'] }]);
+  });
+
+  it('paces B-roll by intensity: more and longer clips at higher settings', async () => {
+    const sentences = Array.from({ length: 20 }, (_, i) => ({ start: i * 3, end: i * 3 + 2.5, text: `Sentence ${i}.` }));
+    const llm = fakeLLM({ moments: sentences.slice(1).map((_, i) => ({ sentence: i + 1, queries: ['city street'] })) });
+    const plan = (intensity: 'low' | 'medium' | 'high') => planBroll(llm, sentences, { intensity, durationSec: 60, language: 'en' });
+    const cover = (m: Array<{ start: number; end: number }>) => m.reduce((t, x) => t + (x.end - x.start), 0);
+    const [low, medium, high] = await Promise.all([plan('low'), plan('medium'), plan('high')]);
+    expect(low.length).toBeLessThan(medium.length);
+    expect(medium.length).toBeLessThan(high.length);
+    expect(cover(medium)).toBeGreaterThan(20); // ≥ a third of the minute
+    expect(cover(high)).toBeGreaterThan(35);
+    expect(Math.max(...high.map((m) => m.end - m.start))).toBeLessThanOrEqual(6);
+    for (const list of [low, medium, high]) for (let i = 1; i < list.length; i++) expect(list[i]!.start).toBeGreaterThanOrEqual(list[i - 1]!.end);
   });
 });
 

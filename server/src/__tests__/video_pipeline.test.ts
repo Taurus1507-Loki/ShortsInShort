@@ -532,7 +532,7 @@ describe('AI keywords, translation and B-roll (stand-in providers)', () => {
     expect(p.renderStats.broll[0]).toMatchObject({ query: 'coffee cup', provider: 'fake-stock', author: 'tester' });
     const { start, end } = p.renderStats.broll[0];
     expect(start).toBeCloseTo(3.65, 1);
-    expect(end).toBeCloseTo(7.15, 1);
+    expect(end).toBeCloseTo(8.15, 1); // High: runs on past the sentence towards a 4.5 s cutaway
     expect(p.renderStats.warnings.join(' ')).not.toMatch(/B-roll was not added/);
     expect(llmCalls.sort()).toEqual(['keywords', 'moments']);
 

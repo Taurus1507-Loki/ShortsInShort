@@ -133,3 +133,28 @@ Pricing note: these are single-render wall-clock times on a laptop; production c
 size and concurrency. Use `metrics:render` on real traffic before finalising prices. Current prices stay:
 stock faceless 1 credit / 30 s, Motion Explainer 2 credits / 30 s, editor 1 credit / minute.
 
+## 4.5 Templates gallery (added 2026-11-16)
+
+The original Phase 4 scope included a Templates page. It was left as a "Soon" placeholder when Phase 4 was marked complete, and was built later:
+
+- **Catalogue** (`server/src/config/templates.ts`): 13 templates across marketing, social, education, business and lifestyle.
+  - Product promo, AI tool explainer, Top 5 tips, Daily news recap, Podcast clip, Viral talking head, How-to tutorial, Property showcase, Motivational quote, Startup pitch, Team announcement, Recipe in 60 seconds, Hindi explainer.
+  - Each sets the mode, editing style, frame, settings, a title, a topic and a script outline (editor templates give recording tips instead).
+  - Tests check every template against the real project-creation schema, and every sample animation against the Motion scene schemas.
+- **API:** `GET /api/templates` (with the user's favourites), `PUT/DELETE /api/templates/:id/favorite`, `GET /api/templates/:id/preview`.
+  - The preview returns Pixabay thumbnails for the template's sample search, cached for 6 h. Video files are never hotlinked.
+- **Gallery** (`/app/templates`): search, category chips, Favourites filter and star toggles.
+  - Cards preview real stock thumbnails or stills of the template's animated scenes. The preview dialog plays the animation live (Remotion Player) and shows the settings and script outline.
+- **Use template** opens `/app/new?mode=…&template=…`. The wizard pre-fills the title, topic, script, style, frame and settings, applied after the Brand Kit defaults so the template's own choices win. Everything stays editable.
+
+## B-roll pacing (changed 2026-11-16)
+AI Video Editor B-roll now adds more and longer stock cutaways:
+
+| Setting | Spacing | Clip length | Gap |
+|---|---|---|---|
+| Low | 1 per 15 s | ~2.5–3.5 s | 3 s |
+| Medium | 1 per 8 s | ~4–5 s (≈40% of the video) | 2 s |
+| High | 1 per 5 s | ~4.5–6 s (≈70%) | 1 s |
+
+Previously it was one clip per 20/12/7 s, at most 3.5 s each. A cutaway may now continue over the next sentence.
+

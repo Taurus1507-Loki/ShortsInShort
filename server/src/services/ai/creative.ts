@@ -131,16 +131,25 @@ export function toSentences(words: Word[], maxWords = 16): Sentence[] {
   return out;
 }
 
-/** Seconds of video per B-roll clip, by intensity. */
-export const BROLL_SPACING: Record<'low' | 'medium' | 'high', number> = { low: 20, medium: 12, high: 7 };
+/**
+ * B-roll pacing by intensity: one clip per `spacing` seconds of video, each running about
+ * `preferredLen` s (it may continue over the next sentence) and at most `maxLen` s, `minGap` s apart.
+ * Medium covers roughly 40% of a talking-head video with stock footage, High roughly 70%.
+ */
+export const BROLL_PROFILE: Record<'low' | 'medium' | 'high', { spacing: number; preferredLen: number; maxLen: number; minGap: number }> = {
+  low: { spacing: 15, preferredLen: 2.5, maxLen: 3.5, minGap: 3 },
+  medium: { spacing: 8, preferredLen: 4, maxLen: 5, minGap: 2 },
+  high: { spacing: 5, preferredLen: 4.5, maxLen: 6, minGap: 1 },
+};
 
 /**
  * Enforces editing rules on proposed moments: never in the opening hook or the final second,
- * 1.5–3.5 s long, at least `minGap` apart, capped in number.
+ * `minLen`–`maxLen` s long (stretched towards `preferredLen` past a short sentence), at least
+ * `minGap` apart, capped in number.
  */
 export function scheduleBroll(
   candidates: BrollMoment[],
-  opts: { durationSec: number; maxCount: number; minGap?: number; avoidStart?: number; avoidEnd?: number; minLen?: number; maxLen?: number },
+  opts: { durationSec: number; maxCount: number; minGap?: number; avoidStart?: number; avoidEnd?: number; minLen?: number; maxLen?: number; preferredLen?: number },
 ): BrollMoment[] {
   const minGap = opts.minGap ?? 2.5;
   const avoidStart = opts.avoidStart ?? 2;
@@ -150,7 +159,7 @@ export function scheduleBroll(
   const out: BrollMoment[] = [];
   for (const c of [...candidates].sort((a, b) => a.start - b.start)) {
     const start = Math.max(c.start, avoidStart);
-    const end = Math.min(c.end, start + maxLen, opts.durationSec - avoidEnd);
+    const end = Math.min(Math.max(c.end, start + (opts.preferredLen ?? 0)), start + maxLen, opts.durationSec - avoidEnd);
     if (end - start < minLen || !c.query.trim()) continue;
     const last = out[out.length - 1];
     if (last && start < last.end + minGap) continue;
@@ -167,11 +176,12 @@ export async function planBroll(
   opts: { intensity: 'low' | 'medium' | 'high'; durationSec: number; language: string },
   signal?: AbortSignal,
 ): Promise<BrollMoment[]> {
-  const maxCount = Math.max(1, Math.floor(opts.durationSec / BROLL_SPACING[opts.intensity]));
+  const profile = BROLL_PROFILE[opts.intensity];
+  const maxCount = Math.max(1, Math.floor(opts.durationSec / profile.spacing));
   if (sentences.length < 2) return [];
   const prompt = [
     'You are a professional short-form video editor choosing B-roll cutaways (stock footage shown over the speaker while they keep talking).',
-    `The video is ${opts.durationSec.toFixed(0)} seconds long, spoken in ${languageName(opts.language)}. Choose up to ${maxCount} sentences where a visual would make the point clearer or more engaging.`,
+    `The video is ${opts.durationSec.toFixed(0)} seconds long, spoken in ${languageName(opts.language)}. Choose up to ${maxCount} sentences where a visual would make the point clearer or more engaging${opts.intensity === 'high' ? ' — this edit should be visually rich, so use most of them' : ''}.`,
     'Rules: never choose sentence 0 (the hook — keep the speaker on screen); prefer concrete, visual ideas; spread choices across the video.',
     'For each choice give 3 ENGLISH stock-footage search queries of 1–3 words, from most specific to most common (e.g. ["graph trending upward", "growth chart", "stock market screen"]). Prefer visuals that commonly exist in free stock libraries; put the main subject LAST in each query. No people\'s names, brands, logos or text.',
     'Sentences (index: text):',
@@ -199,7 +209,7 @@ export async function planBroll(
       // Start just after the sentence begins so the cut lands on speech, not before it.
       return { start: s.start + 0.15, end: s.end, query: query!, alternatives };
     });
-  return scheduleBroll(candidates, { durationSec: opts.durationSec, maxCount });
+  return scheduleBroll(candidates, { durationSec: opts.durationSec, maxCount, minGap: profile.minGap, maxLen: profile.maxLen, preferredLen: profile.preferredLen });
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;

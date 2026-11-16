@@ -18,6 +18,7 @@ import { api, ApiError, errorMessage } from '@/lib/api';
 import { queryClient, useBrandKit, useMeta, useVoices } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import type { Asset, Project, ProjectMode, ProjectSettings } from '@/types/api';
+import { useTemplates } from '@/features/templates';
 
 const STEPS = ['Choose mode', 'Content', 'Customize', 'Review & generate', 'Preview & export'];
 /** Step 5 (preview/export) happens on the project page once rendering finishes. */
@@ -50,7 +51,7 @@ function NewProjectWizard() {
   const [titleError, setTitleError] = useState<string>();
   const [custom, setCustom] = useState<CustomizeValue>({ style: 'viral', aspectRatio: '9:16', settings: DEFAULT_SETTINGS });
   // Apply Brand Kit caption defaults once, when the kit says so (the user can still change them).
-  const { data: brandKit } = useBrandKit();
+  const { data: brandKit, isError: brandKitFailed } = useBrandKit();
   const voicedMode = mode === 'avatar' || mode === 'faceless';
   const { data: voices } = useVoices(voicedMode && Boolean(meta?.features.voices));
   const [brandApplied, setBrandApplied] = useState(false);
@@ -63,6 +64,21 @@ function NewProjectWizard() {
       settings: { ...c.settings, captionStyle: brandKit.captionStyle, captionPosition: brandKit.captionPosition, captionSize: brandKit.captionSize, highlightColor: brandKit.highlightColor },
     }));
   }, [brandKit, brandApplied]);
+
+  // Starting from a template (/app/new?mode=…&template=…): pre-fill once, after the Brand Kit
+  // defaults so the template's own caption choices win. Everything stays editable.
+  const templateId = params.get('template');
+  const { data: templates } = useTemplates(Boolean(templateId));
+  const template = templates?.find((t) => t.id === templateId && t.mode === mode) ?? null;
+  const [templateApplied, setTemplateApplied] = useState(false);
+  useEffect(() => {
+    if (templateApplied || !template || !(brandApplied || brandKitFailed)) return;
+    setTemplateApplied(true);
+    setTitle((v) => v || template.title);
+    if (template.mode !== 'editor') setScript((v) => v || template.script);
+    if (template.mode === 'faceless') setTopic((v) => v || template.topic);
+    setCustom((c) => ({ style: template.style, aspectRatio: template.aspectRatio, settings: { ...c.settings, ...template.settings } }));
+  }, [template, templateApplied, brandApplied, brandKitFailed]);
 
   // Default the export resolution to what the plan allows (Free = 720p) so generation isn't blocked.
   const [resTouched, setResTouched] = useState(false);
@@ -160,6 +176,11 @@ function NewProjectWizard() {
         {step === 1 && modeInfo && (
           <div className="grid gap-6">
             <h2 className="text-lg font-bold">{modeInfo.name}: content</h2>
+            {template && (
+              <Notice tone="info" title={`Using the “${template.name}” template`}>
+                {template.mode === 'editor' ? template.script : 'The title, script outline and settings are filled in from the template — change anything you like.'}
+              </Notice>
+            )}
             <Field id="title" label="Project title" error={titleError}>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="e.g. 3 habits that doubled my reach" autoFocus />
             </Field>
@@ -259,6 +280,8 @@ function NewProjectWizard() {
                 ? [
                     ['Mode', modeName(mode)],
                     ['Title', title],
+                    ['Format', effectiveCustom.aspectRatio],
+                    ...(mode === 'faceless' ? [['Visuals', effectiveCustom.settings.facelessStyle === 'motion' ? 'Animated scenes (Motion Explainer)' : 'Stock footage']] : []),
                     ['Spoken language', LANGUAGES.find((l) => l.id === effectiveCustom.settings.language)?.name],
                     ['Voice', voices?.find((v) => v.id === effectiveCustom.settings.voiceId)?.name ?? (effectiveCustom.settings.voiceId ? 'Selected' : 'Not chosen yet')],
                     ['Speaking speed', `${effectiveCustom.settings.speakingRate}×`],
@@ -284,7 +307,9 @@ function NewProjectWizard() {
             </dl>
             {mode === 'faceless' ? (
               <Notice tone="info" title="What happens next">
-                After creating the project: generate the voiceover (1 credit per started 400 characters), let AI plan the scenes with licensed stock clips (free), swap any clip you don’t like, then make the video (1 credit per started 30 s).
+                {effectiveCustom.settings.facelessStyle === 'motion'
+                  ? 'After creating the project: generate the voiceover (1 credit per started 400 characters), let AI turn each scene into an animation (free), edit any scene in the live preview, then make the video (2 credits per started 30 s).'
+                  : 'After creating the project: generate the voiceover (1 credit per started 400 characters), let AI plan the scenes with licensed stock clips (free), swap any clip you don’t like, then make the video (1 credit per started 30 s).'}
               </Notice>
             ) : mode === 'avatar' ? (
               <Notice tone="info" title="What you can make today">

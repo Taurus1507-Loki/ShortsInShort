@@ -29,17 +29,11 @@ const BrandKitPage = lazy(() => import('@/pages/app/BrandKitPage'));
 const VoicesPage = lazy(() => import('@/pages/app/VoicesPage'));
 const BillingPage = lazy(() => import('@/pages/app/BillingPage'));
 const AdminPage = lazy(() => import('@/pages/app/AdminPage'));
+const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
 const ConsentPage = lazy(() => import('@/pages/consent/ConsentPage'));
 
-const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [
-  {
-    path: 'templates',
-    title: 'Templates',
-    phase: 4,
-    description: 'Browse, preview and favourite proven video templates for every niche.',
-    bullets: ['Search & category filters', 'Video previews', 'Favourites', 'One-click “Use template”'],
-  },
-];
+/** Pages announced in the navigation before they are built (none right now). */
+const SOON: { path: string; title: string; phase: number; description: string; bullets: string[] }[] = [];
 
 function PageLoader() {
   return (
@@ -88,6 +82,7 @@ export default function App() {
               <Route path="voices" element={<VoicesPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="admin" element={<AdminPage />} />
+              <Route path="templates" element={<TemplatesPage />} />
               <Route path="help" element={<HelpPage />} />
               {SOON.map(({ path, ...props }) => (
                 <Route key={path} path={path} element={<ComingSoonPage {...props} />} />
