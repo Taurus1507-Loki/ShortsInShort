@@ -73,6 +73,7 @@ export default function App() {
               <Route path="new" element={<NewProjectPage />} />
               <Route path="projects" element={<ProjectsPage />} />
               <Route path="projects/:id" element={<ProjectDetailPage />} />
+              <Route path="projects/:id/:step" element={<ProjectDetailPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="media" element={<MediaLibraryPage />} />
               <Route path="brand-kit" element={<BrandKitPage />} />

@@ -166,7 +166,7 @@ describe('faceless video flow', () => {
     expect(await CreditTransaction.countDocuments({ workspaceId: user.defaultWorkspaceId, type: 'consume' })).toBe(1); // only the voiceover
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ credits: 1, narrationOutdated: false, sceneCount: planned.scenes.length });
+    expect(est).toMatchObject({ credits: 3, narrationOutdated: false, sceneCount: planned.scenes.length });
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
     const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;

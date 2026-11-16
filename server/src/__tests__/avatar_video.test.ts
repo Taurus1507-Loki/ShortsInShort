@@ -130,12 +130,12 @@ describe('AI script writing API', () => {
 });
 
 describe('voiceover video render', () => {
-  it('renders background + voiceover + timed captions + watermark + AI label, charging per minute', async () => {
+  it('renders background + voiceover + timed captions + watermark + AI label, charging per 30 s', async () => {
     const { auth, user: u } = await user();
     const p = await voiced(auth);
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ credits: 1, resolution: '720p', resolutionAllowed: true, narrationOutdated: false });
+    expect(est).toMatchObject({ credits: 3, resolution: '720p', resolutionAllowed: true, narrationOutdated: false });
     expect(est.sourceDurationSec).toBeGreaterThan(1.5);
 
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
@@ -148,7 +148,7 @@ describe('voiceover video render', () => {
     // The video is as long as the voiceover (no pause cutting).
     expect(Math.abs(done.outputAsset.durationSec - done.narrationAsset.durationSec)).toBeLessThan(0.3);
     const ws = await Workspace.findById(u.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(20 - 1 - 1); // voiceover + render
+    expect(ws!.creditBalance).toBe(20 - 2 - 3); // voiceover + render
   }, 120_000);
 
   it('uses an uploaded background image and can switch the AI label off for library voices', async () => {

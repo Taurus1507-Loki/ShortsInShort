@@ -85,10 +85,10 @@ describe('tts helpers', () => {
   });
 
   it('prices voiceovers per started 400 characters', () => {
-    expect(narrationCreditCost(1)).toBe(1);
-    expect(narrationCreditCost(400)).toBe(1);
-    expect(narrationCreditCost(401)).toBe(2);
-    expect(narrationCreditCost(5000)).toBe(13);
+    expect(narrationCreditCost(1)).toBe(2);
+    expect(narrationCreditCost(400)).toBe(2);
+    expect(narrationCreditCost(401)).toBe(4);
+    expect(narrationCreditCost(5000)).toBe(26);
   });
 });
 
@@ -117,10 +117,10 @@ describe('voiceover generation', () => {
     const project = await avatarProject(auth);
 
     const est = await request(app).get(`/api/projects/${project.id}/narration/estimate`).set(auth).expect(200);
-    expect(est.body.data).toMatchObject({ credits: 1, balance: 10, characters: 41 });
+    expect(est.body.data).toMatchObject({ credits: 2, balance: 10, characters: 41 });
 
     const gen = await request(app).post(`/api/projects/${project.id}/narrate`).set(auth).expect(202);
-    expect(gen.body.data.credits).toBe(1);
+    expect(gen.body.data.credits).toBe(2);
     await drain();
 
     const res = await request(app).get(`/api/projects/${project.id}`).set(auth).expect(200);
@@ -128,7 +128,7 @@ describe('voiceover generation', () => {
     expect(p.status).toBe('completed');
     expect(p.narrationAsset).toMatchObject({ kind: 'narration_audio', mimeType: 'audio/mpeg', status: 'ready' });
     expect(p.narrationAsset.durationSec as number).toBeGreaterThan(1.4);
-    expect(p.narrationStats).toMatchObject({ voiceId: 'voiceA1', voiceName: 'Asha', chunks: 1, wordCount: 8, timingsAvailable: true, creditsCharged: 1, provider: 'fake-tts' });
+    expect(p.narrationStats).toMatchObject({ voiceId: 'voiceA1', voiceName: 'Asha', chunks: 1, wordCount: 8, timingsAvailable: true, creditsCharged: 2, provider: 'fake-tts' });
     expect(p.narrationWords).toBeUndefined(); // timings stay server-side
 
     const stored = await Project.findById(project.id).select('+narrationWords');
@@ -136,7 +136,7 @@ describe('voiceover generation', () => {
     expect(fake.calls[0]!.opts).toMatchObject({ voiceId: 'voiceA1', language: 'en', speed: 1 });
 
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(9);
+    expect(ws!.creditBalance).toBe(8);
     // The audio is playable through a signed URL.
     const url = await request(app).get(`/api/assets/${p.narrationAsset.id}/url`).set(auth).expect(200);
     expect(url.body.data.url).toContain('/api/storage/');

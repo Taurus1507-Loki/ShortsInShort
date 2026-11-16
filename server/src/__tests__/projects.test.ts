@@ -99,7 +99,7 @@ describe('dashboard', () => {
     const res = await request(app).get('/api/dashboard/summary').set(auth).expect(200);
     expect(res.body.data).toMatchObject({
       plan: { id: 'free' },
-      credits: { balance: 3, usedThisMonth: 0 },
+      credits: { balance: 30, usedThisMonth: 0 },
       projects: { total: 1, byStatus: { draft: 1, completed: 0 } },
     });
     expect(res.body.data.recentProjects).toHaveLength(1);

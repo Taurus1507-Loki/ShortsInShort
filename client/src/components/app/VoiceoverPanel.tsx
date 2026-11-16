@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Select } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Field, Notice } from '../ui/primitives';
 import { VoicePicker } from './VoicePicker';
+import { StopButton } from './ProjectActions';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useJob, useMeta, useNarrationEstimate } from '@/lib/queries';
 import { formatDuration } from '@/lib/upload';
@@ -84,7 +85,8 @@ export function VoiceoverPanel({
   const stats = project.narrationStats;
   const tooLong = scriptLength > 5000;
   // Cost for the current text (estimated locally while unsaved; the server quote is authoritative).
-  const credits = !dirty && estimate.data ? estimate.data.credits : Math.max(1, Math.ceil(scriptLength / 400));
+  const perBlock = meta?.pricing.find((x) => x.step === 'voice')?.credits ?? 2;
+  const credits = !dirty && estimate.data ? estimate.data.credits : Math.max(1, Math.ceil(scriptLength / 400)) * perBlock;
   const balance = estimate.data?.balance;
   const blocker = !live
     ? 'AI voices aren’t configured.'
@@ -104,7 +106,7 @@ export function VoiceoverPanel({
           <Mic className="h-5 w-5 text-primary" /> AI voiceover
         </CardTitle>
         <CardDescription className="mt-1.5">
-          Turns your script into natural speech with word-level timing, which the video below uses for perfectly timed captions. The talking presenter itself needs an avatar provider — coming in step 3.4.
+          Turns your script into natural speech with word-level timing, which the video uses for perfectly timed captions. Listen to it here before you move on.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">
@@ -112,7 +114,8 @@ export function VoiceoverPanel({
           <div className="grid gap-2 rounded-lg border border-border p-4" aria-live="polite">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              {STAGES[job.data?.stage ?? 'queued'] ?? 'Working'}…
+              <span className="flex-1">{STAGES[job.data?.stage ?? 'queued'] ?? 'Working'}…</span>
+              <StopButton project={project} />
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-primary transition-all" style={{ width: `${job.data?.progress ?? 2}%` }} />
@@ -193,7 +196,7 @@ export function VoiceoverPanel({
             <Coins className="h-4 w-4" />
             {scriptLength > 0 ? (
               <span>
-                Costs <strong className="text-foreground">{credits} credit{credits === 1 ? '' : 's'}</strong> (1 per started 400 characters)
+                Costs <strong className="text-foreground">{credits} credit{credits === 1 ? '' : 's'}</strong> ({perBlock} per ~30 s of speech, 400 characters). Generating again charges again; the script and scenes are kept.
                 {balance !== undefined ? ` · you have ${balance}` : ''}
               </span>
             ) : (

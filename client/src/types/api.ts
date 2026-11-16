@@ -36,9 +36,13 @@ export interface Plan {
   highlights: string[];
 }
 
+export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'editor' | 'editor_rerender';
+
 export interface Meta {
   currency: 'INR';
   plans: Plan[];
+  /** Credits per step, charged when the step runs. */
+  pricing: { step: PriceStep; label: string; credits: number; unit: string }[];
   auth: { google: boolean; emailVerificationRequired: boolean };
   emailDelivery: 'smtp' | 'dev-log';
   features: Record<'videoRendering' | 'transcription' | 'captions' | 'broll' | 'aiKeywords' | 'translation' | 'zooms' | 'brandKit' | 'music' | 'voices' | 'scriptWriting' | 'stockBroll' | 'stockFootage' | 'motionExplainer' | 'avatarStudio' | 'facelessCreator' | 'payments', boolean>;
@@ -87,6 +91,8 @@ export interface Estimate {
   presenterCredits?: number;
   presenterReused?: boolean;
   sceneCount?: number;
+  /** AI Video Editor: the source is already transcribed, so this render is priced as a re-render. */
+  rerender?: boolean;
 }
 
 export interface RenderStats {

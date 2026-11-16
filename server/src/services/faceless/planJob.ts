@@ -1,5 +1,5 @@
 import { logger } from '../../config/logger.js';
-import { Project } from '../../models/Project.js';
+import { Project, ownedBy } from '../../models/Project.js';
 import type { JobDoc } from '../../models/Job.js';
 import { PermanentJobError } from '../queue/queue.js';
 import { registerHandler, type JobContext } from '../queue/worker.js';
@@ -29,7 +29,7 @@ async function run({ job, signal, progress }: JobContext) {
 
   // Motion Explainer: AI picks a template and on-screen text per scene (no stock footage needed).
   if (project.settings?.facelessStyle === 'motion') {
-    await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
+    await Project.updateOne(ownedBy(project._id, job._id), { $set: { status: 'processing', lastError: null } });
     await progress(15, 'designing_scenes');
     const llmM = getLLMProvider();
     let motion = drafts.map((d, i) => fallbackMotionScene(d.text, i));
@@ -44,13 +44,13 @@ async function run({ job, signal, progress }: JobContext) {
       }
     }
     const scenesM = drafts.map((d, i) => ({ text: d.text, queries: [], clip: null, candidates: [], motion: motion[i] }));
-    await Project.updateOne({ _id: project._id }, { $set: { scenes: scenesM, scenesKey: scenesKey(script), scenesPlannedWith: plannedWithM, status: nextStatus, lastError: null } });
+    await Project.updateOne(ownedBy(project._id, job._id), { $set: { scenes: scenesM, scenesKey: scenesKey(script), scenesPlannedWith: plannedWithM, status: nextStatus, lastError: null } });
     return { scenes: scenesM.length, style: 'motion' };
   }
 
   const stock = getStockProvider();
   if (!stock) throw new PermanentJobError('Stock footage search is not configured on this server.');
-  await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
+  await Project.updateOne(ownedBy(project._id, job._id), { $set: { status: 'processing', lastError: null } });
 
   await progress(10, 'planning_scenes');
   const llm = getLLMProvider();
@@ -83,7 +83,7 @@ async function run({ job, signal, progress }: JobContext) {
   }
 
   await Project.updateOne(
-    { _id: project._id },
+    ownedBy(project._id, job._id),
     { $set: { scenes, scenesKey: scenesKey(script), scenesPlannedWith: plannedWith, status: previousStatus === 'completed' ? 'completed' : 'draft', lastError: null } },
   );
   return { scenes: scenes.length, withClips: scenes.filter((s) => s.clip).length };

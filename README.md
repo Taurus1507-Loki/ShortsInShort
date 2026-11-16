@@ -18,6 +18,9 @@ strategy, cost estimates, MVP scope and roadmap, and [docs/API.md](docs/API.md) 
 | 6 Admin & security | Admin console (overview metrics + daily charts, user search, credit/plan/suspend/role actions with mandatory reasons, free retry of failed jobs, payments, voice-consent takedown, audit log), abuse limits on job starts, security audit — see [docs/PHASE6.md](docs/PHASE6.md) and [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | ✅ Built |
 | 7 Launch | Docker image (API + worker), production Compose stack (Caddy HTTPS, MongoDB replica set, nightly backups), GitHub Actions CI, one-origin web app with strict CSP, health checks — see [docs/PHASE7.md](docs/PHASE7.md) and [docs/DEPLOY.md](docs/DEPLOY.md) | 🟡 Built; go-live needs hosting, domain and accounts |
 
+**Making a video** is step by step: each step is its own page (`/app/projects/:id/:step`), and credits are charged
+per step at about 2× provider cost. A 30 s faceless video costs about 5 credits. See [docs/PRICING.md](docs/PRICING.md).
+
 **Not production-ready.** Deployment (Phase 7) is not done, and live checks of the keyed providers
 (Sarvam/ElevenLabs, HeyGen, Razorpay) are pending; unfinished areas are marked "Soon" and no feature
 pretends to work. The previous prototype is archived,

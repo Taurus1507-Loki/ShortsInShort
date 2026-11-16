@@ -50,7 +50,8 @@ Password policy: 10–128 chars, letters and numbers.
 | POST | `/` | Requires verified email. Body: `{title, mode: editor|avatar|faceless, aspectRatio?, style?, script?, topic?, settings?}` |
 | GET | `/:id` | 404 for other tenants' projects |
 | PATCH | `/:id` | Any create field except `mode`; `settings` merges. 409 while processing |
-| DELETE | `/:id` | Soft delete |
+| DELETE | `/:id` | Soft delete. If an export, voiceover or scene plan is still running, it is stopped and refunded first |
+| POST | `/:id/stop` | Stops the running or queued job (export, voiceover, scene planning). Refunds its credits once and puts the project back to `draft`, or `completed` if it already has a video. `{project, refundedCredits, stopped}`; 409 `NOTHING_TO_STOP` |
 
 `settings`: `captionsEnabled, captionStyle, captionPosition, highlightColor (#RRGGBB), musicMood,
 bRollIntensity, editingIntensity, language (en|hi|te|ta|mr), targetDurationSec (5–3600),
@@ -87,7 +88,7 @@ Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, 
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/narration/estimate` | `{credits, balance, characters, maxCharacters}` — 1 credit per started 400 characters, max 5,000 |
+| GET | `/narration/estimate` | `{credits, balance, characters, maxCharacters}` — 2 credits per started 400 characters (≈30 s), max 5,000. All prices: [PRICING.md](PRICING.md) |
 | POST | `/narrate` | 202 `{job, credits}`. Uses the saved `script`, `settings.voiceId`, `settings.language`, `settings.speakingRate`. 400 `NO_SCRIPT` / `SCRIPT_TOO_LONG` / `NO_VOICE` / `INVALID_VOICE` / `WRONG_MODE`, 402 `INSUFFICIENT_CREDITS`, 409 `PROJECT_BUSY`, 503 `NOT_CONFIGURED` |
 
 Projects return `narrationAsset` (MP3, kind `narration_audio`) and `narrationStats`

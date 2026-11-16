@@ -22,6 +22,12 @@ export interface JobHandler {
 const handlers = new Map<JobType, JobHandler>();
 export const registerHandler = (type: JobType, h: JobHandler) => handlers.set(type, h);
 
+/** Jobs running in this process, so a cancel can stop them at once instead of on the next heartbeat. */
+const running = new Map<string, AbortController>();
+export function abortLocalJob(jobId: string) {
+  running.get(jobId)?.abort(new Error('Processing was cancelled.'));
+}
+
 export class Worker {
   readonly id = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   private running = 0;
@@ -99,6 +105,7 @@ export class Worker {
     const controller = new AbortController();
     const key = job._id.toString();
     this.active.set(key, controller);
+    running.set(key, controller);
     const log = logger.child({ jobId: key, type: job.type, attempt: job.attempts });
     const timeout = setTimeout(() => controller.abort(new Error('Job timed out')), env.video.jobTimeoutMs);
     // Keep the lease alive even while a long FFmpeg step reports no progress.
@@ -120,12 +127,14 @@ export class Worker {
       log.info('Job completed');
     } catch (err) {
       const outcome = await fail(job, this.id, err);
-      log.warn({ err, outcome }, 'Job failed');
+      if (outcome === 'lost') log.info('Job stopped: cancelled or taken over by another worker');
+      else log.warn({ err, outcome }, 'Job failed');
       if (outcome === 'dead') await this.dead(job, err);
     } finally {
       clearTimeout(timeout);
       clearInterval(beat);
       this.active.delete(key);
+      running.delete(key);
     }
   }
 

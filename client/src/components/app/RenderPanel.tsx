@@ -10,6 +10,18 @@ import { api, ApiError, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useEstimate, useJob, useMeta } from '@/lib/queries';
 import { formatDuration } from '@/lib/upload';
 import type { Project } from '@/types/api';
+import type { StudioStep } from '@/features/studio';
+import { StopButton } from './ProjectActions';
+
+/** A link to another step of the project (or plain text outside the studio). */
+function StepLink({ step, label, onStep }: { step: StudioStep; label: string; onStep?: (s: StudioStep) => void }) {
+  if (!onStep) return <>{label}</>;
+  return (
+    <button type="button" className="font-semibold text-foreground underline" onClick={() => onStep(step)}>
+      {label}
+    </button>
+  );
+}
 
 const STAGES: Record<string, string> = {
   queued: 'Waiting in queue',
@@ -34,7 +46,7 @@ const STAGES: Record<string, string> = {
   retrying: 'Hit a snag — retrying',
 };
 
-export function RenderPanel({ project, autoOpen, dirty }: { project: Project; autoOpen?: boolean; dirty: boolean }) {
+export function RenderPanel({ project, autoOpen, dirty, onStep }: { project: Project; autoOpen?: boolean; dirty: boolean; onStep?: (step: StudioStep) => void }) {
   const busy = project.status === 'queued' || project.status === 'processing';
   const faceless = project.mode === 'faceless';
   const avatar = project.mode === 'avatar' || faceless;
@@ -107,6 +119,7 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
                 </p>
               </div>
               <span className="font-display text-lg font-bold">{job.data?.progress ?? 0}%</span>
+              <StopButton project={project} label="Stop export" />
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-brand-gradient transition-[width] duration-700" style={{ width: `${job.data?.progress ?? 2}%` }} />
@@ -129,9 +142,21 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm">
               {!hasInput ? (
-                <p className="text-muted-foreground">{avatar ? 'Generate the voiceover first — the video is built around it.' : 'Upload a video above to render it.'}</p>
+                <p className="text-muted-foreground">
+                  {avatar ? (
+                    <>
+                      Generate the voiceover on the <StepLink step="voice" label="Voice step" onStep={onStep} /> first — the video is built around it.
+                    </>
+                  ) : (
+                    <>
+                      Upload a video on the <StepLink step="footage" label="Footage step" onStep={onStep} /> to render it.
+                    </>
+                  )}
+                </p>
               ) : faceless && (!project.scenes?.length || project.scenesOutdated) ? (
-                <p className="text-muted-foreground">Plan the scenes above first.</p>
+                <p className="text-muted-foreground">
+                  Plan the scenes on the <StepLink step="scenes" label="Scenes step" onStep={onStep} /> first.
+                </p>
               ) : dirty ? (
                 <p className="text-muted-foreground">Save your changes to see the cost.</p>
               ) : estimate.isLoading ? (
@@ -146,6 +171,8 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
                   <span className="text-muted-foreground">Balance: {e.balance}</span>
                   {Boolean(e.presenterCredits) && <span className="text-muted-foreground">incl. {e.presenterCredits} for the presenter</span>}
                   {e.presenterReused && <span className="text-muted-foreground">presenter reused — no extra charge</span>}
+                  {project.mode === 'editor' && e.rerender && <span className="text-muted-foreground">re-render price — speech is already transcribed</span>}
+                  {avatar && <span className="text-muted-foreground">voiceover already paid for</span>}
                 </p>
               ) : null}
             </div>
@@ -155,20 +182,20 @@ export function RenderPanel({ project, autoOpen, dirty }: { project: Project; au
               disabled={!canQuote || !e || insufficient || !e.resolutionAllowed || dirty || outdated}
               title={dirty ? 'Save your changes first' : undefined}
             >
-              {project.status === 'completed' ? <RotateCcw /> : <Sparkles />}
-              {project.status === 'completed' ? 'Render again' : project.status === 'failed' ? 'Try again' : 'Generate video'}
+              {project.outputAsset ? <RotateCcw /> : <Sparkles />}
+              {project.outputAsset ? 'Export again' : project.status === 'failed' ? 'Try again' : 'Make the video'}
             </Button>
           </div>
         )}
         {!busy && dirty && <p className="text-xs text-muted-foreground">Save your changes before rendering so they’re included.</p>}
         {!busy && outdated && (
           <Notice tone="warning" title="Voiceover is out of date">
-            Your script, voice, language or speed changed since the voiceover was made. Generate the voiceover again first, so the video says what you see.
+            Your script, voice, language or speed changed since the voiceover was made. Generate it again on the <StepLink step="voice" label="Voice step" onStep={onStep} /> first, so the video says what you see.
           </Notice>
         )}
         {e && !e.resolutionAllowed && (
           <Notice tone="warning">
-            Your plan exports up to {e.planMaxResolution}. Change the export resolution in Settings below, or{' '}
+            Your plan exports up to {e.planMaxResolution}. Change the export resolution on the <StepLink step="style" label="Style step" onStep={onStep} />, or{' '}
             <Link to="/app/billing" className="font-semibold underline">
               upgrade
             </Link>

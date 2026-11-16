@@ -237,6 +237,12 @@ projectSchema.index({ workspaceId: 1, deletedAt: 1, status: 1 });
 export type ProjectDoc = HydratedDocument<InferSchemaType<typeof projectSchema>>;
 export const Project = model('Project', projectSchema);
 
+/**
+ * Filter for a job's writes to its project: only while that job is still the project's current job
+ * and the project is still busy. A job the user stopped (or a superseded one) then changes nothing.
+ */
+export const ownedBy = (projectId: Types.ObjectId, jobId: Types.ObjectId) => ({ _id: projectId, lastJobId: jobId, status: { $in: ['queued', 'processing'] } });
+
 const publicClip = (c: { id?: string | null; provider?: string | null; pageUrl?: string | null; author?: string | null; durationSec?: number | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null }) => ({
   id: c.id, provider: c.provider, pageUrl: c.pageUrl, author: c.author, durationSec: c.durationSec, thumbnailUrl: c.thumbnailUrl ?? null, width: c.width, height: c.height,
 });

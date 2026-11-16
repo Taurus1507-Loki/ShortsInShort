@@ -169,7 +169,7 @@ export function Pricing() {
   return (
     <section id="pricing" className="scroll-mt-20 py-24">
       <div className="container">
-        <SectionHeading eyebrow="Pricing" title="Simple plans in INR" subtitle="Start free. Upgrade when you're posting every day. 1 credit ≈ one standard short-form edit." />
+        <SectionHeading eyebrow="Pricing" title="Simple plans in INR" subtitle="Start free. Upgrade when you're posting every day. You pay per step: a 30-second faceless video is about 5 credits." />
         <div className="mt-8 flex justify-center">
           <div className="inline-flex rounded-xl border border-border bg-card/60 p-1" role="group" aria-label="Billing period">
             {[false, true].map((a) => (
@@ -204,7 +204,7 @@ export function Pricing() {
                       <span className="text-sm text-muted-foreground">/mo</span>
                     </p>
                     <p className="mt-1 h-4 text-xs text-muted-foreground">{annual && p.annualPricePaise > 0 ? `${formatInr(p.annualPricePaise)} billed yearly` : ''}</p>
-                    <p className="mt-4 text-sm font-semibold text-highlight">{p.monthlyCredits} credits{p.id === 'free' ? '' : ' / month'}</p>
+                    <p className="mt-4 text-sm font-semibold text-highlight">{p.monthlyCredits.toLocaleString('en-IN')} credits{p.id === 'free' ? '' : ' / month'}</p>
                     <ul className="mt-4 grid flex-1 gap-2.5 text-sm">
                       {p.highlights.map((h) => (
                         <li key={h} className="flex gap-2">
@@ -235,7 +235,7 @@ export function Pricing() {
 /* ── FAQ ────────────────────────────────────────────────────────────── */
 const FAQS = [
   { q: 'Do I need any editing experience?', a: 'No. You upload footage or write a script, choose a style, and the AI produces the edit. You can still fine-tune captions, cuts and music before exporting.' },
-  { q: 'What is a credit?', a: 'Credits pay for processing. A standard short-form edit uses about one credit; avatar videos, long-form videos and 4K exports use more. You’ll always see the cost before you confirm a generation, and failed jobs are refunded automatically.' },
+  { q: 'What is a credit?', a: 'Credits pay for the steps that cost money, charged one step at a time: a voiceover is 2 credits per 30 seconds, and exporting a stock-footage video is 3 credits per 30 seconds (animated videos 5, 4K double). Writing scripts, planning scenes and previews are free. Redoing one step only charges that step, you always see the price first, and failed jobs are refunded automatically.' },
   { q: 'Which platforms and formats are supported?', a: 'Vertical 9:16 for Reels, Shorts and TikTok, 16:9 for YouTube, and 1:1 or 4:5 for Instagram feed, at 720p or 1080p (4K on higher plans where supported).' },
   { q: 'Which languages can I use?', a: 'We are launching with English, Hindi, Telugu, Tamil and Marathi for captions and narration, with more languages to follow.' },
   { q: 'Can someone make an avatar of me without permission?', a: 'No. Avatars and voice clones require the person’s own verified consent. Consent is recorded, can be revoked at any time, and revoking it deletes the associated avatar assets.' },

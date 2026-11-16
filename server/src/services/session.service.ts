@@ -85,9 +85,22 @@ export async function rotateSession(req: Request, res: Response, refreshToken: s
   );
 
   if (!session) {
+    // The token that was rotated just now, presented again: the browser never received the new
+    // cookie (the refresh was cut off by a reload or navigation), or two tabs refreshed at once.
+    // Issue a fresh token for the same session instead of signing the user out. `rotatedAt` is left
+    // as it was, so the window can't be stretched by replaying again and again.
+    const graced = await Session.findOneAndUpdate(
+      { previousTokenHash: hash, revokedAt: null, expiresAt: { $gt: now }, rotatedAt: { $gte: new Date(now.getTime() - REUSE_GRACE_MS) } },
+      { $set: { refreshTokenHash: sha256(newToken), lastUsedAt: now, ip: req.ip ?? '' } },
+      { new: true },
+    );
+    if (graced) {
+      res.cookie(REFRESH_COOKIE, newToken, refreshCookieOptions());
+      return graced;
+    }
     const reused = await Session.findOne({ previousTokenHash: hash, revokedAt: null });
-    if (reused && reused.rotatedAt && now.getTime() - reused.rotatedAt.getTime() > REUSE_GRACE_MS) {
-      // A token that was already rotated is being replayed: assume it was stolen.
+    if (reused) {
+      // An already-rotated token replayed after the grace window: assume it was stolen.
       reused.revokedAt = now;
       await reused.save();
     }

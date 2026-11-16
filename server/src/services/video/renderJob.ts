@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Types } from 'mongoose';
 import { logger } from '../../config/logger.js';
-import { Project } from '../../models/Project.js';
+import { Project, ownedBy } from '../../models/Project.js';
 import { Asset } from '../../models/Asset.js';
 import type { JobDoc } from '../../models/Job.js';
 import { applyCreditChange } from '../credit.service.js';
@@ -428,7 +428,7 @@ async function run({ job, signal, progress }: JobContext) {
     if (!source) throw new PermanentJobError('The source video is missing or was deleted.');
   }
 
-  await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
+  await Project.updateOne(ownedBy(project._id, job._id), { $set: { status: 'processing', lastError: null } });
   const workDir = await mkdtemp(path.join(tmpdir(), `sis-${job._id.toString()}-`));
   const ws = job.workspaceId as Types.ObjectId;
 
@@ -652,8 +652,9 @@ async function run({ job, signal, progress }: JobContext) {
     const thumbFile = path.join(workDir, 'thumb.jpg');
     await extractThumbnail(outFile, thumbFile, Math.min(out.durationSec / 3, 3), { signal });
 
-    // 5. Store outputs
+    // 5. Store outputs (not if the user stopped the export meanwhile: they were refunded)
     await progress(95, 'saving');
+    if (signal.aborted) throw new Error('Processing was cancelled.');
     const renderId = new Types.ObjectId();
     const thumbId = new Types.ObjectId();
     const renderKey = keys.render(ws.toString(), renderId.toString());
@@ -728,8 +729,9 @@ async function run({ job, signal, progress }: JobContext) {
         }),
       ],
     };
+    // Only while this job still owns the project (a stopped export has restored it already).
     await Project.updateOne(
-      { _id: project._id },
+      ownedBy(project._id, job._id),
       {
         $set: {
           status: 'completed',

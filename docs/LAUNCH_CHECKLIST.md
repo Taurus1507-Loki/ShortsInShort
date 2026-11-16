@@ -31,14 +31,15 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Sarvam voice cloning (beta): clone + withdraw end to end (check the clone response field).
 - [ ] (Optional) ElevenLabs as a second provider.
 - [ ] `HEYGEN_API_KEY`: presenter list, one full-frame and one cut-out render, background field name, keying quality, timing.
-- [ ] Confirm presenter pricing (currently 5 credits / 30 s) against HeyGen's real price.
+- [ ] Confirm presenter pricing (currently 50 credits / 30 s, see [PRICING.md](PRICING.md)) against HeyGen's real price.
+- [x] Sarvam voiceover price checked: ₹30 / 10,000 characters → 2 credits per 30 s (≈2× cost).
 
 ## Motion Explainer (Phase 4.3)
 - [ ] Remotion Company License if the team is more than 3 people (required for commercial use).
 - [ ] Production render workers: Chrome Headless Shell installed (or allow Remotion to download it), fonts-noto
       for Indic scripts, `MOTION_CONCURRENCY` tuned, ideally a separate worker pool for motion renders.
 - [ ] Prebuild the compositions (`MOTION_BUNDLE_DIR`) instead of bundling on first render.
-- [ ] Measure render time/cost per 30 s and confirm the 2 credits / 30 s price.
+- [ ] Measure render time/cost per 30 s and confirm the export prices (stock 3, animated 5 credits / 30 s).
 
 ## Payments (Phase 5)
 - [ ] Razorpay test-mode run-through (packs, subscribe, renew via test webhook, cancel, upgrade/downgrade) — see docs/PHASE5.md.

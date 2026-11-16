@@ -35,7 +35,7 @@ const schema = z.object({
   COOKIE_SECURE: z.enum(['true', 'false', '1', '0']).optional(),
 
   REQUIRE_EMAIL_VERIFICATION: bool(true),
-  FREE_PLAN_CREDITS: z.coerce.number().int().min(0).default(3),
+  FREE_PLAN_CREDITS: z.coerce.number().int().min(0).default(30),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

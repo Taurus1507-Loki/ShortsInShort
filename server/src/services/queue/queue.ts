@@ -63,28 +63,42 @@ export async function heartbeat(jobId: Types.ObjectId, workerId: string, update:
 
 export async function complete(jobId: Types.ObjectId, workerId: string, result: unknown) {
   await Job.updateOne(
-    { _id: jobId, lockedBy: workerId },
+    { _id: jobId, lockedBy: workerId, status: 'active' },
     { $set: { status: 'completed', result, progress: 100, stage: 'done', finishedAt: new Date(), lockedBy: null, lockedUntil: null } },
   );
 }
 
-/** Records a failure. Returns 'retry' or 'dead'. */
-export async function fail(job: JobDoc, workerId: string, err: unknown): Promise<'retry' | 'dead'> {
+/**
+ * Records a failure. Returns 'retry' or 'dead', or 'lost' when this worker no longer holds the job
+ * (it was cancelled, or its lease expired and another worker took it) — then nothing is changed and
+ * no compensation runs, because whoever took the job over owns it now.
+ */
+export async function fail(job: JobDoc, workerId: string, err: unknown): Promise<'retry' | 'dead' | 'lost'> {
   const message = (err instanceof Error ? err.message : String(err)).slice(0, 1000);
   const permanent = Boolean((err as { permanent?: boolean })?.permanent);
+  const mine = { _id: job._id, lockedBy: workerId, status: 'active' };
   if (!permanent && job.attempts < job.maxAttempts) {
     const backoffMs = Math.min(5 * 60_000, 5_000 * 2 ** (job.attempts - 1));
-    await Job.updateOne(
-      { _id: job._id, lockedBy: workerId },
-      { $set: { status: 'queued', lastError: message, runAt: new Date(Date.now() + backoffMs), lockedBy: null, lockedUntil: null, stage: 'retrying' } },
-    );
-    return 'retry';
+    const r = await Job.updateOne(mine, {
+      $set: { status: 'queued', lastError: message, runAt: new Date(Date.now() + backoffMs), lockedBy: null, lockedUntil: null, stage: 'retrying' },
+    });
+    return r.matchedCount ? 'retry' : 'lost';
   }
-  await Job.updateOne(
-    { _id: job._id, lockedBy: workerId },
-    { $set: { status: 'dead', lastError: message, finishedAt: new Date(), lockedBy: null, lockedUntil: null, stage: 'failed' } },
+  const r = await Job.updateOne(mine, { $set: { status: 'dead', lastError: message, finishedAt: new Date(), lockedBy: null, lockedUntil: null, stage: 'failed' } });
+  return r.matchedCount ? 'dead' : 'lost';
+}
+
+/**
+ * Stops a queued or running job at the user's request. A worker running it notices on its next
+ * heartbeat (or at once, in the same process) and stops; the caller refunds and restores the project.
+ * Returns the cancelled job, or null if it had already finished.
+ */
+export async function cancelJob(jobId: Types.ObjectId): Promise<JobDoc | null> {
+  return Job.findOneAndUpdate(
+    { _id: jobId, status: { $in: ['queued', 'active'] } },
+    { $set: { status: 'cancelled', stage: 'cancelled', lastError: 'Stopped by the user.', finishedAt: new Date(), lockedBy: null, lockedUntil: null } },
+    { new: true },
   );
-  return 'dead';
 }
 
 /** Finds jobs whose worker died on the final attempt and moves them to the dead-letter state. */

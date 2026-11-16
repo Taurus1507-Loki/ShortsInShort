@@ -131,6 +131,44 @@ describe('sessions', () => {
     await request(app).get('/api/auth/me').set('Authorization', `Bearer ${reg.body.data.accessToken}`).expect(401);
   });
 
+  it('keeps you signed in when a refresh is cut off mid-flight (replay inside the grace window)', async () => {
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ fullName: 'Reload', email: 'reload@example.com', password: PASSWORD, acceptTerms: true })
+      .expect(201);
+    const original = String(reg.headers['set-cookie']).split(';')[0]!;
+
+    // The server rotates, but the browser never receives the new cookie (page reload).
+    await request(app).post('/api/auth/refresh').set('Cookie', original).expect(200);
+
+    // The next page load sends the old cookie again: a new token for the same session, no logout.
+    const retried = await request(app).post('/api/auth/refresh').set('Cookie', original).expect(200);
+    const fresh = String(retried.headers['set-cookie']).split(';')[0]!;
+    expect(fresh).toMatch(/^sis_rt=/);
+    expect(fresh).not.toBe(original);
+    await request(app).get('/api/auth/me').set('Authorization', `Bearer ${retried.body.data.accessToken}`).expect(200);
+    expect(await Session.countDocuments({ revokedAt: { $ne: null } })).toBe(0);
+
+    // Life goes on: the new token rotates normally, and the very first token is no longer accepted.
+    const next = await request(app).post('/api/auth/refresh').set('Cookie', fresh).expect(200);
+    await request(app).post('/api/auth/refresh').set('Cookie', original).expect(401);
+    await request(app).post('/api/auth/refresh').set('Cookie', String(next.headers['set-cookie']).split(';')[0]!).expect(200);
+  });
+
+  it('does not let the grace window be stretched by replaying the same old token', async () => {
+    const reg = await request(app)
+      .post('/api/auth/register')
+      .send({ fullName: 'Stretch', email: 'stretch@example.com', password: PASSWORD, acceptTerms: true })
+      .expect(201);
+    const original = String(reg.headers['set-cookie']).split(';')[0]!;
+    await request(app).post('/api/auth/refresh').set('Cookie', original).expect(200);
+    await request(app).post('/api/auth/refresh').set('Cookie', original).expect(200); // inside the window
+    // The window counts from the first rotation; replays don't extend it.
+    await Session.updateMany({}, { rotatedAt: new Date(Date.now() - 60_000) });
+    await request(app).post('/api/auth/refresh').set('Cookie', original).expect(401);
+    expect(await Session.countDocuments({ revokedAt: { $ne: null } })).toBe(1); // treated as theft
+  });
+
   it('logout revokes the session immediately, including outstanding access tokens', async () => {
     const { agent, auth } = await registerUser();
     await agent.post('/api/auth/logout').expect(204);
@@ -161,7 +199,7 @@ describe('email verification', () => {
 
     const me = await request(app).get('/api/auth/me').set(auth).expect(200);
     expect(me.body.data.user.emailVerified).toBe(true);
-    expect(me.body.data.workspace.creditBalance).toBe(3);
+    expect(me.body.data.workspace.creditBalance).toBe(30);
   });
 
   it('only the newest verification link is valid after a resend', async () => {

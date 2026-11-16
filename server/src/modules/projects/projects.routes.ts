@@ -18,13 +18,16 @@ import { getLLMProvider } from '../../services/ai/llm.js';
 import { fallbackMotionScene, motionSceneSchema, parseMotionScene, planMotionScenes } from '../../services/faceless/motion.js';
 import { logger } from '../../config/logger.js';
 import { applyCreditChange } from '../../services/credit.service.js';
-import { enqueue } from '../../services/queue/queue.js';
+import { cancelJob, enqueue } from '../../services/queue/queue.js';
+import { abortLocalJob } from '../../services/queue/worker.js';
 import { audit } from '../../services/audit.service.js';
 import { jobStartLimiter } from '../../middleware/security.js';
 import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
 import { ownCustomVoice } from '../../services/voice/consent.js';
 import { scriptHash } from '../../services/audio/narrationJob.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
+import { Transcript } from '../../models/Transcript.js';
+import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 import type { JobType } from '../../models/Job.js';
 import type { Request } from 'express';
 import { createProjectSchema, idParams, listProjectsQuery, updateProjectSchema } from './projects.schemas.js';
@@ -130,16 +133,60 @@ projectsRouter.patch(
   }),
 );
 
+/**
+ * Stops the project's running or queued job (export, voiceover or scene planning): refunds its
+ * credits exactly once (same refund key as a failed job) and puts the project back as it was.
+ * Returns the refunded credits, or null if there was nothing to stop.
+ */
+async function stopProjectJob(req: Request, project: ProjectDoc): Promise<{ credits: number; type: string } | null> {
+  const { user, workspaceId } = req.auth!;
+  if (!project.lastJobId) return null;
+  const job = await cancelJob(project.lastJobId);
+  if (!job) return null;
+  abortLocalJob(job._id.toString());
+  const credits = Number((job.payload as { credits?: number } | null)?.credits ?? 0);
+  if (credits > 0) {
+    await applyCreditChange({
+      workspaceId,
+      type: 'refund',
+      amount: credits,
+      idempotencyKey: `refund:${job._id.toString()}`,
+      note: `Refund: stopped by you — ${project.title}`.slice(0, 300),
+      reference: { kind: 'job', id: job._id.toString() },
+      actorId: user._id,
+    });
+  }
+  // A project with a finished video stays "completed"; anything else goes back to draft.
+  await Project.updateOne({ _id: project._id, lastJobId: job._id }, { $set: { status: project.outputAssetId ? 'completed' : 'draft', lastError: null } });
+  await audit(req, 'project.job_stopped', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: job._id.toString(), type: job.type, credits } });
+  return { credits, type: job.type };
+}
+
+/** Stops an export (or voiceover / scene planning) in progress, with a refund. */
+projectsRouter.post(
+  '/:id/stop',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = req.auth!;
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const stopped = await stopProjectJob(req, project);
+    if (!stopped) throw conflict('Nothing is running for this project — it may have just finished.', 'NOTHING_TO_STOP');
+    const fresh = await Project.findById(project._id);
+    res.json({ data: { project: await withMedia(fresh!), refundedCredits: stopped.credits, stopped: stopped.type } });
+  }),
+);
+
+/** Deletes a project. Anything still running for it is stopped first, with a refund. */
 projectsRouter.delete(
   '/:id',
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
     const { user, workspaceId } = req.auth!;
-    const r = await Project.updateOne(
-      { _id: req.params.id, workspaceId, deletedAt: null, status: { $nin: ['queued', 'processing'] } },
-      { deletedAt: new Date() },
-    );
-    if (r.matchedCount === 0) throw notFound('Project not found or currently processing.');
+    const project = await Project.findOne({ _id: req.params.id, workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    if (project.status === 'queued' || project.status === 'processing') await stopProjectJob(req, project);
+    await Project.updateOne({ _id: project._id, deletedAt: null }, { deletedAt: new Date() });
     await audit(req, 'project.deleted', { actorId: user._id, workspaceId, metadata: { projectId: req.params.id } });
     res.status(204).end();
   }),
@@ -149,8 +196,8 @@ projectsRouter.delete(
 
 /**
  * Voiceover video (Avatar Studio without an avatar provider): needs an up-to-date voiceover, a usable
- * background, and — for a cloned voice — consent that is still active. Priced like the editor:
- * 1 credit per started minute of the voiceover (×2 for 4K).
+ * background, and — for a cloned voice — consent that is still active. Priced like a stock
+ * export per started 30 s (×2 for 4K), plus the talking presenter when one is used and not reused.
  */
 async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const stats = project.narrationStats;
@@ -195,7 +242,7 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const resolution = s.resolution ?? '1080p';
   const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
   return {
-    credits: editorCreditCost(durationSec, resolution) + presenterCredits,
+    credits: facelessCreditCost(durationSec, resolution) + presenterCredits,
     presenterCredits,
     presenterReused,
     balance: ws?.creditBalance ?? 0,
@@ -209,7 +256,8 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
 
 /**
  * Stock-footage faceless video: needs an up-to-date voiceover and a scene plan for the current script
- * with a clip in every scene. 1 credit per started 30 s of voiceover (×2 for 4K).
+ * with a clip (or animation) in every scene. Priced per started 30 s of voiceover (×2 for 4K); the
+ * voiceover itself was charged when it was made.
  */
 async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const stats = project.narrationStats;
@@ -263,8 +311,12 @@ async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const ws = await Workspace.findById(workspaceId).select('plan creditBalance').lean();
   const plan = PLANS[(ws?.plan ?? 'free') as PlanId];
   const resolution = project.settings?.resolution ?? '1080p';
+  // Re-renders reuse the saved transcript, so only rendering is charged.
+  const stt = getTranscriptionProvider();
+  const transcribed = !stt || Boolean(await Transcript.exists({ assetId: source._id, provider: stt.name, language: project.settings?.language ?? 'en' }));
   return {
-    credits: editorCreditCost(source.durationSec ?? 0, resolution),
+    credits: editorCreditCost(source.durationSec ?? 0, resolution, transcribed),
+    rerender: transcribed,
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: source.durationSec ?? 0,
     resolution,

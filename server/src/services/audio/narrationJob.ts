@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Types } from 'mongoose';
-import { Project } from '../../models/Project.js';
+import { Project, ownedBy } from '../../models/Project.js';
 import { Asset } from '../../models/Asset.js';
 import type { JobDoc } from '../../models/Job.js';
 import { applyCreditChange } from '../credit.service.js';
@@ -46,7 +46,7 @@ async function run({ job, signal, progress }: JobContext) {
   const allowed = (await ownCustomVoice(job.workspaceId as Types.ObjectId, payload.voiceId)) || (library ? library.some((v) => v.id === payload.voiceId) : true);
   if (!allowed) throw new PermanentJobError('That voice is no longer available (consent may have been withdrawn).');
 
-  await Project.updateOne({ _id: project._id }, { $set: { status: 'processing', lastError: null } });
+  await Project.updateOne(ownedBy(project._id, job._id), { $set: { status: 'processing', lastError: null } });
   const workDir = await mkdtemp(path.join(tmpdir(), `sis-tts-${job._id.toString()}-`));
   const ws = job.workspaceId as Types.ObjectId;
   const language = project.settings?.language ?? 'en';
@@ -128,6 +128,7 @@ async function run({ job, signal, progress }: JobContext) {
     }
 
     await progress(95, 'saving');
+    if (signal.aborted) throw new Error('Processing was cancelled.');
     const assetId = new Types.ObjectId();
     const key = keys.narration(ws.toString(), assetId.toString());
     await storage.uploadFile(key, outFile, 'audio/mpeg');
@@ -163,7 +164,7 @@ async function run({ job, signal, progress }: JobContext) {
     };
     const previous = project.narrationAssetId;
     await Project.updateOne(
-      { _id: project._id },
+      ownedBy(project._id, job._id),
       { $set: { status: 'completed', narrationAssetId: assetId, narrationWords: words, narrationStats: stats, lastError: null } },
     );
     if (previous && !previous.equals(assetId)) {

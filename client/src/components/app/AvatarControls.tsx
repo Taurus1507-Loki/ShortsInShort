@@ -156,7 +156,7 @@ export function PresenterPicker({ settings, onChange }: { settings: ProjectSetti
           className={cn('rounded-lg border p-3 text-left disabled:opacity-50', chosen ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40')}
         >
           <span className="block text-sm font-semibold">Talking presenter</span>
-          <span className="text-xs text-muted-foreground">An AI presenter lip-synced to your voiceover. 5 credits per 30 s.</span>
+          <span className="text-xs text-muted-foreground">An AI presenter lip-synced to your voiceover. {meta?.pricing.find((x) => x.step === 'presenter')?.credits ?? 50} credits per 30 s, charged once — re-exports reuse it.</span>
         </button>
       </div>
 

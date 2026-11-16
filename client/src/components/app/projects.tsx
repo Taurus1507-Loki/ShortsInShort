@@ -1,5 +1,7 @@
 import { Link } from 'react-router';
-import { Clapperboard, UserRound, Wand2 } from 'lucide-react';
+import { Clapperboard, Pencil, Play, UserRound, Wand2 } from 'lucide-react';
+import { Button } from '../ui/button';
+import { DeleteProjectButton, StopButton } from './ProjectActions';
 import { Badge } from '../ui/primitives';
 import { Input, Select } from '../ui/input';
 import { Label } from '../ui/primitives';
@@ -38,27 +40,58 @@ export function ProjectRow({ project }: { project: Project }) {
   );
 }
 
+/** A project in My Projects: open it, jump to a step, stop what's running, or delete it. */
 export function ProjectCard({ project }: { project: Project }) {
   const Icon = MODE_ICON[project.mode];
+  const busy = project.status === 'queued' || project.status === 'processing';
+  const hasVideo = Boolean(project.outputAssetId);
+  // A finished voiceover or scene plan is still a draft until the video exists.
+  const shown = project.status === 'completed' && !hasVideo ? 'draft' : project.status;
+  const base = `/app/projects/${project.id}`;
   return (
-    <Link
-      to={`/app/projects/${project.id}`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40"
-    >
-      <div className="relative grid aspect-video place-items-center bg-gradient-to-br from-primary/20 via-card to-accent/15">
-        <div className={cn('rounded-md border-2 border-foreground/25', ASPECT_BOX[project.aspectRatio])} aria-hidden />
-        <span className="absolute left-3 top-3">
-          <StatusBadge status={project.status} />
-        </span>
+    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40">
+      <Link to={base} className="flex flex-1 flex-col">
+        <div className="relative grid aspect-video place-items-center bg-gradient-to-br from-primary/20 via-card to-accent/15">
+          <div className={cn('rounded-md border-2 border-foreground/25', ASPECT_BOX[project.aspectRatio])} aria-hidden />
+          <span className="absolute left-3 top-3">
+            <StatusBadge status={shown} />
+          </span>
+        </div>
+        <div className="flex flex-1 flex-col gap-1 p-4 pb-3">
+          <p className="truncate font-semibold group-hover:text-highlight">{project.title}</p>
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Icon className="h-3.5 w-3.5" /> {modeName(project.mode)} · {project.aspectRatio}
+          </p>
+          <p className="mt-auto pt-2 text-xs text-muted-foreground">Edited {timeAgo(project.updatedAt)}</p>
+        </div>
+      </Link>
+      <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+        {busy ? (
+          <>
+            <Button asChild size="sm" variant="ghost" className="flex-1">
+              <Link to={`${base}/export`}>View progress</Link>
+            </Button>
+            <StopButton project={project} />
+          </>
+        ) : (
+          <>
+            <Button asChild size="sm" className="flex-1">
+              <Link to={base}>
+                <Pencil /> {hasVideo ? 'Edit' : 'Continue'}
+              </Link>
+            </Button>
+            {hasVideo && (
+              <Button asChild size="sm" variant="outline" title="Watch or export again">
+                <Link to={`${base}/export`}>
+                  <Play /> Video
+                </Link>
+              </Button>
+            )}
+          </>
+        )}
+        <DeleteProjectButton project={project} iconOnly />
       </div>
-      <div className="flex flex-1 flex-col gap-1 p-4">
-        <p className="truncate font-semibold group-hover:text-highlight">{project.title}</p>
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon className="h-3.5 w-3.5" /> {modeName(project.mode)} · {project.aspectRatio}
-        </p>
-        <p className="mt-auto pt-2 text-xs text-muted-foreground">Edited {timeAgo(project.updatedAt)}</p>
-      </div>
-    </Link>
+    </div>
   );
 }
 

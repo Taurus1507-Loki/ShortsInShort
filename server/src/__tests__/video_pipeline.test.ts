@@ -14,7 +14,7 @@ import { Job } from '../models/Job.js';
 import { Project } from '../models/Project.js';
 import { Workspace } from '../models/Workspace.js';
 import { CreditTransaction } from '../models/CreditTransaction.js';
-import { claim, enqueue, fail, sweepExpired } from '../services/queue/queue.js';
+import { claim, enqueue, fail, heartbeat, sweepExpired } from '../services/queue/queue.js';
 import { Transcript } from '../models/Transcript.js';
 import { setTranscriptionProvider, TranscriptionError, type TranscriptionProvider, type Word } from '../services/ai/transcription.js';
 import { setLLMProvider, type LLMProvider } from '../services/ai/llm.js';
@@ -147,7 +147,7 @@ describe('render pipeline', () => {
 
   it('shows the whole picture over a blurred background when framing is "blur" (and auto picks it for landscape → vertical)', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 10);
+    await setBalance(user.defaultWorkspaceId, 50);
     // 16:9 source with yellow bars on its far left/right edges: a vertical crop cuts them off,
     // a fit-over-blur keeps the whole picture, so the bars stay visible.
     const dir = await mkdtemp(path.join(tmpdir(), 'sis-edges-'));
@@ -198,13 +198,13 @@ describe('render pipeline', () => {
     const project = await projectWithVideo(auth);
 
     const est = await request(app).get(`/api/projects/${project.id}/estimate`).set(auth).expect(200);
-    expect(est.body.data).toMatchObject({ credits: 1, balance: 3, resolutionAllowed: true });
+    expect(est.body.data).toMatchObject({ credits: 2, rerender: true, balance: 30, resolutionAllowed: true });
 
     const gen = await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202);
-    expect(gen.body.data.credits).toBe(1);
+    expect(gen.body.data.credits).toBe(2);
     await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(409); // no double-submit
     let me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(2);
+    expect(me.body.data.workspace.creditBalance).toBe(28);
 
     expect(await worker.runOnce()).toBe(true);
 
@@ -231,7 +231,7 @@ describe('render pipeline', () => {
     expect(ranged.headers['content-type']).toMatch(/video\/mp4/);
 
     me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(2); // charged exactly once
+    expect(me.body.data.workspace.creditBalance).toBe(28); // charged exactly once
   }, 120_000);
 
   it('blocks generation without enough credits and leaves the project editable', async () => {
@@ -254,7 +254,7 @@ describe('render pipeline', () => {
       spy.mockRestore();
     }
     const me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(3);
+    expect(me.body.data.workspace.creditBalance).toBe(30);
     expect(await CreditTransaction.countDocuments({ type: 'refund', status: 'applied' })).toBe(1);
     expect((await Project.findById(project.id))!.status).toBe('draft');
     // And the user can simply try again.
@@ -285,9 +285,58 @@ describe('render pipeline', () => {
     expect(job!.status).toBe('dead');
 
     const me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(3);
+    expect(me.body.data.workspace.creditBalance).toBe(30);
     expect(await CreditTransaction.countDocuments({ type: 'refund' })).toBe(1);
   }, 60_000);
+
+  it('stops a queued export with a refund, and the project can be edited and exported again', async () => {
+    const { auth } = await registerUser({ verify: true });
+    const project = await projectWithVideo(auth);
+    await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202); // 2 credits
+
+    const stopped = await request(app).post(`/api/projects/${project.id}/stop`).set(auth).expect(200);
+    expect(stopped.body.data).toMatchObject({ refundedCredits: 2, stopped: 'render_project', project: { status: 'draft' } });
+    expect((await Job.findOne())!.status).toBe('cancelled');
+    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(30);
+
+    // Nothing left to stop; stopping twice never refunds twice.
+    expect((await request(app).post(`/api/projects/${project.id}/stop`).set(auth).expect(409)).body.error.code).toBe('NOTHING_TO_STOP');
+    expect(await CreditTransaction.countDocuments({ type: 'refund', status: 'applied' })).toBe(1);
+
+    // Editable again, and a worker never picks up the cancelled job.
+    await request(app).patch(`/api/projects/${project.id}`).set(auth).send({ title: 'Edited after stopping' }).expect(200);
+    expect(await worker.runOnce()).toBe(false);
+    await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202);
+  });
+
+  it('stops a running export: the worker lets go without failing the project or refunding twice', async () => {
+    const { auth } = await registerUser({ verify: true });
+    const project = await projectWithVideo(auth);
+    await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202);
+    const running = await claim('other-worker', ['render_project']);
+    await Project.updateOne({ _id: project.id }, { status: 'processing' });
+
+    await request(app).post(`/api/projects/${project.id}/stop`).set(auth).expect(200);
+
+    // The worker finds out on its next heartbeat, and its failure report changes nothing.
+    expect(await heartbeat(running!._id, 'other-worker', { progress: 50 })).toBe(false);
+    expect(await fail(running!, 'other-worker', new Error('Processing was cancelled.'))).toBe('lost');
+    const p = await Project.findById(project.id);
+    expect(p).toMatchObject({ status: 'draft', lastError: null });
+    expect((await Job.findById(running!._id))!.status).toBe('cancelled');
+    expect(await CreditTransaction.countDocuments({ type: 'refund' })).toBe(1);
+  });
+
+  it('deletes a project that is still exporting: the export is stopped and refunded', async () => {
+    const { auth } = await registerUser({ verify: true });
+    const project = await projectWithVideo(auth);
+    await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202);
+    await request(app).delete(`/api/projects/${project.id}`).set(auth).expect(204);
+    expect((await Project.findById(project.id))!.deletedAt).toBeTruthy();
+    expect((await Job.findOne())!.status).toBe('cancelled');
+    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(30);
+    await request(app).get(`/api/projects/${project.id}`).set(auth).expect(404);
+  });
 
   it('asks for a voiceover before rendering a faceless video', async () => {
     const { auth } = await registerUser({ verify: true });
@@ -343,7 +392,7 @@ describe('captions (with a stand-in transcription provider)', () => {
   it('transcribes once, removes filler words and burns real captions into the video', async () => {
     setTranscriptionProvider(fake);
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 10);
+    await setBalance(user.defaultWorkspaceId, 50);
     const asset = await readyVideo(auth);
     const res = await request(app)
       .post('/api/projects')
@@ -351,8 +400,13 @@ describe('captions (with a stand-in transcription provider)', () => {
       .send({ title: 'Caps', mode: 'editor', aspectRatio: '9:16', sourceAssetId: asset.id, settings: { resolution: '720p', captionsEnabled: false, captionStyle: 'boxed', framing: 'crop' } })
       .expect(201);
 
+    // First render pays for transcription; the re-render reuses it and is charged less.
+    const first = await request(app).get(`/api/projects/${res.body.data.id}/estimate`).set(auth).expect(200);
+    expect(first.body.data).toMatchObject({ credits: 5, rerender: false });
     const plain = await renderProject(auth, res.body.data.id);
     expect(plain.renderStats).toMatchObject({ captionsAdded: false, fillerWordsRemoved: 1 });
+    const again = await request(app).get(`/api/projects/${res.body.data.id}/estimate`).set(auth).expect(200);
+    expect(again.body.data).toMatchObject({ credits: 2, rerender: true });
     const plainFrame = await frameAt(plain.outputAsset.id, 0.6);
 
     await request(app).patch(`/api/projects/${res.body.data.id}`).set(auth).send({ settings: { captionsEnabled: true } }).expect(200);
@@ -372,7 +426,7 @@ describe('captions (with a stand-in transcription provider)', () => {
   it('applies edited captions on re-render, and sets them aside if the cut changes', async () => {
     setTranscriptionProvider(fake);
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 10);
+    await setBalance(user.defaultWorkspaceId, 50);
     const asset = await readyVideo(auth);
     const res = await request(app)
       .post('/api/projects')
@@ -515,7 +569,7 @@ describe('AI keywords, translation and B-roll (stand-in providers)', () => {
 
   it('shows the stock clip only during its planned slot, with AI keywords on the captions', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 10);
+    await setBalance(user.defaultWorkspaceId, 50);
     const { assetId } = await upload(auth, longFixture, 'long.mp4');
     await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
     const res = await request(app)

@@ -145,7 +145,7 @@ describe('Motion Explainer videos', () => {
     expect(planned.scenes.every((s: { motion: unknown }) => parseMotionScene(s.motion))).toBe(true);
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est.credits).toBe(2); // Motion Explainer: 2 per started 30 s
+    expect(est.credits).toBe(5); // Motion Explainer: 5 per started 30 s
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
     const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;

@@ -22,6 +22,7 @@ A review of the codebase as it stands after Phase 6 (admin panel). It covers wha
 **Authentication**
 - Passwords are hashed with argon2id. Login is limited per IP and per email, and errors don't reveal whether an account exists.
 - Access tokens are short-lived. Refresh tokens rotate on every use and live in an httpOnly, SameSite cookie. Reusing an already-rotated refresh token revokes that session.
+- Interrupted refreshes don't sign people out (2026-11-16). If a refresh is cut off by a reload, the browser never receives the new cookie and sends the previous token again. Within 15 seconds of the rotation, that replay gets a fresh token for the same session. The window counts from the first rotation, so repeated replays can't extend it. After the window, the same replay is treated as theft and revokes the session, as before.
 - Email verification and password-reset tokens are random, stored only as hashes, single-use and time-limited.
 - A suspended account is blocked at login, at Google sign-in and on every authenticated request (`requireAuth`). Suspending someone from the admin panel also revokes all their sessions.
 

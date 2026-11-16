@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeKeepSegments, parseSilences, totalDuration } from '../services/video/silence.js';
 import { buildRenderArgs, outputSize } from '../services/video/render.js';
-import { editorCreditCost, resolutionAllowed } from '../config/credits.js';
+import { avatarCreditCost, editorCreditCost, facelessCreditCost, motionCreditCost, narrationCreditCost, resolutionAllowed } from '../config/credits.js';
 
 describe('silence parsing', () => {
   it('parses silencedetect output, including a trailing open silence', () => {
@@ -64,10 +64,19 @@ describe('render settings', () => {
 });
 
 describe('credit pricing', () => {
-  it('charges per started source minute with a 4K multiplier', () => {
-    expect(editorCreditCost(30, '1080p')).toBe(1);
-    expect(editorCreditCost(61, '1080p')).toBe(2);
-    expect(editorCreditCost(30, '4k')).toBe(2);
+  it('charges the editor per started source minute, less on re-renders, with a 4K multiplier', () => {
+    expect(editorCreditCost(30, '1080p')).toBe(5);
+    expect(editorCreditCost(61, '1080p')).toBe(10);
+    expect(editorCreditCost(30, '4k')).toBe(10);
+    expect(editorCreditCost(61, '1080p', true)).toBe(4); // transcript reused
+  });
+  it('prices each step on its own', () => {
+    expect(narrationCreditCost(400)).toBe(2); // ≈ 30 s of speech
+    expect(narrationCreditCost(401)).toBe(4);
+    expect(facelessCreditCost(30, '1080p')).toBe(3);
+    expect(facelessCreditCost(45, '4k')).toBe(12);
+    expect(motionCreditCost(30, '720p')).toBe(5);
+    expect(avatarCreditCost(31)).toBe(100);
   });
   it('enforces plan resolution caps', () => {
     expect(resolutionAllowed('720p', '720p')).toBe(true);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { env } from '../../config/env.js';
 import { PLANS, PLAN_IDS } from '../../config/plans.js';
+import { PRICE_LIST } from '../../config/credits.js';
 import { dbState } from '../../config/db.js';
 import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
@@ -18,6 +19,8 @@ metaRouter.get('/meta', (_req, res) => {
     data: {
       currency: 'INR',
       plans: PLAN_IDS.map((id) => PLANS[id]),
+      /** Credits per step (charged when the step runs). */
+      pricing: PRICE_LIST,
       auth: { google: Boolean(env.google), emailVerificationRequired: env.requireEmailVerification },
       emailDelivery: env.smtp ? 'smtp' : 'dev-log',
       features: {

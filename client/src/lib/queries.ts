@@ -48,6 +48,8 @@ export const useProjects = (params: { page: number; q?: string; status?: string;
       return api<Paginated<Project>>(`/projects?${qs}`);
     },
     placeholderData: (prev) => prev,
+    // Keep statuses fresh while something is exporting, so Stop turns back into Edit by itself.
+    refetchInterval: (q) => (q.state.data?.data.some((p) => p.status === 'queued' || p.status === 'processing') ? 5000 : false),
   });
 
 export const useProject = (id: string) =>

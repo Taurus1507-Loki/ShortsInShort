@@ -349,7 +349,7 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
         )}
         {project.scenesOutdated && !busy && <Notice tone="warning" title="Scenes are out of date">The script changed since these scenes were planned. Re-plan so every line has a matching clip.</Notice>}
         {project.lastError?.startsWith('Planning scenes failed') && !busy && <Notice tone="error">{project.lastError}</Notice>}
-        {dirty && scenes.length > 0 && !busy && <p className="text-xs text-muted-foreground">Save your changes above to edit scenes.</p>}
+        {dirty && scenes.length > 0 && !busy && <p className="text-xs text-muted-foreground">Save your changes to edit scenes.</p>}
         {project.scenesPlannedWith === 'keywords' && !busy && scenes.length > 0 && (
           <Notice tone="info" title={motionStyle ? 'Simple text scenes were used' : 'Searches were picked from keywords'}>
             {motionStyle
@@ -364,7 +364,7 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
             ))}
           </ol>
         ) : (
-          !planning && <p className="text-sm text-muted-foreground">No scenes yet. Write your script above, then plan the scenes.</p>
+          !planning && <p className="text-sm text-muted-foreground">No scenes yet. Click “Plan scenes with AI” — planning is free.</p>
         )}
       </CardContent>
     </Card>
