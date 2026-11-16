@@ -117,10 +117,16 @@ export interface ScenesInput {
  * cut to its scene length, scaled to fill the frame, then all are joined and laid under the
  * voiceover. Exported for tests.
  */
-export type SceneTransition = 'cut' | 'fade' | 'slide' | 'wipe';
-/** Seconds each transition overlaps the next scene. */
+export type SceneTransition = 'cut' | 'fade' | 'slide' | 'wipe' | 'mix' | 'zoom' | 'circle' | 'smooth' | 'blur' | 'pixel';
+/** Seconds each transition overlaps the next scene (the showier ones get a little longer). */
 export const TRANSITION_SEC = 0.35;
-const XFADE: Record<Exclude<SceneTransition, 'cut'>, string> = { fade: 'fade', slide: 'slideleft', wipe: 'wipeleft' };
+const FANCY_SEC = 0.5;
+const XFADE: Record<Exclude<SceneTransition, 'cut' | 'mix'>, string> = {
+  fade: 'fade', slide: 'slideleft', wipe: 'wipeleft', zoom: 'zoomin', circle: 'circleopen', smooth: 'smoothleft', blur: 'hblur', pixel: 'pixelize',
+};
+/** "Mix": a different good-looking FFmpeg xfade at every cut. */
+const MIX = ['smoothleft', 'circleopen', 'zoomin', 'slideup', 'radial', 'diagtl', 'hblur', 'smoothup', 'circlecrop', 'squeezeh', 'wiperight', 'rectcrop'];
+export const xfadeFor = (t: Exclude<SceneTransition, 'cut'>, cut: number) => (t === 'mix' ? MIX[(cut - 1) % MIX.length]! : XFADE[t]);
 
 export function buildScenesArgs(s: ScenesInput & { transition?: SceneTransition }): string[] {
   const fps = s.fps ?? 30;
@@ -130,7 +136,8 @@ export function buildScenesArgs(s: ScenesInput & { transition?: SceneTransition 
   const durations = s.scenes.map((sc) => Math.max(0.3, sc.durationSec));
   // Transitions overlap neighbours, so every scene but the last runs a little longer; offsets put each
   // transition at the moment the next scene's narration starts, keeping the total length unchanged.
-  const T = s.transition && s.transition !== 'cut' && n > 1 ? Math.min(TRANSITION_SEC, Math.min(...durations) / 2) : 0;
+  const len = s.transition === 'fade' || s.transition === 'slide' || s.transition === 'wipe' ? TRANSITION_SEC : FANCY_SEC;
+  const T = s.transition && s.transition !== 'cut' && n > 1 ? Math.min(len, Math.min(...durations) / 2) : 0;
   const inputs: string[] = [];
   const chains: string[] = [];
   s.scenes.forEach((sc, i) => {
@@ -151,13 +158,13 @@ export function buildScenesArgs(s: ScenesInput & { transition?: SceneTransition 
   const total = durations.reduce((t, x) => t + x, 0).toFixed(3);
   let joined: string;
   if (T > 0) {
-    const kind = XFADE[s.transition as Exclude<SceneTransition, 'cut'>];
     const steps: string[] = [];
     let prev = 'v0';
     let offset = 0;
     for (let i = 1; i < n; i++) {
       offset += durations[i - 1]!;
       const out = i === n - 1 ? 'v' : `x${i}`;
+      const kind = xfadeFor(s.transition as Exclude<SceneTransition, 'cut'>, i);
       steps.push(`[${prev}][v${i}]xfade=transition=${kind}:duration=${T.toFixed(3)}:offset=${(offset - T / 2).toFixed(3)}${out === 'v' ? ',format=yuv420p' : ''}[${out}]`);
       prev = out;
     }

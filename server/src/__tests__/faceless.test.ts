@@ -145,6 +145,17 @@ describe('scene planning helpers', () => {
     expect(args).toContain('-map 2:a:0');
     expect(args).toContain('-t 5.500');
   });
+
+  it('uses a different, fancier transition at every cut with "mix"', () => {
+    const scenes = ['a', 'b', 'c', 'd'].map((n) => ({ path: `${n}.mp4`, durationSec: 3 }));
+    const args = buildScenesArgs({ width: 720, height: 1280, scenes, audioPath: 'v.mp3', output: 'o.mp4', transition: 'mix' }).join(' ');
+    const kinds = [...args.matchAll(/xfade=transition=(\w+):duration=([\d.]+)/g)];
+    expect(kinds).toHaveLength(3);
+    expect(new Set(kinds.map((k) => k[1])).size).toBe(3);
+    expect(Number(kinds[0]![2])).toBeCloseTo(0.5, 2);
+    const zoom = buildScenesArgs({ width: 720, height: 1280, scenes, audioPath: 'v.mp3', output: 'o.mp4', transition: 'zoom' }).join(' ');
+    expect(zoom).toContain('xfade=transition=zoomin');
+  });
 });
 
 describe('faceless video flow', () => {
@@ -177,8 +188,8 @@ describe('faceless video flow', () => {
     expect(done.renderStats.broll).toHaveLength(planned.scenes.length);
     expect(done.renderStats.broll[0]).toMatchObject({ provider: 'fake-stock', author: expect.any(String), start: 0 });
     expect(done.renderStats.captionsAdded).toBe(true);
-    // 4.4: default fade transitions, a whoosh at every scene change, render time recorded.
-    expect(done.renderStats).toMatchObject({ sceneTransition: 'fade', sfxCount: planned.scenes.length - 1 });
+    // Default "mix" transitions (a different xfade per cut), a whoosh at every scene change, render time recorded.
+    expect(done.renderStats).toMatchObject({ sceneTransition: 'mix', sfxCount: planned.scenes.length - 1 });
     expect(done.renderStats.renderMs).toBeGreaterThan(0);
     expect(stock.downloads).toBe(planned.scenes.length);
   }, 180_000);

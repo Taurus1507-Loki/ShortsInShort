@@ -1,44 +1,75 @@
 import React from 'react';
-import { AbsoluteFill, Composition, interpolate, Series, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Composition, useVideoConfig } from 'remotion';
+import { linearTiming, TransitionSeries } from '@remotion/transitions';
 import { SceneView } from './scenes';
+import { Backdrop, BACKDROPS } from './backdrops';
+import { CaptionLayer } from './captions';
+import { pickSticker, Sticker } from './lottie';
+import { pickTransition, presentationFor } from './transitions';
+import { finishTheme, resolveTheme, type MotionTheme } from './themes';
 import { FONT_STACK, MOTION_FPS, type MotionProps } from './types';
 
-/** Slowly drifting glow blobs behind every scene, in the brand colours. */
-function Backdrop({ primary, secondary, background }: { primary: string; secondary: string; background: string }) {
-  const frame = useCurrentFrame();
-  const { width, height } = useVideoConfig();
-  const s = Math.max(width, height);
-  const x1 = interpolate(Math.sin(frame / 80), [-1, 1], [-0.15, 0.25]) * width;
-  const y1 = interpolate(Math.cos(frame / 95), [-1, 1], [-0.1, 0.2]) * height;
-  const x2 = interpolate(Math.cos(frame / 70), [-1, 1], [0.55, 0.85]) * width;
-  const y2 = interpolate(Math.sin(frame / 85), [-1, 1], [0.6, 0.9]) * height;
-  return (
-    <AbsoluteFill style={{ background }}>
-      {/* Soft glows as radial gradients — a CSS blur filter this large made every frame very slow to render. */}
-      <div style={{ position: 'absolute', left: x1 - s * 0.5, top: y1 - s * 0.5, width: s, height: s, background: `radial-gradient(circle, ${primary}5c 0%, ${primary}00 62%)` }} />
-      <div style={{ position: 'absolute', left: x2 - s * 0.45, top: y2 - s * 0.45, width: s * 0.9, height: s * 0.9, background: `radial-gradient(circle, ${secondary}47 0%, ${secondary}00 62%)` }} />
-      <AbsoluteFill style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)', backgroundSize: `${s * 0.03}px ${s * 0.03}px` }} />
-    </AbsoluteFill>
-  );
+/** The theme for these props (a theme choice, or a finished theme from older renders). */
+export function themeFor(p: Pick<MotionProps, 'themeId' | 'brand' | 'theme' | 'seed'>): MotionTheme {
+  if (!p.themeId && p.theme?.primary) {
+    const t = p.theme;
+    return finishTheme({ mode: t.mode ?? 'dark', primary: t.primary!, secondary: t.secondary ?? t.primary!, background: t.background ?? '#0B0B1A', text: t.text ?? '#FFFFFF', muted: t.muted ?? '#A1A1AA' });
+  }
+  return resolveTheme(p.themeId, p.brand, p.seed ?? 0);
 }
 
-/** The whole explainer: one backdrop, scenes played back to back, each exactly as long as its narration. */
-export const MotionVideo: React.FC<MotionProps> = ({ scenes, theme, fontFamily }) => (
-  <AbsoluteFill style={{ fontFamily: fontFamily ?? FONT_STACK }}>
-    <Backdrop primary={theme.primary} secondary={theme.secondary} background={theme.background} />
-    <Series>
-      {scenes.map((sc, i) => (
-        <Series.Sequence key={i} durationInFrames={Math.max(1, Math.round(sc.durationInFrames))}>
-          <SceneView scene={sc} theme={theme} />
-        </Series.Sequence>
-      ))}
-    </Series>
-  </AbsoluteFill>
-);
+/** Transition length between two scenes: up to 0.6 s, but never more than a third of either scene. */
+const transitionFrames = (a: number, b: number) => {
+  const t = Math.floor(Math.min(18, a / 3, b / 3));
+  return t >= 6 ? t : 0;
+};
+
+/**
+ * The whole explainer. Each scene has its own background and slides, zooms or flips into the next.
+ * Timing stays locked to the voiceover: the outgoing scene is extended by the transition length, so
+ * every scene starts exactly when its words do and the video keeps the voiceover's length.
+ */
+export const MotionVideo: React.FC<MotionProps> = (props) => {
+  const { scenes, fontFamily, seed = 0, transitions = true, stickers = true, captions } = props;
+  const { width, height } = useVideoConfig();
+  const theme = themeFor(props);
+  const lens = scenes.map((sc) => Math.max(1, Math.round(sc.durationInFrames)));
+  const cuts = lens.map((len, i) => (transitions && i < lens.length - 1 ? transitionFrames(len, lens[i + 1]!) : 0));
+  let lastBackdrop = -1;
+  const backdropIndex = scenes.map((_, i) => {
+    let b = (seed + i * 4) % BACKDROPS.length;
+    if (b === lastBackdrop) b = (b + 1) % BACKDROPS.length;
+    lastBackdrop = b;
+    return b;
+  });
+
+  return (
+    <AbsoluteFill style={{ fontFamily: fontFamily ?? FONT_STACK, background: theme.background }}>
+      <TransitionSeries>
+        {scenes.map((sc, i) => {
+          const sticker = stickers ? pickSticker(sc, i, seed) : null;
+          return (
+            <React.Fragment key={i}>
+              <TransitionSeries.Sequence durationInFrames={lens[i]! + cuts[i]!}>
+                <Backdrop id={BACKDROPS[backdropIndex[i]!]!} theme={theme} />
+                <SceneView scene={sc} theme={theme} />
+                {sticker && <Sticker name={sticker} index={i} />}
+              </TransitionSeries.Sequence>
+              {cuts[i]! > 0 && (
+                <TransitionSeries.Transition presentation={presentationFor(pickTransition(seed, i), i, { width, height })} timing={linearTiming({ durationInFrames: cuts[i]! })} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </TransitionSeries>
+      {captions && captions.lines.length > 0 && <CaptionLayer track={captions} theme={theme} />}
+    </AbsoluteFill>
+  );
+};
 
 export const DEFAULT_MOTION_PROPS: MotionProps = {
   scenes: [{ template: 'title', params: { eyebrow: 'Preview', headline: 'Motion Explainer' }, durationInFrames: 60 }],
-  theme: { primary: '#7C3AED', secondary: '#22D3EE', background: '#0B0B1A', text: '#FFFFFF', muted: '#A1A1AA' },
+  themeId: 'midnight',
 };
 
 /** Registered for server rendering; size and length come from the input props. */
@@ -54,6 +85,7 @@ export const MotionRoot: React.FC = () => (
     calculateMetadata={({ props }) => {
       const p = props as MotionProps & { width?: number; height?: number };
       return {
+        // Transitions overlap the extended scenes, so the length is simply the sum of the scenes.
         durationInFrames: Math.max(1, p.scenes.reduce((t, s) => t + Math.max(1, Math.round(s.durationInFrames)), 0)),
         width: typeof p.width === 'number' ? p.width : 1080,
         height: typeof p.height === 'number' ? p.height : 1920,

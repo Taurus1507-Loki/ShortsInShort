@@ -49,17 +49,32 @@ export const TEMPLATES: Array<{ id: TemplateId; name: string; use: string }> = [
   { id: 'cta', name: 'Call to action', use: 'Closing line: follow, subscribe, try it' },
 ];
 
-export interface MotionTheme {
-  primary: string;
-  secondary: string;
-  background: string;
-  text: string;
-  muted: string;
+export type { MotionTheme } from './themes';
+import type { MotionTheme } from './themes';
+
+/** Word-timed captions drawn inside the animation (times in seconds on the video timeline). */
+export interface CaptionTrack {
+  lines: Array<{ start: number; end: number; words: Array<{ text: string; start: number; end: number }>; keywords: number[] }>;
+  style: 'bold_pop' | 'clean_minimal' | 'karaoke' | 'boxed' | 'cinematic';
+  position: 'top' | 'middle' | 'bottom';
+  size: 'small' | 'medium' | 'large' | 'xl';
+  highlightColor: string;
 }
 
 export interface MotionProps {
   scenes: Array<MotionScene & { durationInFrames: number }>;
-  theme: MotionTheme;
+  /** A theme choice (see themes.ts: "auto", "brand", "brand_light" or a theme id) plus the Brand Kit colours. */
+  themeId?: string;
+  brand?: { primary?: string; secondary?: string } | null;
+  /** Older renders sent a finished theme; still accepted. */
+  theme?: Partial<MotionTheme>;
+  /** Varies backgrounds, transitions and stickers between projects (stable for one project). */
+  seed?: number;
+  /** Fancy transitions between scenes (default on). */
+  transitions?: boolean;
+  /** Animated emoji stickers (default on). */
+  stickers?: boolean;
+  captions?: CaptionTrack | null;
   /** CSS font stack (Latin + Indic). */
   fontFamily?: string;
   [key: string]: unknown;

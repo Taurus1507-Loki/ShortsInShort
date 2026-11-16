@@ -27,7 +27,9 @@ export const BACKGROUNDS = ['brand', 'color', 'image', 'video'] as const;
 export const AVATAR_LAYOUTS = ['full', 'overlay'] as const;
 /** Faceless styles: licensed stock footage, or animated Motion Explainer scenes. */
 export const FACELESS_STYLES = ['stock', 'motion'] as const;
-export const SCENE_TRANSITIONS = ['cut', 'fade', 'slide', 'wipe'] as const;
+export const SCENE_TRANSITIONS = ['cut', 'fade', 'slide', 'wipe', 'mix', 'zoom', 'circle', 'smooth', 'blur', 'pixel'] as const;
+/** Motion Explainer colour themes (ids from client/src/motion/themes.ts), the Brand Kit, or auto. */
+export const MOTION_THEMES = ['auto', 'brand', 'brand_light', 'cream', 'mint', 'lavender', 'peach', 'sky', 'paper', 'midnight', 'sunset', 'forest', 'ocean'] as const;
 
 const settingsSchema = new Schema(
   {
@@ -63,7 +65,9 @@ const settingsSchema = new Schema(
     avatarLayout: { type: String, enum: AVATAR_LAYOUTS, default: 'full' },
     facelessStyle: { type: String, enum: FACELESS_STYLES, default: 'stock' },
     /** Faceless: how stock scenes change (Motion Explainer scenes animate in and out themselves). */
-    sceneTransition: { type: String, enum: SCENE_TRANSITIONS, default: 'fade' },
+    sceneTransition: { type: String, enum: SCENE_TRANSITIONS, default: 'mix' },
+    /** Motion Explainer: colour theme; "auto" gives each project its own look. */
+    motionTheme: { type: String, enum: MOTION_THEMES, default: 'auto' },
     /** Faceless: generated whooshes/pops/ticks timed to scene changes and animations. */
     soundEffects: { type: Boolean, default: true },
   },

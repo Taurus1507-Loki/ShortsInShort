@@ -5,33 +5,33 @@ import { Button } from '../ui/button';
 import { Input, Select, Textarea } from '../ui/input';
 import { useBrandKit } from '@/lib/queries';
 import { MotionVideo } from '@/motion/MotionVideo';
-import { ICONS, MOTION_FPS, TEMPLATES, type IconName, type MotionScene, type MotionTheme, type TemplateId } from '@/motion/types';
+import { ICONS, MOTION_FPS, TEMPLATES, type IconName, type MotionProps, type MotionScene, type TemplateId } from '@/motion/types';
+import { seedFrom } from '@/motion/themes';
 import type { AspectRatio, Scene } from '@/types/api';
 
 const SIZE: Record<AspectRatio, [number, number]> = { '9:16': [1080, 1920], '16:9': [1920, 1080], '1:1': [1080, 1080], '4:5': [1080, 1350] };
 
-/** Same dark theme the server derives from the Brand Kit, so the preview matches the render. */
-export function useMotionTheme(): MotionTheme {
+/**
+ * The look the server renders with: the project's theme choice, the Brand Kit colours and a seed
+ * from the project id (which varies backgrounds, transitions and stickers), so the preview matches.
+ */
+export function useMotionLook(themeId?: string, seedKey = ''): Pick<MotionProps, 'themeId' | 'brand' | 'seed'> {
   const { data: kit } = useBrandKit();
-  return useMemo(() => {
-    const ok = (c: string | undefined, d: string) => (c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : d);
-    const primary = ok(kit?.primaryColor, '#7C3AED');
-    const a = primary.match(/[0-9a-f]{2}/gi)!.map((x) => parseInt(x, 16));
-    const b = [5, 5, 10];
-    const background = `#${a.map((v, i) => Math.round(v + (b[i]! - v) * 0.9).toString(16).padStart(2, '0')).join('')}`;
-    return { primary, secondary: ok(kit?.secondaryColor, '#22D3EE'), background, text: '#FFFFFF', muted: '#A1A1AA' };
-  }, [kit?.primaryColor, kit?.secondaryColor]);
+  return useMemo(
+    () => ({ themeId: themeId ?? 'auto', brand: { primary: kit?.primaryColor, secondary: kit?.secondaryColor }, seed: seedFrom(seedKey) }),
+    [themeId, seedKey, kit?.primaryColor, kit?.secondaryColor],
+  );
 }
 
 /** Preview timing: words at speaking pace (the final video follows the real voiceover timing). */
 const framesFor = (text: string, language: string) => Math.max(2 * MOTION_FPS, Math.round((text.split(/\s+/).filter(Boolean).length / (language === 'en' ? 2.5 : 2.1)) * MOTION_FPS));
 
 /** Plays the whole explainer in the browser with the same compositions the server renders. */
-export function MotionPreview({ scenes, aspect, language }: { scenes: Scene[]; aspect: AspectRatio; language: string }) {
-  const theme = useMotionTheme();
+export function MotionPreview({ scenes, aspect, language, themeId, seedKey }: { scenes: Scene[]; aspect: AspectRatio; language: string; themeId?: string; seedKey?: string }) {
+  const look = useMotionLook(themeId, seedKey);
   const [w, h] = SIZE[aspect];
   const valid = scenes.filter((s) => s.motion) as Array<Scene & { motion: MotionScene }>;
-  const inputProps = useMemo(() => ({ scenes: valid.map((s) => ({ ...s.motion, durationInFrames: framesFor(s.text, language) })), theme }), [valid, theme, language]);
+  const inputProps = useMemo(() => ({ scenes: valid.map((s) => ({ ...s.motion, durationInFrames: framesFor(s.text, language) })), ...look }), [valid, look, language]);
   const total = inputProps.scenes.reduce((t, s) => t + s.durationInFrames, 0);
   if (!valid.length) return null;
   return (
@@ -45,14 +45,14 @@ export function MotionPreview({ scenes, aspect, language }: { scenes: Scene[]; a
 }
 
 /** A still of one scene for its card. */
-export function MotionThumb({ scene, aspect }: { scene: Scene; aspect: AspectRatio }) {
-  const theme = useMotionTheme();
+export function MotionThumb({ scene, aspect, themeId, seedKey }: { scene: Scene; aspect: AspectRatio; themeId?: string; seedKey?: string }) {
+  const look = useMotionLook(themeId, seedKey);
   const [w, h] = SIZE[aspect];
   if (!scene.motion) return <div className="grid aspect-video w-full place-items-center rounded-md bg-muted text-xs text-muted-foreground">No animation</div>;
   return (
     <Thumbnail
       component={MotionVideo}
-      inputProps={{ scenes: [{ ...(scene.motion as MotionScene), durationInFrames: 90 }], theme }}
+      inputProps={{ scenes: [{ ...(scene.motion as MotionScene), durationInFrames: 90 }], ...look, transitions: false }}
       compositionWidth={w}
       compositionHeight={h}
       frameToDisplay={60}

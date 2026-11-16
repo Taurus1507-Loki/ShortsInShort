@@ -40,7 +40,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '9:16',
     style: 'product_promotion',
-    settings: { facelessStyle: 'stock', sceneTransition: 'slide', captionStyle: 'bold_pop', captionPosition: 'middle', soundEffects: true, targetDurationSec: 30 },
+    settings: { facelessStyle: 'stock', sceneTransition: 'mix', captionStyle: 'bold_pop', captionPosition: 'middle', soundEffects: true, targetDurationSec: 30 },
     title: 'Product promo',
     topic: 'Why our product makes everyday life easier',
     script:
@@ -56,7 +56,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '9:16',
     style: 'educational',
-    settings: { facelessStyle: 'motion', soundEffects: true, captionStyle: 'clean_minimal', captionPosition: 'bottom' },
+    settings: { facelessStyle: 'motion', motionTheme: 'lavender', soundEffects: true, captionStyle: 'clean_minimal', captionPosition: 'bottom' },
     title: 'How it works',
     topic: 'How an AI writing assistant works',
     script:
@@ -92,7 +92,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '9:16',
     style: 'business',
-    settings: { facelessStyle: 'motion', soundEffects: true, captionStyle: 'boxed' },
+    settings: { facelessStyle: 'motion', motionTheme: 'sky', soundEffects: true, captionStyle: 'boxed' },
     title: 'Today in 60 seconds',
     topic: "Today's top business headlines",
     script:
@@ -189,7 +189,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '16:9',
     style: 'business',
-    settings: { facelessStyle: 'motion', soundEffects: true, captionStyle: 'clean_minimal' },
+    settings: { facelessStyle: 'motion', motionTheme: 'paper', soundEffects: true, captionStyle: 'clean_minimal' },
     title: 'Pitch video',
     topic: 'Our startup in one minute',
     script:
@@ -225,7 +225,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '9:16',
     style: 'vlog',
-    settings: { facelessStyle: 'stock', sceneTransition: 'slide', captionStyle: 'bold_pop', soundEffects: true },
+    settings: { facelessStyle: 'stock', sceneTransition: 'mix', captionStyle: 'bold_pop', soundEffects: true },
     title: 'Recipe',
     topic: 'Easy masala chai at home',
     script:
@@ -241,7 +241,7 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
     mode: 'faceless',
     aspectRatio: '9:16',
     style: 'educational',
-    settings: { facelessStyle: 'motion', language: 'hi', soundEffects: true, captionStyle: 'boxed' },
+    settings: { facelessStyle: 'motion', motionTheme: 'peach', language: 'hi', soundEffects: true, captionStyle: 'boxed' },
     title: 'Hindi explainer',
     topic: 'UPI se payment kaise karein',
     script:

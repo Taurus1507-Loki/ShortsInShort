@@ -9,7 +9,7 @@ import { FakeTts } from './fakeTts.js';
 import { probe, runFfmpeg } from '../services/video/ffmpeg.js';
 import { Worker } from '../services/queue/worker.js';
 import { registerNarrationJob } from '../services/audio/narrationJob.js';
-import { registerRenderJob } from '../services/video/renderJob.js';
+import { motionSeed, registerRenderJob } from '../services/video/renderJob.js';
 import { registerPlanScenesJob } from '../services/faceless/planJob.js';
 import { setTtsProvider } from '../services/ai/tts.js';
 import { setLLMProvider, type LLMProvider } from '../services/ai/llm.js';
@@ -156,6 +156,12 @@ describe('Motion Explainer videos', () => {
     expect(done.renderStats.sceneTransition).toBeNull();
     expect(renders).toHaveLength(1);
     expect(renders[0]!.theme.primary).toBe('#E11D48');
+    // The look: theme choice ("auto" by default) + Brand Kit colours + a per-project seed.
+    expect(renders[0]).toMatchObject({ themeId: 'auto', brand: { primary: '#E11D48' }, seed: motionSeed(p.id) });
+    // Captions are drawn inside the animation, word-timed, instead of burned in afterwards.
+    expect(renders[0]!.captions).toMatchObject({ style: expect.any(String), position: 'bottom' });
+    expect(renders[0]!.captions!.lines.length).toBeGreaterThan(0);
+    expect(renders[0]!.captions!.lines[0]!.words[0]).toMatchObject({ text: expect.any(String), start: expect.any(Number) });
     expect(renders[0]).toMatchObject({ width: 720, height: 1280 });
     const frames = renders[0]!.scenes.reduce((t, s) => t + s.durationInFrames, 0);
     expect(Math.abs(frames / 30 - done.narrationAsset.durationSec)).toBeLessThan(0.2);
@@ -201,4 +207,27 @@ describe('real Remotion render', () => {
     expect(info.video).toMatchObject({ width: 360, height: 640 });
     expect(info.durationSec).toBeGreaterThan(0.9);
   }, 300_000);
+});
+
+describe('Motion Explainer looks', () => {
+  it('accepts exactly the themes the web app defines, and seeds looks the same way as the preview', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { MOTION_THEMES } = await import('../models/Project.js');
+    const src = await readFile(path.resolve(process.cwd(), '../client/src/motion/themes.ts'), 'utf8');
+    const clientIds = [...src.matchAll(/\{ id: '([a-z_]+)', name:/g)].map((m) => m[1]);
+    expect(clientIds.length).toBeGreaterThanOrEqual(8);
+    expect([...MOTION_THEMES].sort()).toEqual(['auto', 'brand', 'brand_light', ...clientIds].sort());
+    // Half the themes are light ("no light colours" was the complaint).
+    expect((src.match(/mode: 'light'/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    // Same FNV-1a seed as client seedFrom(), so the preview shows the backgrounds/transitions the render uses.
+    expect(motionSeed('abc')).toBe(440920331);
+    expect(motionSeed('6afab4404501932b4cebde36')).toBe(2295404467);
+  });
+
+  it('saves a theme choice and rejects unknown ones', async () => {
+    const { auth, p } = await motionProject();
+    const ok = await request(app).patch(`/api/projects/${p.id}`).set(auth).send({ settings: { motionTheme: 'mint', sceneTransition: 'zoom' } }).expect(200);
+    expect(ok.body.data.settings).toMatchObject({ motionTheme: 'mint', sceneTransition: 'zoom' });
+    await request(app).patch(`/api/projects/${p.id}`).set(auth).send({ settings: { motionTheme: 'neon-rainbow' } }).expect(400);
+  });
 });

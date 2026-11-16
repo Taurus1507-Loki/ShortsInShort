@@ -386,18 +386,39 @@ async function prepareMotionBase(project: ProjectDoc, narration: AssetDoc, workD
   const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
   const kit = await BrandKit.findOne({ workspaceId: project.workspaceId }).lean();
 
+  // Captions are drawn inside the animation (word-timed, animated), so they are worked out first —
+  // with the same edits, translation and AI keywords as burned-in captions.
+  const captionKey = createHash('sha1').update(`motion|${project.narrationAssetId?.toString()}`).digest('hex').slice(0, 16);
+  const captionPlan =
+    settings.captionsEnabled !== false && words.length
+      ? await planCaptionLines({ project, words: words as Word[], size, timelineKey: captionKey, llm: getLLMProvider(), signal, progress })
+      : null;
+
   await progress(4, 'animating_scenes');
   const silent = path.join(workDir, 'motion.mp4');
   let last = 4;
   await getMotionRenderer()({
     scenes: parsed.map((m, i) => ({ ...m!, durationInFrames: Math.max(1, Math.round((timings[i]!.end - timings[i]!.start) * MOTION_FPS)) })),
     theme: motionTheme(kit?.primaryColor ?? undefined, kit?.secondaryColor ?? undefined),
+    themeId: settings.motionTheme ?? 'auto',
+    brand: { primary: kit?.primaryColor ?? undefined, secondary: kit?.secondaryColor ?? undefined },
+    seed: motionSeed(project._id.toString()),
+    captions: captionPlan?.lines.length
+      ? {
+          lines: captionPlan.lines.map((l) => ({ start: l.start, end: l.end, words: l.words.map((w) => ({ text: w.text, start: w.start, end: w.end })), keywords: l.keywords })),
+          style: (settings.captionStyle ?? 'bold_pop') as CaptionStyle,
+          position: (settings.captionPosition ?? 'bottom') as CaptionPosition,
+          size: (settings.captionSize ?? 'medium') as CaptionSize,
+          highlightColor: settings.highlightColor ?? '#A78BFA',
+        }
+      : null,
     width: size.width,
     height: size.height,
     output: silent,
     signal,
+    // Animation is most of the work, so it fills most of the progress bar.
     onProgress: (f) => {
-      const pct = 4 + Math.round(f * 9);
+      const pct = 4 + Math.round(f * 76);
       if (pct > last) {
         last = pct;
         void progress(pct, 'animating_scenes');
@@ -410,11 +431,91 @@ async function prepareMotionBase(project: ProjectDoc, narration: AssetDoc, workD
   // Effects timed to each template's animation (pops, ticks, typing, bell) plus whooshes between scenes.
   const cues = settings.soundEffects === false ? [] : sfxCues(timings.map((t, i) => ({ ...t, motion: parsed[i] })), { transitions: true });
   const withSfx = await mixSfx(input, path.join(workDir, 'base-sfx.mp4'), cues, { signal });
-  return { input: withSfx, words: words as Word[], scenes: [] as UsedBroll[], titles, sceneCount: scenes.length, sfxCount: cues.length };
+  return { input: withSfx, words: words as Word[], scenes: [] as UsedBroll[], titles, sceneCount: scenes.length, sfxCount: cues.length, captionPlan, captionKey };
 }
 
-async function run({ job, signal, progress }: JobContext) {
+export interface CaptionPlan {
+  lines: CaptionLine[];
+  captionsFromEdits: boolean;
+  clearOverrides: boolean;
+  aiKeywordsUsed: boolean;
+  translatedTo: string | null;
+  notes: string[];
+}
+
+/**
+ * Caption lines for a video: the user's own edits when they still fit this cut, otherwise lines laid
+ * out from the words, translated or with AI-picked keywords when available. Shared by burned-in
+ * captions (FFmpeg) and captions drawn inside Motion Explainer animations (Remotion).
+ */
+async function planCaptionLines(opts: {
+  project: ProjectDoc;
+  words: Word[];
+  size: { width: number; height: number };
+  timelineKey: string;
+  llm: LLMProvider | null;
+  signal: AbortSignal;
+  progress: JobContext['progress'];
+}): Promise<CaptionPlan> {
+  const { project, words: allWords, size, timelineKey, llm, signal } = opts;
+  const settings = project.settings ?? {};
+  const language = settings.language ?? 'en';
+  const style = (settings.captionStyle ?? 'bold_pop') as CaptionStyle;
+  const captionSize = (settings.captionSize ?? 'medium') as CaptionSize;
+  const notes: string[] = [];
+  let lines: CaptionLine[] = layoutLines({ words: allWords, style, width: size.width, height: size.height, size: captionSize });
+  const target = settings.captionLanguage && settings.captionLanguage !== 'same' && settings.captionLanguage !== language ? settings.captionLanguage : null;
+  const overrides = project.captionOverrides?.length ? project.captionOverrides : null;
+  let captionsFromEdits = false;
+  let clearOverrides = false;
+  let aiKeywordsUsed = false;
+  let translatedTo: string | null = null;
+  if (overrides && project.captionOverridesKey === timelineKey) {
+    // The user's edited captions, exactly as they wrote them (no AI rewriting).
+    lines = overrides.map((o) => {
+      const words = timeTokens(o.text, o.start, o.end);
+      const k = o.keyword ? matchKeyword(words.map((w) => w.text), o.keyword) : -1;
+      return { words, start: o.start, end: o.end, keywords: k >= 0 ? [k] : [] };
+    });
+    captionsFromEdits = true;
+  } else if (overrides) {
+    notes.push('Your caption edits were not used because the cut changed (for example a different editing intensity). Captions were regenerated — edit them again if needed.');
+    clearOverrides = true;
+  }
+  if (!captionsFromEdits && llm && (target || STYLE_SPECS[style].highlight)) {
+    await opts.progress(13, 'styling_captions');
+    try {
+      if (target) {
+        lines = await translateLines(llm, lines, language, target, signal);
+        translatedTo = target;
+      } else {
+        lines = await aiKeywords(llm, lines, language, signal);
+        aiKeywordsUsed = true;
+      }
+    } catch (err) {
+      if (signal.aborted) throw err;
+      logger.warn({ err }, target ? 'Caption translation failed' : 'AI keywords failed; using rule-based highlights');
+      if (target) notes.push(`Captions were not translated: ${err instanceof LLMError ? err.message : 'the AI request failed.'} They are shown in the spoken language.`);
+    }
+  }
+  return { lines, captionsFromEdits, clearOverrides, aiKeywordsUsed, translatedTo, notes };
+}
+
+/** Same stable seed as the web app's live preview (client/src/motion/themes.ts → seedFrom). */
+export function motionSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+async function run({ job, signal, progress: report }: JobContext) {
   const renderStartedAt = Date.now();
+  // Never let the bar go backwards (some stages run in a different order for some video types).
+  let shown = 0;
+  const progress: JobContext['progress'] = (pct, stage) => {
+    shown = Math.max(shown, pct);
+    return report(shown, stage);
+  };
   const { projectId } = job.payload as RenderPayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
@@ -442,6 +543,8 @@ async function run({ job, signal, progress }: JobContext) {
     let titles: Array<{ start: number; end: number; text: string }> = [];
     let sceneCount = 0;
     let sfxCount = 0;
+    let motionCaptions: CaptionPlan | null = null;
+    let motionCaptionKey: string | null = null;
     if (faceless) {
       const base = await prepareFacelessBase(project, workDir, signal, progress);
       input = base.input;
@@ -450,6 +553,10 @@ async function run({ job, signal, progress }: JobContext) {
       titles = base.titles;
       sceneCount = base.sceneCount;
       sfxCount = base.sfxCount;
+      if ('captionPlan' in base) {
+        motionCaptions = base.captionPlan ?? null;
+        motionCaptionKey = base.captionKey;
+      }
     } else if (avatar) {
       const base = await prepareVoiceoverBase(project, workDir, signal, progress);
       input = base.input;
@@ -497,49 +604,29 @@ async function run({ job, signal, progress }: JobContext) {
     let captions: { assPath: string; fontsDir: string } | undefined;
     let captionLines: CaptionLine[] | undefined;
     // The cut the captions are timed against; edits are only valid for the same cut.
-    const timelineKey = createHash('sha1')
-      .update(JSON.stringify(segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)])) + (avatar ? `|${project.narrationAssetId?.toString()}` : ''))
-      .digest('hex')
-      .slice(0, 16);
+    const timelineKey =
+      motionCaptionKey ??
+      createHash('sha1')
+        .update(JSON.stringify(segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)])) + (avatar ? `|${project.narrationAssetId?.toString()}` : ''))
+        .digest('hex')
+        .slice(0, 16);
     let captionsFromEdits = false;
     let clearOverrides = false;
     let aiKeywordsUsed = false;
     let translatedTo: string | null = null;
+    // Motion Explainer videos already drew their captions inside the animation (same lines).
+    const drawnInAnimation = motionCaptions !== null;
     if (settings.captionsEnabled && editedWords.length) {
+      const plan = motionCaptions ?? (await planCaptionLines({ project, words: editedWords, size, timelineKey, llm, signal, progress }));
+      ({ captionsFromEdits, clearOverrides, aiKeywordsUsed, translatedTo } = plan);
+      notes.push(...plan.notes);
+      captionLines = plan.lines;
+    }
+    if (settings.captionsEnabled && editedWords.length && captionLines && !drawnInAnimation) {
       const style = (settings.captionStyle ?? 'bold_pop') as CaptionStyle;
       const captionSize = (settings.captionSize ?? 'medium') as CaptionSize;
-      let lines: CaptionLine[] = layoutLines({ words: editedWords, style, width: size.width, height: size.height, size: captionSize });
       const target = settings.captionLanguage && settings.captionLanguage !== 'same' && settings.captionLanguage !== language ? settings.captionLanguage : null;
-      const overrides = project.captionOverrides?.length ? project.captionOverrides : null;
-      if (overrides && project.captionOverridesKey === timelineKey) {
-        // The user's edited captions, exactly as they wrote them (no AI rewriting).
-        lines = overrides.map((o) => {
-          const words = timeTokens(o.text, o.start, o.end);
-          const k = o.keyword ? matchKeyword(words.map((w) => w.text), o.keyword) : -1;
-          return { words, start: o.start, end: o.end, keywords: k >= 0 ? [k] : [] };
-        });
-        captionsFromEdits = true;
-      } else if (overrides) {
-        notes.push('Your caption edits were not used because the cut changed (for example a different editing intensity). Captions were regenerated — edit them again if needed.');
-        clearOverrides = true;
-      }
-      if (!captionsFromEdits && llm && (target || STYLE_SPECS[style].highlight)) {
-        await progress(13, 'styling_captions');
-        try {
-          if (target) {
-            lines = await translateLines(llm, lines, language, target, signal);
-            translatedTo = target;
-          } else {
-            lines = await aiKeywords(llm, lines, language, signal);
-            aiKeywordsUsed = true;
-          }
-        } catch (err) {
-          if (signal.aborted) throw err;
-          logger.warn({ err }, target ? 'Caption translation failed' : 'AI keywords failed; using rule-based highlights');
-          if (target) notes.push(`Captions were not translated: ${err instanceof LLMError ? err.message : 'the AI request failed.'} They are shown in the spoken language.`);
-        }
-      }
-      captionLines = lines;
+      const lines = captionLines;
       const { ass } = buildAss({
         words: editedWords,
         lines,
@@ -690,13 +777,15 @@ async function run({ job, signal, progress }: JobContext) {
 
     // Replace the previous render (its storage is freed).
     const previousOutput = project.outputAssetId;
+    // Burned in by FFmpeg, or drawn inside a Motion Explainer animation.
+    const captionsShown = Boolean(captions) || (drawnInAnimation && Boolean(captionLines?.length));
     const stats = {
       sourceDurationSec: Math.round(duration * 10) / 10,
       outputDurationSec: Math.round(out.durationSec * 10) / 10,
       silenceRemovedSec: Math.round((duration - keptSec) * 10) / 10,
       cuts: Math.max(0, segments.length - 1),
       creditsCharged: (job.payload as RenderPayload).credits,
-      captionsAdded: Boolean(captions),
+      captionsAdded: captionsShown,
       fillerWordsRemoved,
       framing,
       brollCount: facelessScenes ? facelessScenes.length : broll.length,
@@ -718,10 +807,10 @@ async function run({ job, signal, progress }: JobContext) {
       background: avatar ? (settings.background ?? 'brand') : null,
       music: track ? { title: track.title, artist: track.artist, license: track.license } : null,
       warnings: [
-        ...(translatedTo ? [] : captionLanguageWarning(settings, Boolean(captions), Boolean(llm))),
+        ...(translatedTo ? [] : captionLanguageWarning(settings, captionsShown, Boolean(llm))),
         ...notes,
         ...pendingFeatureWarnings(settings, {
-        added: Boolean(captions),
+        added: captionsShown,
         error: transcript.error,
         providerConfigured,
         hasAudio: Boolean(info.audio),

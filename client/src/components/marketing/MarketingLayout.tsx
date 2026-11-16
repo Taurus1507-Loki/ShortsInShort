@@ -118,6 +118,7 @@ function Footer() {
         ['Refunds', '/legal/refunds'],
         ['Acceptable use', '/legal/acceptable-use'],
         ['AI disclosure', '/legal/ai-disclosure'],
+        ['Credits & licences', '/legal/credits'],
       ],
     },
   ];

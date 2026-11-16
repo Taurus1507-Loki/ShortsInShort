@@ -93,7 +93,7 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
       <div className="grid content-start gap-1.5">
         {motionStyle ? (
           <Suspense fallback={<div className="aspect-video w-full rounded-md bg-muted" />}>
-            <MotionThumb scene={scene} aspect={project.aspectRatio} />
+            <MotionThumb scene={scene} aspect={project.aspectRatio} themeId={project.settings.motionTheme} seedKey={project.id} />
           </Suspense>
         ) : scene.assetId ? (
           scene.assetType === 'image' && ownImage.data ? (
@@ -339,7 +339,7 @@ export function ScenesPanel({ project, dirty, saveFirst }: { project: Project; d
         {needsReplan && !busy && <Notice tone="info" title={motionStyle ? 'Plan the animations' : 'Plan the footage'}>Some scenes don’t have {motionStyle ? 'an animation' : 'a clip'} for this style yet. Click “Re-plan scenes”, or set them one by one below.</Notice>}
         {motionStyle && scenes.some((sc) => sc.motion) && !busy && (
           <Suspense fallback={<div className="mx-auto aspect-[9/16] w-full max-w-[300px] rounded-lg bg-muted" />}>
-            <MotionPreview scenes={scenes} aspect={project.aspectRatio} language={project.settings.language} />
+            <MotionPreview scenes={scenes} aspect={project.aspectRatio} language={project.settings.language} themeId={project.settings.motionTheme} seedKey={project.id} />
           </Suspense>
         )}
         {planning && (

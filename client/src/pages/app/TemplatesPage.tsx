@@ -5,7 +5,7 @@ import { Player, Thumbnail } from '@remotion/player';
 import { toast } from 'sonner';
 import { Clapperboard, Eye, Search, Star, UserRound, Wand2, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
-import { useMotionTheme } from '@/components/app/MotionScenes';
+import { useMotionLook } from '@/components/app/MotionScenes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge, Card, Skeleton } from '@/components/ui/primitives';
@@ -171,14 +171,14 @@ function TemplateCard({ t, onPreview, onUse }: { t: VideoTemplate; onPreview: ()
 
 /** Card visual: a still of the first animated scene, or a storyboard of real stock thumbnails. */
 function PreviewStrip({ t }: { t: VideoTemplate }) {
-  const theme = useMotionTheme();
+  const look = useMotionLook(t.settings.motionTheme, t.id);
   if (t.preview === 'motion' && t.motionScenes?.length) {
     const [w, h] = SIZE[t.aspectRatio];
     return (
       <div className="flex h-48 items-center justify-center gap-1.5 bg-black/40 p-2">
         {t.motionScenes.slice(0, w > h ? 1 : 3).map((sc, i) => (
           <div key={i} className="h-full overflow-hidden rounded-md" style={{ aspectRatio: `${w} / ${h}` }}>
-            <Thumbnail component={MotionVideo} inputProps={{ scenes: [{ ...sc, durationInFrames: 90 }], theme }} compositionWidth={w} compositionHeight={h} frameToDisplay={70} durationInFrames={90} fps={MOTION_FPS} style={{ height: '100%', width: '100%' }} />
+            <Thumbnail component={MotionVideo} inputProps={{ scenes: [{ ...sc, durationInFrames: 90 }], ...look, transitions: false, seed: (look.seed ?? 0) + i }} compositionWidth={w} compositionHeight={h} frameToDisplay={70} durationInFrames={90} fps={MOTION_FPS} style={{ height: '100%', width: '100%' }} />
           </div>
         ))}
       </div>
@@ -213,10 +213,10 @@ function StockStrip({ t, className }: { t: VideoTemplate; className?: string }) 
 }
 
 function PreviewDialog({ t, onClose, onUse }: { t: VideoTemplate; onClose: () => void; onUse: () => void }) {
-  const theme = useMotionTheme();
+  const look = useMotionLook(t.settings.motionTheme, t.id);
   const [w, h] = SIZE[t.aspectRatio];
   const motion = t.preview === 'motion' && t.motionScenes?.length;
-  const inputProps = useMemo(() => ({ scenes: (t.motionScenes ?? []).map((sc) => ({ ...sc, durationInFrames: 3 * MOTION_FPS })), theme }), [t, theme]);
+  const inputProps = useMemo(() => ({ scenes: (t.motionScenes ?? []).map((sc) => ({ ...sc, durationInFrames: 3 * MOTION_FPS })), ...look }), [t, look]);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">

@@ -127,7 +127,7 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   avatarId: '',
   avatarLayout: 'full',
   facelessStyle: 'stock',
-  sceneTransition: 'fade',
+  sceneTransition: 'mix',
   soundEffects: true,
 };
 

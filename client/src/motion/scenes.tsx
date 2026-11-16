@@ -10,6 +10,7 @@ import type {
   BulletsParams, CardsParams, ChatParams, CompareParams, CtaParams, IconName, MotionScene, MotionTheme, OrbitParams, ProcessParams,
   StatementParams, StatParams, TitleParams,
 } from './types';
+import { AnimatedIcon, hasLineIcon } from './lottie';
 
 const ICON_MAP: Record<IconName, LucideIcon> = {
   sparkles: Sparkles, brain: Brain, cpu: Cpu, bot: Bot, message: MessageSquare, image: Image, video: Video, music: Music, file: FileText,
@@ -36,7 +37,9 @@ function useEnter(delay = 0) {
   return { t, opacity: Math.min(t, exit), y: (1 - t) * 40 };
 }
 
-function Icon({ name, size, color }: { name: IconName; size: number; color: string }) {
+/** An icon that draws itself (animated line icon) when one exists, otherwise a static one. */
+function Icon({ name, size, color, delay = 0 }: { name: IconName; size: number; color: string; delay?: number }) {
+  if (hasLineIcon(name)) return <AnimatedIcon name={name} size={size * 1.15} color={color} delay={delay} />;
   const C = ICON_MAP[name] ?? Sparkles;
   return <C size={size} color={color} strokeWidth={1.8} />;
 }
@@ -91,7 +94,7 @@ function Word({ children, delay, highlight, theme }: { children: React.ReactNode
         opacity: e.opacity,
         transform: `translateY(${e.y * 0.6}px)`,
         display: 'inline-block',
-        color: highlight ? theme.background : theme.text,
+        color: highlight ? theme.onAccent : theme.text,
         background: highlight ? `linear-gradient(90deg, ${theme.primary}, ${theme.secondary})` : 'transparent',
         padding: highlight ? `0 ${unit * 1.2}px` : 0,
         borderRadius: unit * 1.2,
@@ -145,8 +148,8 @@ function Pill({ children, delay, theme, index }: { children: React.ReactNode; de
   const e = useEnter(delay);
   const { unit } = useLayout();
   return (
-    <div style={{ opacity: e.opacity, transform: `translateX(${(1 - e.t) * -60}px)`, display: 'flex', alignItems: 'center', gap: unit * 2.4, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: unit * 2.4, padding: `${unit * 2.4}px ${unit * 3}px`, textAlign: 'left' }}>
-      <div style={{ width: unit * 6, height: unit * 6, borderRadius: unit * 6, flexShrink: 0, display: 'grid', placeItems: 'center', background: index % 2 ? theme.secondary : theme.primary, color: theme.background, fontWeight: 800, fontSize: unit * 3.2 }}>{index + 1}</div>
+    <div style={{ opacity: e.opacity, transform: `translateX(${(1 - e.t) * -60}px)`, display: 'flex', alignItems: 'center', gap: unit * 2.4, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: unit * 2.4, padding: `${unit * 2.4}px ${unit * 3}px`, textAlign: 'left' }}>
+      <div style={{ width: unit * 6, height: unit * 6, borderRadius: unit * 6, flexShrink: 0, display: 'grid', placeItems: 'center', background: index % 2 ? theme.secondary : theme.primary, color: theme.onAccent, fontWeight: 800, fontSize: unit * 3.2 }}>{index + 1}</div>
       <div style={{ color: theme.text, fontSize: unit * 4.6, fontWeight: 600 }}>{children}</div>
     </div>
   );
@@ -172,9 +175,9 @@ function CardItem({ delay, theme, icon, label }: { delay: number; theme: MotionT
   const e = useEnter(delay);
   const { unit } = useLayout();
   return (
-    <div style={{ opacity: e.opacity, transform: `translateY(${e.y}px) scale(${0.9 + 0.1 * e.t})`, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: unit * 3, padding: unit * 3.4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: unit * 1.8 }}>
+    <div style={{ opacity: e.opacity, transform: `translateY(${e.y}px) scale(${0.9 + 0.1 * e.t})`, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: unit * 3, padding: unit * 3.4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: unit * 1.8 }}>
       <div style={{ width: unit * 13, height: unit * 13, borderRadius: unit * 3.4, display: 'grid', placeItems: 'center', background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}>
-        <Icon name={icon} size={unit * 7} color={theme.background} />
+        <Icon name={icon} size={unit * 7} color={theme.onAccent} delay={delay + 4} />
       </div>
       <div style={{ color: theme.text, fontSize: unit * 4.4, fontWeight: 700 }}>{label}</div>
     </div>
@@ -202,8 +205,8 @@ function Step({ delay, theme, icon, label }: { delay: number; theme: MotionTheme
   const { unit } = useLayout();
   return (
     <div style={{ opacity: e.opacity, transform: `scale(${0.85 + 0.15 * e.t})`, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: unit * 1.4 }}>
-      <div style={{ width: unit * 15, height: unit * 15, borderRadius: unit * 15, display: 'grid', placeItems: 'center', border: `${unit * 0.6}px solid ${theme.primary}`, background: 'rgba(255,255,255,0.06)' }}>
-        <Icon name={icon} size={unit * 7} color={theme.text} />
+      <div style={{ width: unit * 15, height: unit * 15, borderRadius: unit * 15, display: 'grid', placeItems: 'center', border: `${unit * 0.6}px solid ${theme.primary}`, background: theme.surface }}>
+        <Icon name={icon} size={unit * 7} color={theme.text} delay={delay + 4} />
       </div>
       <div style={{ color: theme.text, fontSize: unit * 4.2, fontWeight: 700, maxWidth: unit * 34 }}>{label}</div>
     </div>
@@ -236,7 +239,7 @@ function Side({ title, points, color, delay, theme }: { title: string; points: s
   const e = useEnter(delay);
   const { unit } = useLayout();
   return (
-    <div style={{ flex: 1, opacity: e.opacity, transform: `translateY(${e.y}px)`, borderRadius: unit * 3, padding: unit * 3.4, background: 'rgba(255,255,255,0.06)', borderTop: `${unit * 0.8}px solid ${color}`, textAlign: 'left' }}>
+    <div style={{ flex: 1, opacity: e.opacity, transform: `translateY(${e.y}px)`, borderRadius: unit * 3, padding: unit * 3.4, background: theme.surface, border: `1px solid ${theme.border}`, borderTop: `${unit * 0.8}px solid ${color}`, textAlign: 'left' }}>
       <div style={{ color, fontSize: unit * 5.4, fontWeight: 800, marginBottom: unit * 1.6 }}>{title}</div>
       {points.map((pt, i) => (
         <div key={i} style={{ color: theme.text, fontSize: unit * 4.2, fontWeight: 500, marginTop: unit * 1 }}>
@@ -258,16 +261,16 @@ function Chat({ p, theme }: { p: ChatParams; theme: MotionTheme }) {
   const cursor = frame % 16 < 8 && typed.length < p.prompt.length;
   return (
     <Center>
-      <div style={{ opacity: box.opacity, width: '100%', maxWidth: unit * 88, borderRadius: unit * 3, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', padding: unit * 3, display: 'flex', flexDirection: 'column', gap: unit * 2.4, textAlign: 'left' }}>
-        <div style={{ alignSelf: 'flex-end', maxWidth: '85%', background: theme.primary, color: theme.background, borderRadius: `${unit * 3}px ${unit * 3}px ${unit * 0.8}px ${unit * 3}px`, padding: `${unit * 2}px ${unit * 2.6}px`, fontSize: unit * 4.2, fontWeight: 600, minHeight: unit * 6 }}>
+      <div style={{ opacity: box.opacity, width: '100%', maxWidth: unit * 88, borderRadius: unit * 3, background: theme.surface, border: `1px solid ${theme.border}`, padding: unit * 3, display: 'flex', flexDirection: 'column', gap: unit * 2.4, textAlign: 'left' }}>
+        <div style={{ alignSelf: 'flex-end', maxWidth: '85%', background: theme.primary, color: theme.onAccent, borderRadius: `${unit * 3}px ${unit * 3}px ${unit * 0.8}px ${unit * 3}px`, padding: `${unit * 2}px ${unit * 2.6}px`, fontSize: unit * 4.2, fontWeight: 600, minHeight: unit * 6 }}>
           {typed}
           {cursor && '▍'}
         </div>
         <div style={{ opacity: reply.opacity, transform: `translateY(${reply.y * 0.5}px)`, alignSelf: 'flex-start', maxWidth: '90%', display: 'flex', gap: unit * 1.6, alignItems: 'flex-start' }}>
           <div style={{ width: unit * 7, height: unit * 7, borderRadius: unit * 7, flexShrink: 0, display: 'grid', placeItems: 'center', background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}>
-            <Sparkles size={unit * 3.8} color={theme.background} />
+            <Sparkles size={unit * 3.8} color={theme.onAccent} />
           </div>
-          <div style={{ background: 'rgba(255,255,255,0.1)', color: theme.text, borderRadius: `${unit * 3}px ${unit * 3}px ${unit * 3}px ${unit * 0.8}px`, padding: `${unit * 2}px ${unit * 2.6}px`, fontSize: unit * 4.2 }}>{p.reply}</div>
+          <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, color: theme.text, borderRadius: `${unit * 3}px ${unit * 3}px ${unit * 3}px ${unit * 0.8}px`, padding: `${unit * 2}px ${unit * 2.6}px`, fontSize: unit * 4.2 }}>{p.reply}</div>
         </div>
       </div>
     </Center>
@@ -282,16 +285,16 @@ function Orbit({ p, theme }: { p: OrbitParams; theme: MotionTheme }) {
   return (
     <Center gap={5}>
       <div style={{ position: 'relative', width: r * 2 + unit * 14, height: r * 2 + unit * 14 }}>
-        <div style={{ position: 'absolute', inset: unit * 7, borderRadius: '50%', border: `2px dashed rgba(255,255,255,0.18)` }} />
+        <div style={{ position: 'absolute', inset: unit * 7, borderRadius: '50%', border: `2px dashed ${theme.border}` }} />
         <div style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(-50%, -50%) scale(${center.t})`, width: unit * 22, height: unit * 22, borderRadius: unit * 6, display: 'grid', placeItems: 'center', background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})`, boxShadow: `0 0 ${unit * 10}px ${theme.primary}66` }}>
-          <Icon name={p.centerIcon} size={unit * 11} color={theme.background} />
+          <Icon name={p.centerIcon} size={unit * 11} color={theme.onAccent} />
         </div>
         {p.icons.map((ic, i) => {
           const angle = (i / p.icons.length) * Math.PI * 2 + frame / 90;
           const appear = spring({ frame: frame - 8 - i * 4, fps: 30, config: { damping: 16 } });
           return (
-            <div key={i} style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${Math.cos(angle) * r * appear}px), calc(-50% + ${Math.sin(angle) * r * appear}px))`, opacity: appear, width: unit * 12, height: unit * 12, borderRadius: unit * 12, display: 'grid', placeItems: 'center', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}>
-              <Icon name={ic} size={unit * 6} color={theme.text} />
+            <div key={i} style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(calc(-50% + ${Math.cos(angle) * r * appear}px), calc(-50% + ${Math.sin(angle) * r * appear}px))`, opacity: appear, width: unit * 12, height: unit * 12, borderRadius: unit * 12, display: 'grid', placeItems: 'center', background: theme.surface, border: `1px solid ${theme.border}` }}>
+              <Icon name={ic} size={unit * 6} color={theme.text} delay={10 + i * 4} />
             </div>
           );
         })}
@@ -310,8 +313,8 @@ function Cta({ p, theme }: { p: CtaParams; theme: MotionTheme }) {
   return (
     <Center gap={4}>
       <div style={{ opacity: h.opacity, transform: `translateY(${h.y}px)`, color: theme.text, fontSize: unit * 8.4, fontWeight: 800, lineHeight: 1.25 }}>{p.headline}</div>
-      <div style={{ opacity: b.opacity, transform: `scale(${(0.8 + 0.2 * b.t) * pulse})`, background: `linear-gradient(90deg, ${theme.primary}, ${theme.secondary})`, color: theme.background, fontWeight: 800, fontSize: unit * 5, padding: `${unit * 2.6}px ${unit * 6}px`, borderRadius: unit * 8, display: 'flex', alignItems: 'center', gap: unit * 2 }}>
-        {p.action} <ArrowRight size={unit * 5} color={theme.background} strokeWidth={2.6} />
+      <div style={{ opacity: b.opacity, transform: `scale(${(0.8 + 0.2 * b.t) * pulse})`, background: `linear-gradient(90deg, ${theme.primary}, ${theme.secondary})`, color: theme.onAccent, fontWeight: 800, fontSize: unit * 5, padding: `${unit * 2.6}px ${unit * 6}px`, borderRadius: unit * 8, display: 'flex', alignItems: 'center', gap: unit * 2 }}>
+        {p.action} <ArrowRight size={unit * 5} color={theme.onAccent} strokeWidth={2.6} />
       </div>
     </Center>
   );

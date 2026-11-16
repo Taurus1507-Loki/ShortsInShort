@@ -14,9 +14,28 @@ export interface MotionTheme {
   muted: string;
 }
 
+/** Word-timed captions drawn inside the animation (see client/src/motion/types.ts → CaptionTrack). */
+export interface MotionCaptionTrack {
+  lines: Array<{ start: number; end: number; words: Array<{ text: string; start: number; end: number }>; keywords: number[] }>;
+  style: 'bold_pop' | 'clean_minimal' | 'karaoke' | 'boxed' | 'cinematic';
+  position: 'top' | 'middle' | 'bottom';
+  size: 'small' | 'medium' | 'large' | 'xl';
+  highlightColor: string;
+}
+
 export interface MotionRenderInput {
   scenes: Array<MotionScene & { durationInFrames: number }>;
+  /** Fallback finished theme (older compositions); `themeId` + `brand` take precedence. */
   theme: MotionTheme;
+  /** Theme choice: "auto", "brand", "brand_light" or a theme id (client/src/motion/themes.ts). */
+  themeId?: string;
+  brand?: { primary?: string; secondary?: string };
+  /** Varies backgrounds, transitions and stickers per project. */
+  seed?: number;
+  captions?: MotionCaptionTrack | null;
+  /** Scene transitions and emoji stickers (both on unless set to false). */
+  transitions?: boolean;
+  stickers?: boolean;
   width: number;
   height: number;
   output: string;
@@ -53,7 +72,18 @@ function serveUrl(): Promise<string> {
 export const remotionRenderer: MotionRenderer = async (input) => {
   const { renderMedia, selectComposition, makeCancelSignal } = await import('@remotion/renderer');
   const url = await serveUrl();
-  const inputProps = { scenes: input.scenes, theme: input.theme, width: input.width, height: input.height };
+  const inputProps = {
+    scenes: input.scenes,
+    theme: input.theme,
+    themeId: input.themeId,
+    brand: input.brand,
+    seed: input.seed,
+    captions: input.captions ?? null,
+    transitions: input.transitions ?? true,
+    stickers: input.stickers ?? true,
+    width: input.width,
+    height: input.height,
+  };
   const composition = await selectComposition({ serveUrl: url, id: 'MotionVideo', inputProps });
   const { cancelSignal, cancel } = makeCancelSignal();
   const onAbort = () => cancel();

@@ -171,7 +171,9 @@ export interface ProjectSettings {
   avatarLayout: 'full' | 'overlay';
   /** Faceless: stock footage or animated Motion Explainer scenes. */
   facelessStyle: 'stock' | 'motion';
-  sceneTransition: 'cut' | 'fade' | 'slide' | 'wipe';
+  sceneTransition: 'cut' | 'fade' | 'slide' | 'wipe' | 'mix' | 'zoom' | 'circle' | 'smooth' | 'blur' | 'pixel';
+  /** Motion Explainer colour theme: auto, brand, brand_light or a theme id (motion/themes.ts). */
+  motionTheme?: string;
   soundEffects: boolean;
 }
 

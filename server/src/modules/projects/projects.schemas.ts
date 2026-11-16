@@ -11,6 +11,7 @@ import {
   AVATAR_LAYOUTS,
   FACELESS_STYLES,
   SCENE_TRANSITIONS,
+  MOTION_THEMES,
   EDITING_STYLES,
   INTENSITIES,
   PROJECT_MODES,
@@ -46,6 +47,7 @@ const settingsSchema = z
     avatarLayout: z.enum(AVATAR_LAYOUTS),
     facelessStyle: z.enum(FACELESS_STYLES),
     sceneTransition: z.enum(SCENE_TRANSITIONS),
+    motionTheme: z.enum(MOTION_THEMES),
     soundEffects: z.boolean(),
   })
   .strict()

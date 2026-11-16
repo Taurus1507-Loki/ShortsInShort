@@ -158,3 +158,15 @@ AI Video Editor B-roll now adds more and longer stock cutaways:
 
 Previously it was one clip per 20/12/7 s, at most 3.5 s each. A cutaway may now continue over the next sentence.
 
+
+## Motion Explainer look refresh (2026-11-16)
+- **Themes:** 10 colour themes, 6 of them light (Cream, Mint, Lavender, Peach, Sky, Paper) and 4 dark, plus Brand Kit light or dark. The default, "Surprise me" (`auto`), gives each project its own theme. Pick one on the Style step (`settings.motionTheme`). Defined in `client/src/motion/themes.ts`.
+- **Backgrounds:** each scene gets its own background (glow, mesh, grid, dots, aurora, diagonal, spotlight, waves or rings), never the same twice in a row.
+- **Transitions** (`@remotion/transitions`): a different one at every cut, chosen from zoom-through, spin, blinds, diamond, split, swing-slide, slide, wipe, flip, cube, clock-wipe and iris. Only CSS-based transitions are used; the WebGL ones need an experimental Chrome feature. The outgoing scene is extended by the transition length, so scenes still start exactly with their words and the video keeps the voiceover's length.
+- **Lottie** (`@remotion/lottie`, drawn on canvas):
+  - Animated emoji stickers (Google Noto, CC BY 4.0), chosen from each scene's words and type, on about half the scenes.
+  - Card, process and orbit icons draw themselves (useAnimations, MIT), recoloured to the theme.
+- **Captions** are drawn inside the animation and animate word by word in the 5 caption styles. They still honour caption edits, translation and AI keywords; FFmpeg no longer burns captions into Motion Explainer videos.
+- **Stock-footage videos** get new FFmpeg transitions: Mix (a different xfade at every cut, now the default), Smooth push, Zoom in, Circle reveal, Motion blur and Pixelate.
+- **Speed:** the effects make animated renders about 1.3× slower (measured on a 12.5 s, 720p sample). A 6 s, 720p export took 13 s end to end.
+- Credits and licences: `/legal/credits` and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

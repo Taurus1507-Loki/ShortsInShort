@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, ArrowRight, Check, Coins, Save } from 'lucide-react';
 import { DeleteProjectButton } from '@/components/app/ProjectActions';
+import { MotionThemePicker } from '@/components/app/MotionThemePicker';
+const MotionPreview = lazy(() => import('@/components/app/MotionScenes').then((m) => ({ default: m.MotionPreview })));
 import { CustomizeForm, DEFAULT_SETTINGS, StatusBadge, type CustomizeValue } from '@/components/app/projects';
 import { CaptionEditor } from '@/components/app/CaptionEditor';
 import { LivePreview } from '@/components/app/LivePreview';
@@ -39,26 +41,27 @@ export default function ProjectDetailPage() {
   const [script, setScript] = useState('');
   const [custom, setCustom] = useState<CustomizeValue | null>(null);
 
-  // Sync the form from the server, but don't clobber unsaved edits during status polling.
-  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  // Sync the form from the server, but don't clobber unsaved edits during status polling. "Unsaved"
+  // means the user changed the form since it was last loaded — not that the server changed (e.g. the
+  // Scenes step switching to animated scenes), which must flow into the form.
+  const [loaded, setLoaded] = useState<Project | null>(null);
+  const differs = (p: Project) =>
+    !!custom &&
+    (title !== p.title || script !== p.script || JSON.stringify(custom) !== JSON.stringify({ style: p.style, aspectRatio: p.aspectRatio, settings: p.settings }));
   useEffect(() => {
     if (!project) return;
-    const stamp = `${project.id}:${project.updatedAt}`;
-    if (loadedFor === null || (loadedFor !== stamp && !isDirty())) {
+    const userEdited = loaded ? differs(loaded) : false;
+    if (!loaded || (loaded.updatedAt !== project.updatedAt && !userEdited)) {
       setTitle(project.title);
       setScript(project.script);
       setCustom({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings });
-      setLoadedFor(stamp);
+      setLoaded(project);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
-  const isDirty = () =>
-    !!project &&
-    !!custom &&
-    (title !== project.title ||
-      script !== project.script ||
-      JSON.stringify(custom) !== JSON.stringify({ style: project.style, aspectRatio: project.aspectRatio, settings: project.settings }));
+  /** Unsaved: the form doesn't match what the server has now. */
+  const isDirty = () => !!project && differs(project);
 
   const onSaved = (p: Project) => {
     queryClient.setQueryData(keys.project(id), p);
@@ -79,7 +82,7 @@ export default function ProjectDetailPage() {
       setTitle(p.title);
       setScript(p.script);
       setCustom({ style: p.style, aspectRatio: p.aspectRatio, settings: p.settings });
-      setLoadedFor(`${p.id}:${p.updatedAt}`);
+      setLoaded(p);
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -367,11 +370,33 @@ export default function ProjectDetailPage() {
                     <span className="block text-xs text-muted-foreground">Recommended, and many platforms ask for AI disclosure. Always shown with a talking presenter or a cloned voice.</span>
                   </span>
                 </label>
+                {project.mode === 'faceless' && custom.settings.facelessStyle === 'motion' && (
+                  <section className="grid gap-4 lg:grid-cols-[1fr_260px]">
+                    <div className="grid content-start gap-3">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Colour theme</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Light or dark. Every scene also gets its own background, a different transition (zoom, swing, split, cube, diamond…), animated emoji and word-by-word captions.
+                      </p>
+                      <MotionThemePicker value={custom.settings.motionTheme} onChange={(v) => setSettings({ motionTheme: v })} />
+                    </div>
+                    {(project.scenes?.length ?? 0) > 0 && (
+                      <Suspense fallback={<div className="mx-auto aspect-[9/16] w-full max-w-[260px] rounded-lg bg-muted" />}>
+                        <MotionPreview scenes={project.scenes!} aspect={custom.aspectRatio} language={custom.settings.language} themeId={custom.settings.motionTheme} seedKey={project.id} />
+                      </Suspense>
+                    )}
+                  </section>
+                )}
                 {project.mode === 'faceless' && (
                   <section className="grid gap-4 sm:grid-cols-2">
                     {(custom.settings.facelessStyle ?? 'stock') === 'stock' && (
-                      <Field id="scene-transition" label="Scene transitions" hint="How one clip changes to the next. Fade is smooth; Cut is instant.">
-                        <Select value={custom.settings.sceneTransition ?? 'fade'} onChange={(e) => setSettings({ sceneTransition: e.target.value as ProjectSettings['sceneTransition'] })}>
+                      <Field id="scene-transition" label="Scene transitions" hint="How one clip changes to the next. Mix uses a different effect at every cut.">
+                        <Select value={custom.settings.sceneTransition ?? 'mix'} onChange={(e) => setSettings({ sceneTransition: e.target.value as ProjectSettings['sceneTransition'] })}>
+                          <option value="mix">Mix (different at every cut)</option>
+                          <option value="smooth">Smooth push</option>
+                          <option value="zoom">Zoom in</option>
+                          <option value="circle">Circle reveal</option>
+                          <option value="blur">Motion blur</option>
+                          <option value="pixel">Pixelate</option>
                           <option value="fade">Fade</option>
                           <option value="slide">Slide</option>
                           <option value="wipe">Wipe</option>
