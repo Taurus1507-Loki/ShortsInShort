@@ -122,6 +122,10 @@ describe('AI Video Editor timeline', () => {
     const words = (await request(app).get(`/api/projects/${p.id}/words`).set(auth).expect(200)).body.data.words;
     expect(words).toHaveLength(7);
 
+    // Caption lines were laid out at analysis (source time, fillers left out, one highlighted word).
+    expect(edit.captions!.length).toBeGreaterThan(0);
+    expect(edit.captions!.flatMap((c) => c.words.map((w) => w.text))).not.toContain('um');
+
     // Re-analysing the same footage is free and keeps the transcript.
     expect((await request(app).get(`/api/projects/${p.id}/analyze/estimate`).set(auth).expect(200)).body.data.credits).toBe(0);
 
@@ -130,9 +134,17 @@ describe('AI Video Editor timeline', () => {
     const saved = await request(app)
       .patch(`/api/projects/${p.id}/edit`)
       .set(auth)
-      .send({ cuts: [{ start: 2.2, end: 5 }], zooms: [{ at: 0.5, dur: 1, scale: 1.12 }], texts: [{ start: 5.1, end: 6, text: 'Every time', position: 'bottom' }], segments })
+      .send({
+        cuts: [{ start: 2.2, end: 5 }],
+        zooms: [{ at: 0.5, dur: 1, scale: 1.12 }],
+        texts: [{ start: 5.1, end: 6, text: 'Every time', position: 'bottom', style: 'accent', size: 'l', color: '#E11D48' }],
+        // The user rewrote the first caption line and highlighted its last word.
+        captions: [{ words: [{ text: 'Consistency', start: 0.2, end: 0.9 }, { text: 'wins', start: 0.95, end: 2.2 }], keyword: 1 }, ...edit.captions!.slice(1)],
+        segments,
+      })
       .expect(200);
     expect(saved.body.data.edit.segments).toEqual(segments);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ texts: [{ start: 1, end: 2, text: 'x', position: 'top', style: 'neon' }] }).expect(400);
     await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ segments: [{ start: 3, end: 2 }] }).expect(400);
     await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ segments: [{ start: 0, end: 3 }, { start: 2, end: 4 }] }).expect(400);
     await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ texts: [{ start: 1, end: 99, text: 'x', position: 'top' }] }).expect(400);
@@ -148,9 +160,24 @@ describe('AI Video Editor timeline', () => {
     expect(done.renderStats.cuts).toBe(1);
     expect(done.renderStats.captionsAdded).toBe(true);
     expect(done.renderStats.zoomCount).toBe(1);
+    // The export used the timeline captions exactly as edited (and nothing from the cut part).
+    expect(done.renderStats.captionsFromEdits).toBe(true);
+    expect(done.captionLines[0]).toMatchObject({ text: 'Consistency wins', keyword: 'wins' });
+    expect(done.captionLines.map((l: { text: string }) => l.text).join(' ')).not.toMatch(/um/);
     expect(transcribeCalls).toBe(1); // the export reused the analysis transcript
     expect(await balance(auth)).toBe(45);
   }, 180_000);
+
+  it('rebuilds captions for a new caption style', async () => {
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/analyze`).set(auth).expect(202);
+    await worker.runOnce();
+    const before = (await request(app).get(`/api/projects/${p.id}`).set(auth)).body.data.edit.captions as EditDoc['captions'];
+    await request(app).patch(`/api/projects/${p.id}`).set(auth).send({ settings: { captionStyle: 'clean_minimal' } }).expect(200);
+    const after = (await request(app).post(`/api/projects/${p.id}/captions/rebuild`).set(auth).expect(200)).body.data.edit.captions as EditDoc['captions'];
+    // Clean minimal fits more words per line than Bold pop, so there are fewer lines.
+    expect(after!.length).toBeLessThan(before!.length);
+  }, 120_000);
 
   it('needs an analysis before timeline edits, and a new video needs a new analysis', async () => {
     const { auth, p } = await editorProject();
@@ -165,4 +192,27 @@ describe('AI Video Editor timeline', () => {
     await request(app).patch(`/api/projects/${p.id}`).set(auth).send({ sourceAssetId: other.id }).expect(200);
     await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ pauseSec: 0.6 }).expect(409);
   }, 120_000);
+});
+
+describe('styled text overlays in the export', () => {
+  it('writes boxed, coloured and sized titles into the overlay subtitle file', async () => {
+    const { buildWatermarkAss } = await import('../services/video/captions.js');
+    const ass = buildWatermarkAss({
+      width: 720,
+      height: 1280,
+      durationSec: 5,
+      watermark: false,
+      titles: [
+        { start: 0, end: 1, text: 'Plain' },
+        { start: 1, end: 2, text: 'Boxed', style: 'box', position: 'bottom' },
+        { start: 2, end: 3, text: 'Accent', style: 'accent', color: '#E11D48', size: 'l' },
+        { start: 3, end: 4, text: 'Yellow', color: '#FACC15', position: 'middle' },
+      ],
+    });
+    expect(ass).toMatch(/Style: TitleBox,.*,3,/); // opaque box style
+    expect(ass).toContain(",Title,,0,0,0,,{\\fad(200,200)}Plain");
+    expect(ass).toContain(",TitleBox,,0,0,0,,{\\fad(200,200)\\an2}Boxed");
+    expect(ass).toContain("TitleBox,,0,0,0,,{\\fad(200,200)\\fs65\\3c&H481DE1&}Accent");
+    expect(ass).toContain(",Title,,0,0,0,,{\\fad(200,200)\\an5\\c&H15CCFA&}Yellow");
+  });
 });

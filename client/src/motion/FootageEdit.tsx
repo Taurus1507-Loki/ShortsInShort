@@ -14,7 +14,7 @@ export interface FootageEditProps {
   segments: Array<{ start: number; end: number }>;
   framing: 'crop' | 'blur';
   zooms: Array<{ start: number; end: number; scale: number }>;
-  texts: Array<{ start: number; end: number; text: string; position: 'top' | 'middle' | 'bottom' }>;
+  texts: Array<{ start: number; end: number; text: string; position: 'top' | 'middle' | 'bottom'; style?: 'outline' | 'box' | 'accent'; size?: 's' | 'm' | 'l'; color?: string }>;
   captions: CaptionTrack | null;
   logo: { url: string; position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; widthFrac: number; opacity: number } | null;
   watermark: boolean;
@@ -63,12 +63,16 @@ export function FootageEdit({ src, segments, framing, zooms, texts, captions, lo
           <AbsoluteFill key={i} style={{ justifyContent: x.position === 'top' ? 'flex-start' : x.position === 'middle' ? 'center' : 'flex-end', alignItems: 'center', padding: `${height * 0.14}px ${width * 0.08}px` }}>
             <div
               style={{
-                color: '#fff',
+                // Same looks as the export: outline (coloured text, black edge), dark box, or coloured box.
+                color: x.style === 'box' || x.style === 'accent' ? '#fff' : (x.color ?? '#fff'),
+                background: x.style === 'box' ? 'rgba(11,11,18,0.81)' : x.style === 'accent' ? (x.color ?? '#7C3AED') : undefined,
+                padding: x.style === 'box' || x.style === 'accent' ? `${short * 0.012}px ${short * 0.022}px` : undefined,
+                borderRadius: x.style === 'box' || x.style === 'accent' ? short * 0.01 : undefined,
                 fontWeight: 900,
-                fontSize: short * 0.068,
+                fontSize: short * (x.size === 's' ? 0.05 : x.size === 'l' ? 0.09 : x.style === 'box' || x.style === 'accent' ? 0.062 : 0.068),
                 textAlign: 'center',
                 lineHeight: 1.15,
-                WebkitTextStroke: `${Math.max(2, short * 0.006)}px #000`,
+                WebkitTextStroke: x.style === 'box' || x.style === 'accent' ? undefined : `${Math.max(2, short * 0.006)}px #000`,
                 paintOrder: 'stroke fill',
                 opacity: interpolate(t, [x.start, x.start + 0.2, x.end - 0.2, x.end], [0, 1, 1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
               }}

@@ -12,7 +12,7 @@ import { FootageEdit, type FootageEditProps } from '@/motion/FootageEdit';
 import { api, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useBrandKit, useJob } from '@/lib/queries';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type Range, type Word } from '@/features/edl';
+import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type Range, type Word } from '@/features/edl';
 import { cn } from '@/lib/utils';
 import type { Project, ProjectSettings } from '@/types/api';
 
@@ -21,8 +21,8 @@ const SIZE: Record<string, [number, number]> = { '9:16': [720, 1280], '16:9': [1
 const LOGO_W = { small: 0.12, medium: 0.18, large: 0.25 } as const;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
-type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | null;
-type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts'>;
+type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | null;
+type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions'>;
 
 /**
  * AI Video Editor "Edit" step: analyse once, then edit by hand on a timeline while a player shows the
@@ -88,7 +88,7 @@ function AnalyzeCard({ project }: { project: Project }) {
 
 function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; settings: ProjectSettings }) {
   const duration = edit.durationSec;
-  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts });
+  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null });
   const [past, setPast] = useState<Timeline[]>([]);
   const [future, setFuture] = useState<Timeline[]>([]);
   const [sel, setSel] = useState<Selection>(null);
@@ -129,6 +129,17 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     setSel(null);
   };
 
+  // Re-lay the captions for the current style on the server (same layout + AI highlights as analysis).
+  const rebuild = useMutation({
+    mutationFn: () => api<{ data: Project }>(`/projects/${project.id}/captions/rebuild`, { method: 'POST' }).then((r) => r.data),
+    onSuccess: (p) => {
+      change((t) => ({ ...t, captions: p.edit?.captions ?? null }));
+      setSel(null);
+      toast.success('Captions rebuilt');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
   // Auto-save (debounced) whenever the timeline changes.
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const first = useRef(true);
@@ -155,7 +166,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   }, [tl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Player inputs ── */
-  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts);
+  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions);
 
   // Keep the playhead (source time) in sync with the player.
   useEffect(() => {
@@ -214,6 +225,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     else if (sel.kind === 'removed') restoreRange({ start: sel.start, end: sel.end });
     else if (sel.kind === 'zoom') change((t) => ({ ...t, zooms: t.zooms.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'text') change((t) => ({ ...t, texts: t.texts.filter((_, i) => i !== sel.index) }));
+    else if (sel.kind === 'caption') change((t) => ({ ...t, captions: (t.captions ?? []).filter((_, i) => i !== sel.index) }));
     setSel(null);
   };
   const addZoom = () => {
@@ -253,6 +265,9 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   const x = (t: number) => t * pxPerSec;
   const selText = sel?.kind === 'text' ? tl.texts[sel.index] : null;
   const selZoom = sel?.kind === 'zoom' ? tl.zooms[sel.index] : null;
+  const selCaption = sel?.kind === 'caption' ? tl.captions?.[sel.index] : null;
+  const setText = (index: number, patch: Partial<Timeline['texts'][number]>) => change((t) => ({ ...t, texts: t.texts.map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
+  const setCaption = (index: number, next: NonNullable<Timeline['captions']>[number]) => change((t) => ({ ...t, captions: (t.captions ?? []).map((c, i) => (i === index ? next : c)) }));
   const isRemoved = (w: Word) => removed.some((r) => w.start >= r.start - 0.01 && w.end <= r.end + 0.01);
 
   return (
@@ -314,6 +329,59 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Captions</CardTitle>
+              <CardDescription>
+                {tl.captions?.length ? `${tl.captions.length} lines. Click one on the timeline to change its words or highlighted word.` : 'Captions are made from the transcript.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" size="sm" onClick={() => rebuild.mutate()} loading={rebuild.isPending} title="Lay the captions out again for the current caption style (your caption edits are replaced)">
+                <RotateCcw /> {tl.captions?.length ? 'Rebuild for current style' : 'Make captions'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {selCaption && sel?.kind === 'caption' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Caption line</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <Input
+                  id="caption-text"
+                  defaultValue={selCaption.words.map((w) => w.text).join(' ')}
+                  key={`${sel.index}-${selCaption.words.length}`}
+                  maxLength={160}
+                  onBlur={(e) => {
+                    const text = e.target.value.trim();
+                    if (text && text !== selCaption.words.map((w) => w.text).join(' ')) setCaption(sel.index, retimeCaption(selCaption, text));
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                />
+                <div className="grid gap-1.5">
+                  <span className="text-xs text-muted-foreground">Highlighted word</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selCaption.words.map((w, k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => setCaption(sel.index, { ...selCaption, keyword: selCaption.keyword === k ? -1 : k })}
+                        className={cn('rounded-md border px-2 py-1 text-xs', selCaption.keyword === k ? 'border-highlight bg-highlight/20 font-semibold' : 'border-border hover:border-primary/40')}
+                      >
+                        {w.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={deleteSel}>
+                  <Trash2 /> Hide this caption
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {selText && sel?.kind === 'text' && (
             <Card>
               <CardHeader>
@@ -326,6 +394,41 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                   <option value="middle">Middle</option>
                   <option value="bottom">Bottom</option>
                 </Select>
+                <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Text style">
+                  {([
+                    ['outline', 'Outline'],
+                    ['box', 'Dark box'],
+                    ['accent', 'Colour box'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={(selText.style ?? 'outline') === id}
+                      onClick={() => setText(sel.index, { style: id })}
+                      className={cn('rounded-md border px-2 py-1.5 text-xs', (selText.style ?? 'outline') === id ? 'border-primary bg-primary/15 font-semibold' : 'border-border hover:border-primary/40')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select id="text-size" value={selText.size ?? 'm'} onChange={(e) => setText(sel.index, { size: e.target.value as 'm' })}>
+                    <option value="s">Small</option>
+                    <option value="m">Medium</option>
+                    <option value="l">Large</option>
+                  </Select>
+                  <input
+                    id="text-color"
+                    type="color"
+                    aria-label={(selText.style ?? 'outline') === 'accent' ? 'Box colour' : 'Text colour'}
+                    title={(selText.style ?? 'outline') === 'accent' ? 'Box colour' : 'Text colour'}
+                    disabled={selText.style === 'box'}
+                    value={selText.color ?? (selText.style === 'accent' ? '#7C3AED' : '#FFFFFF')}
+                    onChange={(e) => setText(sel.index, { color: e.target.value.toUpperCase() })}
+                    className="h-9 w-12 shrink-0 cursor-pointer rounded border border-border bg-transparent disabled:opacity-40"
+                  />
+                </div>
                 <label className="grid gap-1 text-xs text-muted-foreground">
                   Shows for (seconds)
                   <Input id="text-length" type="number" min={0.5} max={15} step={0.5} value={Math.round((selText.end - selText.start) * 10) / 10} onChange={(e) => change((t) => ({ ...t, texts: t.texts.map((x, i) => (i === sel.index ? { ...x, end: Math.min(duration, x.start + Math.max(0.5, Number(e.target.value) || 0.5)) } : x)) }))} />
@@ -402,7 +505,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
           <div ref={strip} className="overflow-x-auto rounded-lg border border-border bg-muted/30">
             <div
               className="relative select-none"
-              style={{ width, height: 182 }}
+              style={{ width, height: 202 }}
               onMouseDown={(e) => {
                 if ((e.target as HTMLElement).dataset.track !== 'ruler') return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -442,7 +545,37 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                 );
               })}
               {/* Words */}
-              <TrackLabel top={72} label="Words" />
+              {/* Captions */}
+              <TrackLabel top={72} label="Captions" />
+              {(tl.captions ?? []).map((c, i) => {
+                const start = c.words[0]!.start;
+                const end = c.words[c.words.length - 1]!.end;
+                const cut = !rangeToOutput(segments, start, end);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setSel({ kind: 'caption', index: i });
+                      seekSource(start);
+                    }}
+                    title={`${c.words.map((w) => w.text).join(' ')} · click to edit`}
+                    className={cn(
+                      'absolute top-[70px] h-7 overflow-hidden whitespace-nowrap rounded-sm border px-1 text-left text-[10px] leading-7',
+                      cut ? 'border-dashed border-muted-foreground/40 text-muted-foreground opacity-50' : 'border-amber-400/60 bg-amber-400/20 text-foreground',
+                      sel?.kind === 'caption' && sel.index === i && 'ring-2 ring-highlight',
+                    )}
+                    style={{ left: x(start), width: Math.max(10, x(end) - x(start) - 1) }}
+                  >
+                    {c.words.map((w, k) => (
+                      <span key={k} className={k === c.keyword ? 'font-bold text-highlight' : undefined}>
+                        {w.text}{' '}
+                      </span>
+                    ))}
+                  </button>
+                );
+              })}
+              <TrackLabel top={104} label="Words" />
               {words.map((w, i) => {
                 const gone = isRemoved(w) || (w.filler && tl.removeFillers);
                 const inSel = sel?.kind === 'words' && w.start >= sel.start - 0.001 && w.end <= sel.end + 0.001;
@@ -456,7 +589,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                       seekSource(w.start);
                     }}
                     title={`${w.text} · click to select (Shift+click to extend), Delete to cut`}
-                    className={cn('absolute top-[70px] h-7 overflow-hidden whitespace-nowrap rounded-sm px-0.5 text-left text-[10px] leading-7', gone ? 'text-muted-foreground line-through opacity-50' : 'bg-card text-foreground', w.filler && 'italic text-warning', inSel && 'bg-highlight/30 ring-1 ring-highlight')}
+                    className={cn('absolute top-[102px] h-7 overflow-hidden whitespace-nowrap rounded-sm px-0.5 text-left text-[10px] leading-7', gone ? 'text-muted-foreground line-through opacity-50' : 'bg-card text-foreground', w.filler && 'italic text-warning', inSel && 'bg-highlight/30 ring-1 ring-highlight')}
                     style={{ left: x(w.start), width: Math.max(4, x(w.end) - x(w.start) - 1) }}
                   >
                     {w.text}
@@ -464,7 +597,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                 );
               })}
               {/* Zooms */}
-              <TrackLabel top={104} label="Zoom" />
+              <TrackLabel top={136} label="Zoom" />
               {tl.zooms.map((z, i) => (
                 <button
                   key={i}
@@ -474,12 +607,12 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                     seekSource(z.at);
                   }}
                   title={`Zoom ${Math.round((z.scale - 1) * 100)}% for ${z.dur}s`}
-                  className={cn('absolute top-[104px] h-6 rounded-sm border border-accent/60 bg-accent/30', sel?.kind === 'zoom' && sel.index === i && 'ring-2 ring-highlight')}
+                  className={cn('absolute top-[136px] h-6 rounded-sm border border-accent/60 bg-accent/30', sel?.kind === 'zoom' && sel.index === i && 'ring-2 ring-highlight')}
                   style={{ left: x(z.at), width: Math.max(8, z.dur * pxPerSec) }}
                 />
               ))}
               {/* Text */}
-              <TrackLabel top={134} label="Text" />
+              <TrackLabel top={166} label="Text" />
               {tl.texts.map((t, i) => (
                 <button
                   key={i}
@@ -488,7 +621,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                     setSel({ kind: 'text', index: i });
                     seekSource(t.start);
                   }}
-                  className={cn('absolute top-[134px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-success/60 bg-success/20 px-1 text-left text-[10px] leading-7', sel?.kind === 'text' && sel.index === i && 'ring-2 ring-highlight')}
+                  className={cn('absolute top-[166px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-success/60 bg-success/20 px-1 text-left text-[10px] leading-7', sel?.kind === 'text' && sel.index === i && 'ring-2 ring-highlight')}
                   style={{ left: x(t.start), width: Math.max(12, x(t.end) - x(t.start)) }}
                 >
                   {t.text}
@@ -499,16 +632,94 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Click a block to select it · <kbd>S</kbd> split at the playhead · <kbd>Delete</kbd> cut (or restore a striped cut) · click words to cut exactly what was said (Shift+click to select several) · <kbd>Space</kbd> play · <kbd>Ctrl+Z</kbd> undo
+            Click a block to select it · click a caption to edit it · <kbd>S</kbd> split at the playhead · <kbd>Delete</kbd> cut (or restore a striped cut) · click words to cut exactly what was said (Shift+click to select several) · <kbd>Space</kbd> play · <kbd>Ctrl+Z</kbd> undo
           </p>
         </CardContent>
       </Card>
+
+      <TranscriptPanel
+        words={words}
+        removed={removed}
+        removeFillers={tl.removeFillers}
+        playhead={playhead}
+        selection={sel?.kind === 'words' || sel?.kind === 'removed' ? sel : null}
+        onSelect={(r, extend, isCut) => {
+          if (extend && sel && (sel.kind === 'words' || sel.kind === 'removed')) setSel({ kind: sel.kind, start: Math.min(sel.start, r.start), end: Math.max(sel.end, r.end) });
+          else setSel({ kind: isCut ? 'removed' : 'words', start: r.start, end: r.end });
+          seekSource(r.start);
+        }}
+        onCut={() => deleteSel()}
+      />
     </div>
   );
 }
 
+/**
+ * Edit by text: the transcript as a paragraph. Click a word (Shift+click to extend) and cut it — or
+ * click a struck-through word and restore it. The spoken word is underlined as the video plays.
+ */
+function TranscriptPanel({
+  words,
+  removed,
+  removeFillers,
+  playhead,
+  selection,
+  onSelect,
+  onCut,
+}: {
+  words: Word[];
+  removed: Range[];
+  removeFillers: boolean;
+  playhead: number;
+  selection: { kind: string; start: number; end: number } | null;
+  onSelect: (r: Range, extend: boolean, isCut: boolean) => void;
+  onCut: () => void;
+}) {
+  if (!words.length) return null;
+  const isCut = (w: Word) => (w.filler && removeFillers) || removed.some((r) => w.start >= r.start - 0.01 && w.end <= r.end + 0.01);
+  const restoring = selection?.kind === 'removed';
+  return (
+    <Card>
+      <CardHeader className="sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="text-base">Transcript</CardTitle>
+          <CardDescription>Edit the video by editing the text: select words and cut them; struck-through words are cut (click to restore).</CardDescription>
+        </div>
+        <Button size="sm" variant="outline" disabled={!selection} onClick={onCut}>
+          {restoring ? <RotateCcw /> : <Scissors />} {restoring ? 'Restore selected' : 'Cut selected words'}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <p className="max-h-64 overflow-y-auto text-[15px] leading-8">
+          {words.map((w, i) => {
+            const cut = isCut(w);
+            const inSel = selection && w.start >= selection.start - 0.001 && w.end <= selection.end + 0.001;
+            const speaking = playhead >= w.start && playhead < w.end;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={(e) => onSelect({ start: w.start, end: w.end }, e.shiftKey, cut)}
+                className={cn(
+                  'mr-1 rounded px-0.5',
+                  cut ? 'text-muted-foreground line-through decoration-2 opacity-60' : 'hover:bg-muted',
+                  w.filler && 'italic',
+                  inSel && 'bg-highlight/30',
+                  speaking && 'underline decoration-highlight decoration-2 underline-offset-4',
+                )}
+              >
+                {w.text}
+              </button>
+            );
+          })}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Inputs for the live preview player: the real footage with this edit, captions, logo and watermark. */
-function useFootageInput(project: Project, settings: ProjectSettings, segments: Range[], zooms: EditDoc['zooms'], texts: EditDoc['texts']) {
+function useFootageInput(project: Project, settings: ProjectSettings, segments: Range[], zooms: EditDoc['zooms'], texts: EditDoc['texts'], captionLines?: EditDoc['captions']) {
   const { data: wordsData } = useQuery({ queryKey: ['words', project.id, project.sourceAssetId], queryFn: () => api<{ data: { words: Word[] } }>(`/projects/${project.id}/words`).then((r) => r.data.words), staleTime: Infinity });
   const words = wordsData ?? [];
   const src = useAssetUrl(project.sourceAssetId);
@@ -518,7 +729,8 @@ function useFootageInput(project: Project, settings: ProjectSettings, segments: 
   const [W, H] = SIZE[project.aspectRatio] ?? SIZE['9:16']!;
   const framing = resolveFraming(settings.framing ?? 'auto', project.sourceAsset?.width && project.sourceAsset?.height ? { width: project.sourceAsset.width, height: project.sourceAsset.height } : null, project.aspectRatio);
   const inputProps: FootageEditProps = useMemo(() => {
-    const out = remapWords(words, segments);
+    // Timeline captions (what the export uses) when there are any; otherwise a quick layout of the words.
+    const lines = captionLines?.length ? captionsToOutput(captionLines, segments) : previewLines(remapWords(words, segments), settings.captionStyle);
     return {
       src: src.data ?? '',
       segments,
@@ -529,15 +741,15 @@ function useFootageInput(project: Project, settings: ProjectSettings, segments: 
       }),
       texts: texts.flatMap((t) => {
         const r = rangeToOutput(segments, t.start, t.end);
-        return r ? [{ ...r, text: t.text, position: t.position }] : [];
+        return r ? [{ ...r, text: t.text, position: t.position, style: t.style, size: t.size, color: t.color }] : [];
       }),
-      captions: settings.captionsEnabled && out.length
-        ? { lines: previewLines(out, settings.captionStyle), style: settings.captionStyle, position: settings.captionPosition, size: settings.captionSize, highlightColor: settings.highlightColor }
+      captions: settings.captionsEnabled && lines.length
+        ? { lines, style: settings.captionStyle, position: settings.captionPosition, size: settings.captionSize, highlightColor: settings.highlightColor }
         : null,
       logo: logoUrl.data && kit ? { url: logoUrl.data, position: kit.logoPosition, widthFrac: LOGO_W[kit.logoSize], opacity: kit.logoOpacity } : null,
       watermark: workspace?.plan === 'free',
     };
-  }, [words, segments, src.data, framing, zooms, texts, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
+  }, [words, segments, src.data, framing, zooms, texts, captionLines, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
 
   return { inputProps, words, src, W, H };
 }
@@ -546,7 +758,7 @@ function useFootageInput(project: Project, settings: ProjectSettings, segments: 
 export function FootagePreview({ project, settings }: { project: Project; settings: ProjectSettings }) {
   const e = project.edit;
   const segments = useMemo(() => (e ? (e.segments.length ? e.segments : keepSegments(e)) : []), [e]);
-  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? []);
+  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions);
   if (!e || !segments.length) return null;
   return (
     <div className="grid gap-1.5">

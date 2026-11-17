@@ -12,7 +12,14 @@ import { registerHandler, type JobContext } from '../queue/worker.js';
 import { probe, runFfmpeg } from './ffmpeg.js';
 import { parseSilences } from './silence.js';
 import { fillerIntervals } from './transcriptMap.js';
-import { initialEdit, type EditDoc } from './edl.js';
+import { initialEdit, type EditCaption, type EditDoc } from './edl.js';
+import { layoutLines, STYLE_SPECS, type CaptionSize, type CaptionStyle } from './captions.js';
+import { outputSize, type AspectRatio, type Resolution } from './render.js';
+import { getLLMProvider } from '../ai/llm.js';
+import { aiKeywords } from '../ai/creative.js';
+import { logger } from '../../config/logger.js';
+import type { ProjectDoc } from '../../models/Project.js';
+import type { Word } from '../ai/transcription.js';
 import { loadTranscript } from './renderJob.js';
 
 /**
@@ -20,6 +27,38 @@ import { loadTranscript } from './renderJob.js';
  * 0.3 s or longer and every filler word. The web editor builds its timeline from this; nothing is
  * cut here — the user decides on the timeline.
  */
+/**
+ * Caption lines for the timeline, on SOURCE time: laid out for the project's caption style and size,
+ * with AI-picked highlight words when AI is available. Filler words are left out.
+ */
+export async function buildEditCaptions(project: ProjectDoc, words: Word[], signal?: AbortSignal): Promise<EditCaption[]> {
+  const s = project.settings ?? {};
+  const style = (s.captionStyle ?? 'bold_pop') as CaptionStyle;
+  const size = outputSize(project.aspectRatio as AspectRatio, (s.resolution ?? '1080p') as Resolution);
+  let lines = layoutLines({ words: words.filter((w) => !w.filler), style, width: size.width, height: size.height, size: (s.captionSize ?? 'medium') as CaptionSize });
+  const llm = getLLMProvider();
+  if (llm && STYLE_SPECS[style].highlight && lines.length) {
+    // AI picks the highlight words, but never holds the user up: after 12 s the rule-based picks stay.
+    const limit = new AbortController();
+    const timer = setTimeout(() => limit.abort(new Error('AI keywords took too long')), AI_KEYWORDS_TIMEOUT_MS);
+    const onAbort = () => limit.abort(signal?.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      lines = await aiKeywords(llm, lines, s.language ?? 'en', limit.signal);
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      logger.warn({ err }, 'AI keywords failed or were slow; using rule-based highlights');
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+  return lines.map((l) => ({ words: l.words.map((w) => ({ text: w.text, start: w.start, end: w.end })), keyword: l.keywords[0] ?? -1 }));
+}
+
+/** Longest the highlight-word AI may take before rule-based highlights are used. */
+export const AI_KEYWORDS_TIMEOUT_MS = 12_000;
+
 interface AnalyzePayload {
   projectId: string;
   credits: number;
@@ -58,6 +97,10 @@ async function run({ job, signal, progress }: JobContext) {
     }
     const fillers = transcript.words ? fillerIntervals(transcript.words) : [];
     const edit: EditDoc = initialEdit(source._id.toString(), duration, silences, fillers, (project.edit as EditDoc | null) ?? null);
+    if (!edit.captions && transcript.words?.length) {
+      await progress(85, 'styling_captions');
+      edit.captions = await buildEditCaptions(project, transcript.words, signal);
+    }
 
     await progress(95, 'saving');
     if (signal.aborted) throw new Error('Processing was cancelled.');

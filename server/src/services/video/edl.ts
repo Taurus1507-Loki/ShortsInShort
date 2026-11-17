@@ -12,11 +12,22 @@ export interface EditZoom {
   dur: number;
   scale: number;
 }
+export type TextStyle = 'outline' | 'box' | 'accent';
 export interface EditText {
   start: number;
   end: number;
   text: string;
   position: 'top' | 'middle' | 'bottom';
+  /** outline = white with a black edge; box = on a dark box; accent = on a coloured box. */
+  style?: TextStyle;
+  size?: 's' | 'm' | 'l';
+  /** Text colour (outline) or box colour (accent). */
+  color?: string;
+}
+/** One caption line, word-timed on the SOURCE footage; keyword = index of the highlighted word (-1 none). */
+export interface EditCaption {
+  words: Array<{ text: string; start: number; end: number }>;
+  keyword: number;
 }
 export interface EditDoc {
   sourceAssetId: string;
@@ -34,6 +45,8 @@ export interface EditDoc {
   restores: Interval[];
   zooms: EditZoom[];
   texts: EditText[];
+  /** Caption lines (laid out at analysis, then edited by the user). Null = none yet. */
+  captions?: EditCaption[] | null;
   /** What the export keeps, in order. Empty until the editor first saves (then `keepSegments` decides). */
   segments: Interval[];
 }
@@ -144,6 +157,7 @@ export function initialEdit(sourceAssetId: string, durationSec: number, silences
     restores: keepUser ? previous.restores : [],
     zooms: keepUser ? previous.zooms : [],
     texts: keepUser ? previous.texts : [],
+    captions: keepUser ? (previous.captions ?? null) : null,
     segments: keepUser ? previous.segments : [],
   };
 }
@@ -159,8 +173,32 @@ export const editPatchSchema = z
     restores: z.array(interval).max(500),
     zooms: z.array(z.object({ at: z.number().min(0), dur: z.number().min(0.3).max(6), scale: z.number().min(1.02).max(1.5) }).strict()).max(200),
     texts: z
-      .array(z.object({ start: z.number().min(0), end: z.number().positive(), text: z.string().trim().min(1).max(80), position: z.enum(['top', 'middle', 'bottom']) }).strict().refine((t) => t.end > t.start, 'Text must end after it starts.'))
+      .array(
+        z
+          .object({
+            start: z.number().min(0),
+            end: z.number().positive(),
+            text: z.string().trim().min(1).max(80),
+            position: z.enum(['top', 'middle', 'bottom']),
+            style: z.enum(['outline', 'box', 'accent']).optional(),
+            size: z.enum(['s', 'm', 'l']).optional(),
+            color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+          })
+          .strict()
+          .refine((t) => t.end > t.start, 'Text must end after it starts.'),
+      )
       .max(50),
+    captions: z
+      .array(
+        z
+          .object({
+            words: z.array(z.object({ text: z.string().trim().min(1).max(40), start: z.number().min(0), end: z.number().positive() }).strict()).min(1).max(20),
+            keyword: z.number().int().min(-1).max(19),
+          })
+          .strict(),
+      )
+      .max(2000)
+      .nullable(),
     segments: z.array(interval).max(400),
   })
   .strict()
@@ -175,4 +213,21 @@ export function segmentsProblem(segments: Interval[], durationSec: number): stri
     if (i > 0 && s.start < segments[i - 1]!.end - 0.001) return `Segment ${i + 1} overlaps the one before it.`;
   }
   return null;
+}
+
+/** Caption lines on the edited timeline: cut words are dropped, the rest keep their place (export and preview). */
+export function captionsToOutput(captions: EditCaption[], segments: Interval[]) {
+  const out: Array<{ words: Array<{ text: string; start: number; end: number }>; start: number; end: number; keywords: number[] }> = [];
+  for (const c of captions) {
+    const words: Array<{ text: string; start: number; end: number }> = [];
+    let keyword = -1;
+    c.words.forEach((w, i) => {
+      const r = rangeToOutput(segments, w.start, w.end);
+      if (!r || r.end - r.start < (w.end - w.start) * 0.5) return;
+      if (i === c.keyword) keyword = words.length;
+      words.push({ text: w.text, start: r.start, end: r.end });
+    });
+    if (words.length) out.push({ words, start: words[0]!.start, end: words[words.length - 1]!.end, keywords: keyword >= 0 ? [keyword] : [] });
+  }
+  return out;
 }

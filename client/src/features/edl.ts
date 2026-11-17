@@ -12,11 +12,20 @@ export interface EditZoom {
   dur: number;
   scale: number;
 }
+export type TextStyle = 'outline' | 'box' | 'accent';
 export interface EditText {
   start: number;
   end: number;
   text: string;
   position: 'top' | 'middle' | 'bottom';
+  style?: TextStyle;
+  size?: 's' | 'm' | 'l';
+  color?: string;
+}
+/** One caption line, word-timed on the source footage; keyword = highlighted word index (-1 none). */
+export interface EditCaption {
+  words: Array<{ text: string; start: number; end: number }>;
+  keyword: number;
 }
 export interface EditDoc {
   sourceAssetId: string;
@@ -30,6 +39,7 @@ export interface EditDoc {
   restores: Range[];
   zooms: EditZoom[];
   texts: EditText[];
+  captions?: EditCaption[] | null;
   segments: Range[];
 }
 export interface Word {
@@ -169,4 +179,39 @@ export function previewLines(words: Word[], style: string) {
   }
   flush();
   return lines;
+}
+
+/** Timeline captions on the edited video (cut words dropped) — the same rule as the export. */
+export function captionsToOutput(captions: EditCaption[], segments: Range[]) {
+  const out: Array<{ start: number; end: number; words: Word[]; keywords: number[] }> = [];
+  for (const c of captions) {
+    const words: Word[] = [];
+    let keyword = -1;
+    c.words.forEach((w, i) => {
+      const r = rangeToOutput(segments, w.start, w.end);
+      if (!r || r.end - r.start < (w.end - w.start) * 0.5) return;
+      if (i === c.keyword) keyword = words.length;
+      words.push({ text: w.text, start: r.start, end: r.end });
+    });
+    if (words.length) out.push({ words, start: words[0]!.start, end: words[words.length - 1]!.end, keywords: keyword >= 0 ? [keyword] : [] });
+  }
+  return out;
+}
+
+/** New wording for a caption line: words spread over the line's time by length (like the export's timeTokens). */
+export function retimeCaption(c: EditCaption, text: string): EditCaption {
+  const tokens = text.trim().split(/\s+/).filter(Boolean).slice(0, 20);
+  if (!tokens.length) return c;
+  const start = c.words[0]!.start;
+  const end = c.words[c.words.length - 1]!.end;
+  const weights = tokens.map((t) => Math.max(1, t.length));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let t = start;
+  const words = tokens.map((text, i) => {
+    const d = ((end - start) * weights[i]!) / total;
+    const w = { text, start: Math.round(t * 1000) / 1000, end: Math.round((t + d) * 1000) / 1000 };
+    t += d;
+    return w;
+  });
+  return { words, keyword: Math.min(c.keyword, words.length - 1) };
 }

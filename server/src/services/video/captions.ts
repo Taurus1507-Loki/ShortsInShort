@@ -243,7 +243,7 @@ export function buildWatermarkAss(input: {
   watermark?: boolean;
   disclosure?: { text: string; corner: 'top-left' | 'bottom-left' } | null;
   /** On-screen titles (faceless scenes), shown large in the upper third with a short fade. */
-  titles?: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom' }>;
+  titles?: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom'; style?: 'outline' | 'box' | 'accent'; size?: 's' | 'm' | 'l'; color?: string }>;
 }): string {
   const short = Math.min(input.width, input.height);
   const font = fontFor('en', 'semibold', input.platform);
@@ -262,11 +262,25 @@ export function buildWatermarkAss(input: {
     `Style: Mark,${font.family},${size},${assColor('#FFFFFF', 0x66)},${assColor('#FFFFFF', 0x66)},${assColor('#000000', 0x99)},${assColor('#000000', 0xff)},${font.bold ? -1 : 0},0,0,0,100,100,0,0,1,${Math.max(1, Math.round(size * 0.08))},0,9,${margin},${margin},${margin},1`,
     `Style: Disclose,${font.family},${Math.round(size * 0.85)},${assColor('#FFFFFF', 0x4d)},${assColor('#FFFFFF', 0x4d)},${assColor('#000000', 0x80)},${assColor('#000000', 0xff)},0,0,0,0,100,100,0,0,1,${Math.max(1, Math.round(size * 0.08))},0,${input.disclosure?.corner === 'bottom-left' ? 1 : 7},${margin},${margin},${margin},1`,
     `Style: Title,${fontFor('en', 'black', input.platform).family},${Math.round(short * 0.068)},${assColor('#FFFFFF', 0)},${assColor('#FFFFFF', 0)},${assColor('#000000', 0x20)},${assColor('#000000', 0x80)},-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(short * 0.006))},${Math.max(1, Math.round(short * 0.004))},8,${Math.round(input.width * 0.08)},${Math.round(input.width * 0.08)},${Math.round(input.height * 0.14)},1`,
+    // Text on a box (BorderStyle 3): the outline colour is the box colour.
+    `Style: TitleBox,${fontFor('en', 'black', input.platform).family},${Math.round(short * 0.062)},${assColor('#FFFFFF', 0)},${assColor('#FFFFFF', 0)},${assColor('#0B0B12', 0x30)},${assColor('#0B0B12', 0x30)},-1,0,0,0,100,100,0,0,3,${Math.max(6, Math.round(short * 0.016))},0,8,${Math.round(input.width * 0.08)},${Math.round(input.width * 0.08)},${Math.round(input.height * 0.14)},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
     ...(input.watermark === false ? [] : [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Mark,,0,0,0,,Made with ShortsInShort`]),
-    ...(input.titles ?? []).filter((t) => t.text.trim() && t.end > t.start).map((t) => `Dialogue: 2,${assTime(t.start)},${assTime(t.end)},Title,,0,0,0,,{\\fad(200,200)${t.position === 'middle' ? '\\an5' : t.position === 'bottom' ? '\\an2' : ''}}${t.text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim()}`),
+    ...(input.titles ?? []).filter((t) => t.text.trim() && t.end > t.start).map((t) => {
+      const boxed = t.style === 'box' || t.style === 'accent';
+      // ASS colour override without the alpha byte: &HBBGGRR&
+      const col = (hex: string) => `&H${assColor(hex).slice(4)}&`;
+      const tags = [
+        '\\fad(200,200)',
+        t.position === 'middle' ? '\\an5' : t.position === 'bottom' ? '\\an2' : '',
+        t.size === 's' ? `\\fs${Math.round(short * 0.05)}` : t.size === 'l' ? `\\fs${Math.round(short * 0.09)}` : '',
+        t.style === 'accent' && t.color ? `\\3c${col(t.color)}` : '',
+        !boxed && t.color ? `\\c${col(t.color)}` : '',
+      ].join('');
+      return `Dialogue: 2,${assTime(t.start)},${assTime(t.end)},${boxed ? 'TitleBox' : 'Title'},,0,0,0,,{${tags}}${t.text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim()}`;
+    }),
     ...(input.disclosure ? [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Disclose,,0,0,0,,${input.disclosure.text.replace(/[{}\\]/g, '')}`] : []),
     '',
   ].join(String.fromCharCode(10));

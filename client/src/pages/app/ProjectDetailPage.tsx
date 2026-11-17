@@ -439,7 +439,7 @@ export default function ProjectDetailPage() {
         {step === 'export' && (
           <>
             <RenderPanel project={project} dirty={dirty} onStep={(s) => go(s)} />
-            {project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && <CaptionEditor project={project} />}
+            {project.status === 'completed' && (project.captionLines?.length ?? 0) > 0 && !(project.mode === 'editor' && project.edit) && <CaptionEditor project={project} />}
           </>
         )}
       </div>

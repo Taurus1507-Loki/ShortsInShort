@@ -11,6 +11,8 @@ import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
 import { avatarCreditCost, editorAnalyzeCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
 import { editPatchSchema, segmentsProblem, type EditDoc } from '../../services/video/edl.js';
+import { buildEditCaptions } from '../../services/video/analyzeJob.js';
+import type { Word } from '../../services/ai/transcription.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { getStockProvider } from '../../services/ai/stock.js';
@@ -477,6 +479,27 @@ projectsRouter.get(
     const stt = getTranscriptionProvider();
     const t = project.sourceAssetId && stt ? await Transcript.findOne({ assetId: project.sourceAssetId, provider: stt.name, language: project.settings?.language ?? 'en' }).lean() : null;
     res.json({ data: { words: (t?.words ?? []).map((w) => ({ text: w.text, start: w.start, end: w.end, filler: Boolean(w.filler) })) } });
+  }),
+);
+
+/** Lays the timeline captions out again from the transcript (e.g. after changing caption style). Free. */
+projectsRouter.post(
+  '/:id/captions/rebuild',
+  jobStartLimiter,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const edit = project.edit as EditDoc | null;
+    if (!edit || edit.sourceAssetId !== project.sourceAssetId?.toString()) throw conflict('Analyse the video first.', 'NOT_ANALYZED');
+    const stt = getTranscriptionProvider();
+    const t = stt ? await Transcript.findOne({ assetId: project.sourceAssetId, provider: stt.name, language: project.settings?.language ?? 'en' }).lean() : null;
+    if (!t?.words?.length) throw badRequest('There is no transcript for this video, so captions can’t be made.', 'NO_TRANSCRIPT');
+    const captions = await buildEditCaptions(project, t.words as Word[]);
+    project.set('edit', { ...edit, captions });
+    project.markModified('edit');
+    await project.save();
+    res.json({ data: await withMedia(project) });
   }),
 );
 

@@ -35,7 +35,7 @@ import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, renderScenes, type BackgroundKind, type SceneTransition } from './background.js';
 import { mixSfx, sfxCues } from '../audio/sfx.js';
-import { keepSegments, rangeToOutput, type EditDoc } from './edl.js';
+import { captionsToOutput, keepSegments, rangeToOutput, type EditDoc } from './edl.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -502,6 +502,38 @@ async function planCaptionLines(opts: {
   return { lines, captionsFromEdits, clearOverrides, aiKeywordsUsed, translatedTo, notes };
 }
 
+/**
+ * Captions edited on the AI Video Editor timeline, moved onto the cut (exactly as the user wrote and
+ * highlighted them). Translated only when a different caption language is chosen.
+ */
+async function timelineCaptions(
+  project: ProjectDoc,
+  edit: EditDoc,
+  segments: Array<{ start: number; end: number }>,
+  llm: LLMProvider | null,
+  signal: AbortSignal,
+): Promise<CaptionPlan> {
+  const settings = project.settings ?? {};
+  const language = settings.language ?? 'en';
+  const target = settings.captionLanguage && settings.captionLanguage !== 'same' && settings.captionLanguage !== language ? settings.captionLanguage : null;
+  let lines: CaptionLine[] = captionsToOutput(edit.captions ?? [], segments);
+  const notes: string[] = [];
+  let translatedTo: string | null = null;
+  if (target && lines.length) {
+    if (!llm) notes.push('Captions are shown in the spoken language: caption translation is not enabled on this server yet.');
+    else {
+      try {
+        lines = await translateLines(llm, lines, language, target, signal);
+        translatedTo = target;
+      } catch (err) {
+        if (signal.aborted) throw err;
+        notes.push(`Captions were not translated: ${err instanceof LLMError ? err.message : 'the AI request failed.'} They are shown in the spoken language.`);
+      }
+    }
+  }
+  return { lines, captionsFromEdits: true, clearOverrides: false, aiKeywordsUsed: false, translatedTo, notes };
+}
+
 /** Same stable seed as the web app's live preview (client/src/motion/themes.ts → seedFrom). */
 export function motionSeed(s: string): number {
   let h = 2166136261;
@@ -541,7 +573,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     let narrationWords: Word[] | null = null;
     let presenter: { avatarId: string; layout: string; reused: boolean } | null = null;
     let facelessScenes: UsedBroll[] | null = null;
-    let titles: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom' }> = [];
+    let titles: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom'; style?: 'outline' | 'box' | 'accent'; size?: 's' | 'm' | 'l'; color?: string }> = [];
     let sceneCount = 0;
     let sfxCount = 0;
     let motionCaptions: CaptionPlan | null = null;
@@ -594,7 +626,7 @@ async function run({ job, signal, progress: report }: JobContext) {
       fillerWordsRemoved = edit.removeFillers ? edit.fillers.length : 0;
       titles = edit.texts.flatMap((t) => {
         const r = rangeToOutput(segments, t.start, t.end);
-        return r ? [{ ...r, text: t.text, position: t.position }] : [];
+        return r ? [{ ...r, text: t.text, position: t.position, style: t.style, size: t.size, color: t.color }] : [];
       });
     } else if (info.audio && !avatar) {
       await progress(12, 'removing_silence');
@@ -627,7 +659,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     // Motion Explainer videos already drew their captions inside the animation (same lines).
     const drawnInAnimation = motionCaptions !== null;
     if (settings.captionsEnabled && editedWords.length) {
-      const plan = motionCaptions ?? (await planCaptionLines({ project, words: editedWords, size, timelineKey, llm, signal, progress }));
+      const plan = motionCaptions ?? (edit?.captions?.length ? await timelineCaptions(project, edit, segments, llm, signal) : await planCaptionLines({ project, words: editedWords, size, timelineKey, llm, signal, progress }));
       ({ captionsFromEdits, clearOverrides, aiKeywordsUsed, translatedTo } = plan);
       notes.push(...plan.notes);
       captionLines = plan.lines;
