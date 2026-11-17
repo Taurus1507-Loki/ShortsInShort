@@ -8,7 +8,7 @@ import { Label } from '../ui/primitives';
 import { ASPECTS, CAPTION_STYLES, LANGUAGES, MUSIC_MOODS, STATUS_META, STYLES, modeName } from '@/config/options';
 import { cn, timeAgo } from '@/lib/utils';
 import { useMeta } from '@/lib/queries';
-import type { AspectRatio, EditingStyle, Intensity, Project, ProjectMode, ProjectSettings } from '@/types/api';
+import type { AspectRatio, EditingStyle, Project, ProjectMode, ProjectSettings } from '@/types/api';
 
 const MODE_ICON: Record<ProjectMode, typeof Wand2> = { editor: Wand2, avatar: UserRound, faceless: Clapperboard };
 
@@ -194,12 +194,6 @@ function Setting({ label, htmlFor, status, help, children }: { label: string; ht
   );
 }
 
-const INTENSITY: { id: Intensity; label: string }[] = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-];
-
 const BROLL: { id: ProjectSettings['bRollIntensity']; label: string; sub: string }[] = [
   { id: 'none', label: 'Off', sub: 'Only your footage' },
   { id: 'low', label: 'Low', sub: 'A few cutaways' },
@@ -296,18 +290,6 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
               <option value="4k">4K (Pro plans)</option>
             </Select>
           </Setting>
-          {!avatar && (
-          <Setting label="Target length (seconds)" htmlFor="duration" status="soon" help="How long you want the finished video. Saved now; AI trimming to a target length comes in a later release.">
-            <Input
-              id="duration"
-              type="number"
-              min={5}
-              max={3600}
-              value={s.targetDurationSec}
-              onChange={(e) => set('targetDurationSec', Math.min(3600, Math.max(5, Number(e.target.value) || 5)))}
-            />
-          </Setting>
-          )}
         </div>
       </section>
 
@@ -315,15 +297,6 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
       <section className="grid gap-6">
         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Editing</h3>
         <div className="grid gap-6 sm:grid-cols-2">
-          {!avatar && (
-          <Setting
-            label="Editing intensity"
-            status="applied"
-            help="How aggressively pauses are cut. Low keeps natural breathing room; High makes a fast, punchy edit. Medium and High also cut filler words (“um”, “uh”) when transcription is enabled."
-          >
-            <Choice name="Editing intensity" value={s.editingIntensity} onChange={(v) => set('editingIntensity', v)} options={INTENSITY} />
-          </Setting>
-          )}
           {!faceless && (
           <Setting
             label="B-roll (stock footage)"
@@ -337,6 +310,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
             <Choice name="B-roll" value={s.bRollIntensity} onChange={(v) => set('bRollIntensity', v)} options={BROLL} />
           </Setting>
           )}
+          {mode !== 'editor' && (
           <Setting
             label="Zoom punch-ins"
             status="applied"
@@ -344,6 +318,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
           >
             <Choice name="Zoom punch-ins" value={s.zoomIntensity} onChange={(v) => set('zoomIntensity', v)} options={ZOOMS} />
           </Setting>
+          )}
           <Setting
             label="Background music"
             htmlFor="music"

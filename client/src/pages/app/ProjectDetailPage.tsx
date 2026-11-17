@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, ArrowRight, Check, Coins, Save } from 'lucide-react';
 import { DeleteProjectButton } from '@/components/app/ProjectActions';
 import { MotionThemePicker } from '@/components/app/MotionThemePicker';
+import { FootagePreview, TimelineEditor } from '@/components/app/TimelineEditor';
 const MotionPreview = lazy(() => import('@/components/app/MotionScenes').then((m) => ({ default: m.MotionPreview })));
 import { CustomizeForm, DEFAULT_SETTINGS, StatusBadge, type CustomizeValue } from '@/components/app/projects';
 import { CaptionEditor } from '@/components/app/CaptionEditor';
@@ -303,6 +304,8 @@ export default function ProjectDetailPage() {
           </fieldset>
         )}
 
+        {step === 'edit' && <TimelineEditor project={project} settings={settings} />}
+
         {step === 'voice' && (
           <VoiceoverPanel
             project={project}
@@ -347,7 +350,11 @@ export default function ProjectDetailPage() {
               <CardContent className="grid gap-8 pt-6 lg:grid-cols-[1fr_280px]">
                 <CustomizeForm value={custom} onChange={setCustom} />
                 <div className="lg:sticky lg:top-24 lg:self-start">
-                  <LivePreview aspect={custom.aspectRatio} settings={settings} source={project.sourceAsset} sampleText={project.captionLines?.[0]?.text} />
+                  {project.edit ? (
+                    <FootagePreview project={{ ...project, aspectRatio: custom.aspectRatio }} settings={settings} />
+                  ) : (
+                    <LivePreview aspect={custom.aspectRatio} settings={settings} source={project.sourceAsset} sampleText={project.captionLines?.[0]?.text} />
+                  )}
                 </div>
               </CardContent>
             </Card>

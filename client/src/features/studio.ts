@@ -4,7 +4,7 @@ import type { Meta, PriceStep, Project, ProjectMode } from '@/types/api';
  * Making a video is a series of pages, one per step: /app/projects/:id/:step. Each step saves the
  * project, and each step that costs money says what it costs before anything is charged.
  */
-export type StudioStep = 'footage' | 'script' | 'voice' | 'scenes' | 'presenter' | 'style' | 'export';
+export type StudioStep = 'footage' | 'edit' | 'script' | 'voice' | 'scenes' | 'presenter' | 'style' | 'export';
 
 export interface StepInfo {
   id: StudioStep;
@@ -17,6 +17,7 @@ export interface StepInfo {
 
 const STEP: Record<StudioStep, StepInfo> = {
   footage: { id: 'footage', label: 'Footage', blurb: 'The raw video the AI editor works from.', required: true },
+  edit: { id: 'edit', label: 'Edit', blurb: 'AI finds the pauses and filler words; you cut, restore, zoom and add text on the timeline while the player shows the result.', required: true },
   script: { id: 'script', label: 'Script', blurb: 'What the voice will say, word for word. Write it yourself or let AI write it.', required: true },
   voice: { id: 'voice', label: 'Voice', blurb: 'Pick a voice, generate the voiceover and listen to it.', required: true },
   scenes: { id: 'scenes', label: 'Scenes', blurb: 'One clip or animation per scene, playing exactly while its words are spoken. Swap any of them.', required: true },
@@ -28,7 +29,7 @@ const STEP: Record<StudioStep, StepInfo> = {
 export const FLOWS: Record<ProjectMode, StudioStep[]> = {
   faceless: ['script', 'voice', 'scenes', 'style', 'export'],
   avatar: ['script', 'voice', 'presenter', 'style', 'export'],
-  editor: ['footage', 'style', 'export'],
+  editor: ['footage', 'edit', 'style', 'export'],
 };
 
 export const stepsFor = (mode: ProjectMode) => FLOWS[mode].map((id) => STEP[id]);
@@ -44,6 +45,8 @@ export function stepDone(p: Project, step: StudioStep): boolean {
   switch (step) {
     case 'footage':
       return Boolean(p.sourceAssetId);
+    case 'edit':
+      return Boolean(p.edit && p.edit.sourceAssetId === p.sourceAssetId);
     case 'script':
       return p.script.trim().length > 0 && p.script.trim().length <= 5000;
     case 'voice':
@@ -67,6 +70,8 @@ export function stepBlocker(p: Project, step: StudioStep): string | null {
   switch (step) {
     case 'footage':
       return 'Upload your video to continue.';
+    case 'edit':
+      return 'Analyse the video to continue.';
     case 'script':
       return p.script.trim().length > 5000 ? 'Shorten the script to 5,000 characters or fewer.' : 'Write or generate a script to continue.';
     case 'voice':
@@ -88,7 +93,7 @@ export function resumeStep(p: Project): StudioStep {
 }
 
 /** The price shown on a step: "Free", "2 credits / 30 s"… */
-export function stepPrice(meta: Meta | undefined, p: Pick<Project, 'mode' | 'settings'>, step: StudioStep): { text: string; free: boolean } {
+export function stepPrice(meta: Meta | undefined, p: Pick<Project, 'mode' | 'settings'> & { edit?: Project['edit'] }, step: StudioStep): { text: string; free: boolean } {
   const price = (id: PriceStep) => meta?.pricing.find((x) => x.step === id);
   const fmt = (id: PriceStep, prefix = '') => {
     const x = price(id);
@@ -100,8 +105,10 @@ export function stepPrice(meta: Meta | undefined, p: Pick<Project, 'mode' | 'set
       return fmt('voice');
     case 'presenter':
       return fmt('presenter', 'Optional · presenter ');
+    case 'edit':
+      return fmt('editor_analyze', 'Once · ');
     case 'export':
-      if (p.mode === 'editor') return fmt('editor');
+      if (p.mode === 'editor') return fmt(p.edit ? 'editor_rerender' : 'editor');
       return fmt(p.mode === 'faceless' && p.settings.facelessStyle === 'motion' ? 'export_motion' : 'export');
     default:
       return { text: 'Free', free: true };

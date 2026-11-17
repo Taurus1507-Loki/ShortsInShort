@@ -35,6 +35,7 @@ import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, renderScenes, type BackgroundKind, type SceneTransition } from './background.js';
 import { mixSfx, sfxCues } from '../audio/sfx.js';
+import { keepSegments, rangeToOutput, type EditDoc } from './edl.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -121,7 +122,7 @@ async function fetchBroll(
  * Word-level transcript for the source, reused from cache when available so re-renders never pay
  * for transcription twice. Failures are non-fatal: the render continues without captions.
  */
-async function loadTranscript(
+export async function loadTranscript(
   source: AssetDoc,
   input: string,
   language: string,
@@ -540,7 +541,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     let narrationWords: Word[] | null = null;
     let presenter: { avatarId: string; layout: string; reused: boolean } | null = null;
     let facelessScenes: UsedBroll[] | null = null;
-    let titles: Array<{ start: number; end: number; text: string }> = [];
+    let titles: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom' }> = [];
     let sceneCount = 0;
     let sfxCount = 0;
     let motionCaptions: CaptionPlan | null = null;
@@ -586,7 +587,16 @@ async function run({ job, signal, progress: report }: JobContext) {
     // 3. Silence, pause & filler-word removal
     let segments = [{ start: 0, end: duration }];
     let fillerWordsRemoved = 0;
-    if (info.audio && !avatar) {
+    // The timeline editor's saved edit (same footage only) decides exactly what is kept.
+    const edit = !avatar && project.edit && (project.edit as EditDoc).sourceAssetId === source?._id.toString() ? (project.edit as EditDoc) : null;
+    if (edit) {
+      segments = edit.segments.length ? edit.segments : keepSegments(edit);
+      fillerWordsRemoved = edit.removeFillers ? edit.fillers.length : 0;
+      titles = edit.texts.flatMap((t) => {
+        const r = rangeToOutput(segments, t.start, t.end);
+        return r ? [{ ...r, text: t.text, position: t.position }] : [];
+      });
+    } else if (info.audio && !avatar) {
       await progress(12, 'removing_silence');
       const silences = await detectSilences(input, duration, intensity, { signal, timeoutMs: Math.max(120_000, duration * 4000) });
       const fillers = transcript.words && intensity !== 'low' ? fillerIntervals(transcript.words) : [];
@@ -668,7 +678,13 @@ async function run({ job, signal, progress: report }: JobContext) {
     const zoomLines =
       captionLines ??
       (editedWords.length ? layoutLines({ words: editedWords, style: 'bold_pop', width: size.width, height: size.height }) : undefined);
-    const zooms = planZooms({ intensity: zoomIntensity, durationSec: keptSec, lines: zoomLines, avoid: broll });
+    // With a timeline edit, zooms are exactly the ones placed on the timeline.
+    const zooms = edit
+      ? edit.zooms.flatMap((z) => {
+          const r = rangeToOutput(segments, z.at, z.at + z.dur);
+          return r ? [{ start: r.start, end: r.end, scale: z.scale }] : [];
+        })
+      : planZooms({ intensity: zoomIntensity, durationSec: keptSec, lines: zoomLines, avoid: broll });
 
     // 4c. Brand Kit logo, Free-plan watermark, licensed music
     const wsDoc = await Workspace.findById(job.workspaceId).select('plan').lean();

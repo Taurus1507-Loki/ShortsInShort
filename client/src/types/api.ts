@@ -36,7 +36,7 @@ export interface Plan {
   highlights: string[];
 }
 
-export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'editor' | 'editor_rerender';
+export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'editor' | 'editor_analyze' | 'editor_rerender';
 
 export interface Meta {
   currency: 'INR';
@@ -243,6 +243,8 @@ export interface Project {
   scenes?: Scene[];
   scenesKey?: string | null;
   scenesOutdated?: boolean;
+  /** AI Video Editor timeline (see features/edl.ts). */
+  edit?: import('@/features/edl').EditDoc | null;
   scenesPlannedWith?: 'ai' | 'keywords' | null;
   createdAt: string;
   updatedAt: string;

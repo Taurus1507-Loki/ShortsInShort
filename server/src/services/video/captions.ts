@@ -243,7 +243,7 @@ export function buildWatermarkAss(input: {
   watermark?: boolean;
   disclosure?: { text: string; corner: 'top-left' | 'bottom-left' } | null;
   /** On-screen titles (faceless scenes), shown large in the upper third with a short fade. */
-  titles?: Array<{ start: number; end: number; text: string }>;
+  titles?: Array<{ start: number; end: number; text: string; position?: 'top' | 'middle' | 'bottom' }>;
 }): string {
   const short = Math.min(input.width, input.height);
   const font = fontFor('en', 'semibold', input.platform);
@@ -266,7 +266,7 @@ export function buildWatermarkAss(input: {
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
     ...(input.watermark === false ? [] : [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Mark,,0,0,0,,Made with ShortsInShort`]),
-    ...(input.titles ?? []).filter((t) => t.text.trim() && t.end > t.start).map((t) => `Dialogue: 2,${assTime(t.start)},${assTime(t.end)},Title,,0,0,0,,{\\fad(200,200)}${t.text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim()}`),
+    ...(input.titles ?? []).filter((t) => t.text.trim() && t.end > t.start).map((t) => `Dialogue: 2,${assTime(t.start)},${assTime(t.end)},Title,,0,0,0,,{\\fad(200,200)${t.position === 'middle' ? '\\an5' : t.position === 'bottom' ? '\\an2' : ''}}${t.text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim()}`),
     ...(input.disclosure ? [`Dialogue: 1,${assTime(0)},${assTime(input.durationSec + 1)},Disclose,,0,0,0,,${input.disclosure.text.replace(/[{}\\]/g, '')}`] : []),
     '',
   ].join(String.fromCharCode(10));

@@ -98,9 +98,16 @@ export default function BrandKitPage() {
     try {
       const asset = await uploadVideo(file, { purpose: 'logo' });
       setLogo(asset);
-      setDraft((d) => (d ? { ...d, logoAssetId: asset.id } : d));
       queryClient.invalidateQueries({ queryKey: keys.me });
-      toast.success('Logo uploaded — save to apply it');
+      // Save the logo straight away: people expect an uploaded logo to be applied, and a separate
+      // Save press was easy to miss (the logo then never reached their videos).
+      const next = draft ? { ...draft, logoAssetId: asset.id } : null;
+      if (next) {
+        setDraft(next);
+        const k = await api<{ data: BrandKit }>('/brand-kit', { method: 'PUT', body: next }).then((r) => r.data);
+        queryClient.setQueryData(keys.brandKit, k);
+      }
+      toast.success('Logo saved — it will appear on your next videos');
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -150,7 +157,9 @@ export default function BrandKitPage() {
                       variant="ghost"
                       onClick={() => {
                         setLogo(null);
-                        set('logoAssetId', null);
+                        const next = { ...draft, logoAssetId: null };
+                        setDraft(next);
+                        save.mutate(next);
                       }}
                     >
                       <Trash2 /> Remove

@@ -147,6 +147,12 @@ const projectSchema = new Schema(
     /** User-edited captions; applied on the next render only if the cut is unchanged. */
     captionOverrides: { type: [captionLineSchema], default: null },
     captionOverridesKey: { type: String, default: null },
+    /**
+     * AI Video Editor timeline (see services/video/edl.ts → EditDoc): the analysis of the footage
+     * (pauses, filler words) plus the user's edits (cuts, restores, zooms, text). The export renders
+     * exactly `segments`. Stored as one validated document.
+     */
+    edit: { type: Schema.Types.Mixed, default: null },
     /** Facts about the last successful render (shown to the user). */
     renderStats: {
       sourceDurationSec: { type: Number, default: null },
@@ -287,6 +293,7 @@ export function toPublicProject(p: ProjectDoc) {
     })),
     scenesKey: p.scenesKey ?? null,
     scenesPlannedWith: p.scenesPlannedWith ?? null,
+    edit: (p.edit as unknown) ?? null,
     createdAt: p.get('createdAt') as Date,
     updatedAt: p.get('updatedAt') as Date,
   };

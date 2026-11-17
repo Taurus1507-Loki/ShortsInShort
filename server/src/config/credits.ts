@@ -23,6 +23,8 @@ export const CREDIT_COSTS = {
   editorPerSourceMinute: 5,
   /** AI Video Editor re-render: the transcript is reused, so only rendering is charged. */
   editorRerenderPerSourceMinute: 2,
+  /** AI Video Editor analysis (transcription, pauses, filler words) before editing on the timeline. */
+  editorAnalyzePerSourceMinute: 3,
   /** Multiplier for 4K exports. */
   resolutionMultiplier: { '720p': 1, '1080p': 1, '4k': 2 } as Record<string, number>,
 } as const;
@@ -54,6 +56,9 @@ export function editorCreditCost(sourceDurationSec: number, resolution: string, 
   return minutes * rate * resMult(resolution);
 }
 
+/** Analysing footage for the timeline editor (per started source minute). */
+export const editorAnalyzeCost = (sourceDurationSec: number) => Math.max(1, Math.ceil(sourceDurationSec / 60)) * CREDIT_COSTS.editorAnalyzePerSourceMinute;
+
 /** One line per priced step, for the pricing page and the step pages. */
 export const PRICE_LIST = [
   { step: 'script', label: 'Script written by AI', credits: 0, unit: 'free' },
@@ -63,7 +68,8 @@ export const PRICE_LIST = [
   { step: 'export_motion', label: 'Export, animated (Motion Explainer)', credits: CREDIT_COSTS.motionExportPer30s, unit: 'per 30 s' },
   { step: 'presenter', label: 'Talking presenter', credits: CREDIT_COSTS.presenterPer30s, unit: 'per 30 s' },
   { step: 'editor', label: 'AI Video Editor, first render', credits: CREDIT_COSTS.editorPerSourceMinute, unit: 'per minute of footage' },
-  { step: 'editor_rerender', label: 'AI Video Editor, re-render', credits: CREDIT_COSTS.editorRerenderPerSourceMinute, unit: 'per minute of footage' },
+  { step: 'editor_analyze', label: 'AI Video Editor, analyse footage (once per video)', credits: CREDIT_COSTS.editorAnalyzePerSourceMinute, unit: 'per minute of footage' },
+  { step: 'editor_rerender', label: 'AI Video Editor, export', credits: CREDIT_COSTS.editorRerenderPerSourceMinute, unit: 'per minute of footage' },
 ] as const;
 
 const RES_RANK: Record<string, number> = { '720p': 1, '1080p': 2, '4k': 3 };

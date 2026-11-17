@@ -9,7 +9,8 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { avatarCreditCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { avatarCreditCost, editorAnalyzeCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { editPatchSchema, segmentsProblem, type EditDoc } from '../../services/video/edl.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { getStockProvider } from '../../services/ai/stock.js';
@@ -419,6 +420,88 @@ projectsRouter.post(
     }
     const data = await startProjectJob(req, project, { type: 'render_project', credits: q.credits, note: 'Render', auditAction: 'project.generate' });
     res.status(202).json({ data });
+  }),
+);
+
+/* ── AI Video Editor timeline ───────────────────────────────────────── */
+
+/** Analysis price: 3 credits per started minute, free when the same footage was analysed before (transcript cached). */
+async function analyzeQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  if (project.mode !== 'editor') throw badRequest('Only AI Video Editor projects have a timeline.', 'WRONG_MODE');
+  if (!project.sourceAssetId) throw badRequest('Upload a video first.', 'NO_SOURCE');
+  const source = await assertUsableSource(workspaceId, project.sourceAssetId.toString());
+  const stt = getTranscriptionProvider();
+  const cached = !stt || Boolean(await Transcript.exists({ assetId: source._id, provider: stt.name, language: project.settings?.language ?? 'en' }));
+  const ws = await Workspace.findById(workspaceId).select('creditBalance').lean();
+  return { credits: cached ? 0 : editorAnalyzeCost(source.durationSec ?? 0), balance: ws?.creditBalance ?? 0, sourceDurationSec: source.durationSec ?? 0, transcribes: Boolean(stt) };
+}
+
+projectsRouter.get(
+  '/:id/analyze/estimate',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    res.json({ data: await analyzeQuote(project, req.auth!.workspaceId) });
+  }),
+);
+
+/** Transcribes the footage and finds pauses and filler words, so it can be edited on the timeline. */
+projectsRouter.post(
+  '/:id/analyze',
+  jobStartLimiter,
+  requireVerifiedEmail,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const q = await analyzeQuote(project, req.auth!.workspaceId);
+    const data = await startProjectJob(req, project, {
+      type: 'analyze_project',
+      credits: q.credits,
+      note: 'Analyse footage',
+      payload: { previousStatus: project.status },
+      auditAction: 'project.analyze',
+    });
+    res.status(202).json({ data });
+  }),
+);
+
+/** The transcript words of the footage (for the timeline and live preview captions). */
+projectsRouter.get(
+  '/:id/words',
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null }).select('sourceAssetId settings mode');
+    if (!project) throw notFound('Project not found.');
+    const stt = getTranscriptionProvider();
+    const t = project.sourceAssetId && stt ? await Transcript.findOne({ assetId: project.sourceAssetId, provider: stt.name, language: project.settings?.language ?? 'en' }).lean() : null;
+    res.json({ data: { words: (t?.words ?? []).map((w) => ({ text: w.text, start: w.start, end: w.end, filler: Boolean(w.filler) })) } });
+  }),
+);
+
+/** Saves timeline edits (partial). The export renders exactly the saved `segments`. */
+projectsRouter.patch(
+  '/:id/edit',
+  validate({ params: idParams, body: editPatchSchema }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    if (project.status === 'queued' || project.status === 'processing') throw conflict('This project is being processed.', 'PROJECT_BUSY');
+    const edit = project.edit as EditDoc | null;
+    if (!edit || edit.sourceAssetId !== project.sourceAssetId?.toString()) throw conflict('Analyse the video first.', 'NOT_ANALYZED');
+    const patch = req.body as Partial<EditDoc>;
+    if (patch.segments) {
+      const problem = segmentsProblem(patch.segments, edit.durationSec);
+      if (problem) throw badRequest(problem, 'INVALID_SEGMENTS');
+      if (patch.segments.length === 0) throw badRequest('Keep at least part of the video.', 'INVALID_SEGMENTS');
+    }
+    const outOfRange = [...(patch.cuts ?? []), ...(patch.restores ?? []), ...(patch.texts ?? [])].some((r) => r.end > edit.durationSec + 0.05) || (patch.zooms ?? []).some((z) => z.at > edit.durationSec);
+    if (outOfRange) throw badRequest('An edit is past the end of the video.', 'INVALID_EDIT');
+    project.set('edit', { ...edit, ...patch });
+    project.markModified('edit');
+    await project.save();
+    res.json({ data: await withMedia(project) });
   }),
 );
 
