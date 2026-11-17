@@ -29,6 +29,36 @@ export interface EditCaption {
   words: Array<{ text: string; start: number; end: number }>;
   keyword: number;
 }
+/** A stock clip the server found for this project (download link kept server-side only). */
+export interface PoolClip {
+  id: string;
+  provider: string;
+  downloadUrl: string;
+  pageUrl: string;
+  author: string;
+  thumbnailUrl: string | null;
+  durationSec: number;
+  width: number;
+  height: number;
+}
+/** A B-roll cutaway on the SOURCE timeline: the clip shown, and the other options found for it. */
+export interface EditBroll {
+  start: number;
+  end: number;
+  query: string;
+  clipId: string;
+  candidateIds: string[];
+}
+/** Background music: auto = picked from the project's mood; none; or a chosen library track. */
+export interface EditMusic {
+  mode: 'auto' | 'none' | 'track';
+  file?: string;
+  /** 0–1 (0.25 ≈ a mastered track about 8 dB under speech). */
+  volume: number;
+  /** Dip the music while someone speaks. */
+  duck: boolean;
+}
+
 export interface EditDoc {
   sourceAssetId: string;
   analyzedAt: string;
@@ -47,6 +77,10 @@ export interface EditDoc {
   texts: EditText[];
   /** Caption lines (laid out at analysis, then edited by the user). Null = none yet. */
   captions?: EditCaption[] | null;
+  broll?: EditBroll[];
+  /** Every clip offered for this project, by id (server-side: holds the download links). */
+  brollPool?: Record<string, PoolClip>;
+  music?: EditMusic | null;
   /** What the export keeps, in order. Empty until the editor first saves (then `keepSegments` decides). */
   segments: Interval[];
 }
@@ -158,6 +192,9 @@ export function initialEdit(sourceAssetId: string, durationSec: number, silences
     zooms: keepUser ? previous.zooms : [],
     texts: keepUser ? previous.texts : [],
     captions: keepUser ? (previous.captions ?? null) : null,
+    broll: keepUser ? (previous.broll ?? []) : [],
+    brollPool: keepUser ? (previous.brollPool ?? {}) : {},
+    music: keepUser ? (previous.music ?? null) : null,
     segments: keepUser ? previous.segments : [],
   };
 }
@@ -199,6 +236,19 @@ export const editPatchSchema = z
       )
       .max(2000)
       .nullable(),
+    broll: z
+      .array(
+        z
+          .object({ start: z.number().min(0), end: z.number().positive(), query: z.string().trim().max(80), clipId: z.string().min(1).max(64), candidateIds: z.array(z.string().min(1).max(64)).max(12) })
+          .strict()
+          .refine((b) => b.end - b.start >= 0.5 && b.end - b.start <= 12, 'A B-roll clip is shown for 0.5–12 seconds.'),
+      )
+      .max(60),
+    music: z
+      .object({ mode: z.enum(['auto', 'none', 'track']), file: z.string().regex(/^[a-z0-9-]+\.mp3$/).optional(), volume: z.number().min(0).max(1), duck: z.boolean() })
+      .strict()
+      .refine((m) => m.mode !== 'track' || Boolean(m.file), 'Choose a track.')
+      .nullable(),
     segments: z.array(interval).max(400),
   })
   .strict()
@@ -230,4 +280,11 @@ export function captionsToOutput(captions: EditCaption[], segments: Interval[]) 
     if (words.length) out.push({ words, start: words[0]!.start, end: words[words.length - 1]!.end, keywords: keyword >= 0 ? [keyword] : [] });
   }
   return out;
+}
+
+/** The edit as sent to the browser: clip download links stay on the server. */
+export function publicEdit(e: EditDoc | null | undefined) {
+  if (!e) return null;
+  const pool = Object.fromEntries(Object.entries(e.brollPool ?? {}).map(([id, c]) => [id, { id: c.id, provider: c.provider, pageUrl: c.pageUrl, author: c.author, thumbnailUrl: c.thumbnailUrl, durationSec: c.durationSec, width: c.width, height: c.height }]));
+  return { ...e, brollPool: pool };
 }

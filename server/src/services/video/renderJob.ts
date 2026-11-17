@@ -689,7 +689,28 @@ async function run({ job, signal, progress: report }: JobContext) {
     const brollIntensity = (settings.bRollIntensity ?? 'medium') as 'none' | 'low' | 'medium' | 'high';
     const stock = getStockProvider();
     let broll: UsedBroll[] = [];
-    if (brollIntensity !== 'none' && !faceless) {
+    if (edit) {
+      // Exactly the B-roll placed on the timeline (download links come from this project's clip pool).
+      const placed = (edit.broll ?? []).flatMap((b) => {
+        const r = rangeToOutput(segments, b.start, b.end);
+        const clip = edit.brollPool?.[b.clipId];
+        return r && clip && r.end - r.start >= 0.4 ? [{ r, clip, query: b.query }] : [];
+      });
+      if (placed.length && !stock) notes.push('B-roll was not added: stock media is not enabled on this server.');
+      else if (placed.length) {
+        await progress(14, 'finding_broll');
+        const got = await Promise.allSettled(
+          placed.map(async ({ r, clip, query }, i) => {
+            const file = path.join(workDir, `broll-${i}.mp4`);
+            await stock!.download({ ...clip, tags: [] }, file, { signal });
+            return { path: file, start: r.start, end: r.end, query, provider: clip.provider, pageUrl: clip.pageUrl, author: clip.author };
+          }),
+        );
+        if (signal.aborted) throw new Error('Processing was cancelled.');
+        broll = got.flatMap((x) => (x.status === 'fulfilled' ? [x.value] : []));
+        if (broll.length < placed.length) notes.push(`${placed.length - broll.length} B-roll clip(s) couldn’t be downloaded and were left out.`);
+      }
+    } else if (brollIntensity !== 'none' && !faceless) {
       if (!stock || !llm) notes.push('B-roll was not added: stock media search is not enabled on this server yet.');
       else if (!editedWords.length) notes.push('B-roll was not added: it is chosen from what you say, and no transcript was available for this video.');
       else {
@@ -748,9 +769,20 @@ async function run({ job, signal, progress: report }: JobContext) {
       await writeFile(wmPath, buildWatermarkAss({ width: size.width, height: size.height, durationSec: keptSec, watermark: plan.watermark, disclosure, titles }), 'utf8');
       watermark = { assPath: wmPath, fontsDir: env.captions.fontsDir };
     }
-    const track = settings.musicMood && settings.musicMood !== 'none' ? pickTrack(loadLibrary(), settings.musicMood, project.style, project._id.toString()) : null;
+    // The timeline's music choice wins; otherwise the project's mood picks a track.
+    const em = edit?.music ?? null;
+    const library = loadLibrary();
+    const track = em
+      ? em.mode === 'none'
+        ? null
+        : em.mode === 'track'
+          ? (library.find((t) => t.file === em.file) ?? null)
+          : pickTrack(library, settings.musicMood && settings.musicMood !== 'none' ? settings.musicMood : 'auto', project.style, project._id.toString())
+      : settings.musicMood && settings.musicMood !== 'none'
+        ? pickTrack(library, settings.musicMood, project.style, project._id.toString())
+        : null;
     // ~0.25 sits a mastered track roughly 8 dB under normalised speech; ducking dips it further while talking.
-    const music = track ? { path: track.path, volume: 0.25, duck: true } : undefined;
+    const music = track ? { path: track.path, volume: em ? em.volume : 0.25, duck: em ? em.duck : true } : undefined;
 
     // 5. Render (cut + reframe + zooms + B-roll + logo + captions + watermark + audio) — 15% → 88%
     await progress(15, 'rendering');

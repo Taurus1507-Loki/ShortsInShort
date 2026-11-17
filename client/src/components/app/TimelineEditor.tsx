@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Coins, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Sparkles, Trash2, Type, Undo2, ZoomIn } from 'lucide-react';
+import { Coins, Film, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Sparkles, Trash2, Type, Undo2, ZoomIn } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input, Select } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Notice } from '../ui/primitives';
@@ -12,7 +12,7 @@ import { FootageEdit, type FootageEditProps } from '@/motion/FootageEdit';
 import { api, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useBrandKit, useJob } from '@/lib/queries';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type Range, type Word } from '@/features/edl';
+import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type PoolClip, type Range, type Word } from '@/features/edl';
 import { cn } from '@/lib/utils';
 import type { Project, ProjectSettings } from '@/types/api';
 
@@ -21,8 +21,8 @@ const SIZE: Record<string, [number, number]> = { '9:16': [720, 1280], '16:9': [1
 const LOGO_W = { small: 0.12, medium: 0.18, large: 0.25 } as const;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
-type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | null;
-type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions'>;
+type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | { kind: 'broll'; index: number } | { kind: 'newBroll'; at: number } | null;
+type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions' | 'broll' | 'music'>;
 
 /**
  * AI Video Editor "Edit" step: analyse once, then edit by hand on a timeline while a player shows the
@@ -88,7 +88,7 @@ function AnalyzeCard({ project }: { project: Project }) {
 
 function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; settings: ProjectSettings }) {
   const duration = edit.durationSec;
-  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null });
+  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null, broll: edit.broll ?? [], music: edit.music ?? null });
   const [past, setPast] = useState<Timeline[]>([]);
   const [future, setFuture] = useState<Timeline[]>([]);
   const [sel, setSel] = useState<Selection>(null);
@@ -103,6 +103,9 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   const segments = useMemo(() => keepSegments(full), [tl]); // eslint-disable-line react-hooks/exhaustive-deps
   const removed = useMemo(() => removedRanges(full), [tl]); // eslint-disable-line react-hooks/exhaustive-deps
   const outLen = totalLength(segments);
+  // Clips found for this project (suggestions and searches), for thumbnails and swapping.
+  const [extraPool, setExtraPool] = useState<Record<string, PoolClip>>({});
+  const pool = useMemo(() => ({ ...(project.edit?.brollPool ?? {}), ...extraPool }), [project.edit?.brollPool, extraPool]);
 
   const change = useCallback((next: Timeline | ((t: Timeline) => Timeline)) => {
     setTl((cur) => {
@@ -140,6 +143,48 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     onError: (e) => toast.error(errorMessage(e)),
   });
 
+  /* ── B-roll: AI suggestions, search, swap ── */
+  const [brollAmount, setBrollAmount] = useState<'low' | 'medium' | 'high'>('medium');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PoolClip[]>([]);
+  const suggest = useMutation({
+    mutationFn: () => api<{ data: Project; meta: { suggested: number; plannedWith?: string } }>(`/projects/${project.id}/broll/suggest`, { method: 'POST', body: { amount: brollAmount } }),
+    onSuccess: (r) => {
+      queryClient.setQueryData(keys.project(project.id), r.data);
+      change((t) => ({ ...t, broll: r.data.edit?.broll ?? [] }));
+      setSel(null);
+      toast.success(
+        r.meta.suggested
+          ? `${r.meta.suggested} B-roll clips suggested${r.meta.plannedWith === 'keywords' ? ' from keywords (the AI was slow)' : ''} — keep, swap or delete each one`
+          : 'No closely matching stock clips were found for what you say',
+      );
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const search = useMutation({
+    mutationFn: (q: string) => api<{ data: { clips: PoolClip[] } }>(`/projects/${project.id}/broll/search`, { method: 'POST', body: { query: q } }).then((r) => r.data.clips),
+    onSuccess: (clips) => {
+      setResults(clips);
+      setExtraPool((p) => ({ ...p, ...Object.fromEntries(clips.map((c) => [c.id, c])) }));
+      if (!clips.length) toast.info('No clips found — try different words');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  /** Puts a clip in the selected B-roll slot, or creates a new slot at the playhead. */
+  const placeClip = (clip: PoolClip) => {
+    const list = tl.broll ?? [];
+    if (sel?.kind === 'broll') {
+      change((t) => ({ ...t, broll: list.map((b, i) => (i === sel.index ? { ...b, clipId: clip.id, query: query.trim() || b.query, candidateIds: [...new Set([clip.id, ...b.candidateIds])].slice(0, 12) } : b)) }));
+    } else if (sel?.kind === 'newBroll') {
+      const start = Math.round(sel.at * 100) / 100;
+      const item = { start, end: Math.min(duration, start + Math.min(4, Math.max(1.5, clip.durationSec || 3))), query: query.trim(), clipId: clip.id, candidateIds: [clip.id] };
+      const next = [...list, item].sort((a, b) => a.start - b.start);
+      change((t) => ({ ...t, broll: next }));
+      setSel({ kind: 'broll', index: next.indexOf(item) });
+    }
+  };
+  const tracks = useMusicLibrary();
+
   // Auto-save (debounced) whenever the timeline changes.
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const first = useRef(true);
@@ -166,7 +211,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   }, [tl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Player inputs ── */
-  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions);
+  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions, tl.broll, pool, tl.music);
 
   // Keep the playhead (source time) in sync with the player.
   useEffect(() => {
@@ -226,6 +271,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     else if (sel.kind === 'zoom') change((t) => ({ ...t, zooms: t.zooms.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'text') change((t) => ({ ...t, texts: t.texts.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'caption') change((t) => ({ ...t, captions: (t.captions ?? []).filter((_, i) => i !== sel.index) }));
+    else if (sel.kind === 'broll') change((t) => ({ ...t, broll: (t.broll ?? []).filter((_, i) => i !== sel.index) }));
     setSel(null);
   };
   const addZoom = () => {
@@ -340,6 +386,118 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
               <Button variant="outline" size="sm" onClick={() => rebuild.mutate()} loading={rebuild.isPending} title="Lay the captions out again for the current caption style (your caption edits are replaced)">
                 <RotateCcw /> {tl.captions?.length ? 'Rebuild for current style' : 'Make captions'}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">B-roll</CardTitle>
+              <CardDescription>AI picks moments that need a visual and finds stock clips for each. You keep, swap or delete every clip — nothing is added that you don’t see on the timeline.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-2">
+              <Select id="broll-amount" value={brollAmount} onChange={(e) => setBrollAmount(e.target.value as 'medium')} className="w-auto">
+                <option value="low">A few</option>
+                <option value="medium">Some</option>
+                <option value="high">Lots</option>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => suggest.mutate()} loading={suggest.isPending} title={(tl.broll?.length ?? 0) ? 'Replaces the current B-roll' : undefined}>
+                <Sparkles /> {(tl.broll?.length ?? 0) ? 'Suggest again' : 'Suggest B-roll'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {(sel?.kind === 'broll' || sel?.kind === 'newBroll') && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">{sel.kind === 'newBroll' ? `New B-roll at ${fmt(sel.at)}` : 'B-roll clip'}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                {sel.kind === 'broll' && tl.broll?.[sel.index] && (() => {
+                  const b = tl.broll[sel.index]!;
+                  return (
+                    <>
+                      <span className="text-xs text-muted-foreground">Options for this moment</span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {b.candidateIds.map((id) => pool[id]).filter(Boolean).map((c) => (
+                          <button key={c!.id} type="button" onClick={() => placeClip(c!)} className={cn('aspect-video overflow-hidden rounded-md border bg-muted bg-cover bg-center', c!.id === b.clipId ? 'border-highlight ring-2 ring-highlight' : 'border-border hover:border-primary/50')} style={{ backgroundImage: c!.thumbnailUrl ? `url("${c!.thumbnailUrl}")` : undefined }} aria-label={`Use clip by ${c!.author}`} />
+                        ))}
+                      </div>
+                      <label className="grid gap-1 text-xs text-muted-foreground">
+                        Shows for (seconds)
+                        <Input id="broll-length" type="number" min={0.5} max={12} step={0.5} value={Math.round((b.end - b.start) * 10) / 10} onChange={(e) => change((t) => ({ ...t, broll: (t.broll ?? []).map((x, i) => (i === sel.index ? { ...x, end: Math.min(duration, x.start + Math.min(12, Math.max(0.5, Number(e.target.value) || 0.5))) } : x)) }))} />
+                      </label>
+                    </>
+                  );
+                })()}
+                <form
+                  className="flex gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (query.trim().length >= 2) search.mutate(query.trim());
+                  }}
+                >
+                  <Input id="broll-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search stock clips, e.g. city at night" maxLength={60} />
+                  <Button type="submit" size="sm" variant="secondary" loading={search.isPending}>
+                    Search
+                  </Button>
+                </form>
+                {results.length > 0 && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {results.map((c) => (
+                      <button key={c.id} type="button" onClick={() => placeClip(c)} className="aspect-video overflow-hidden rounded-md border border-border bg-muted bg-cover bg-center hover:border-primary/50" style={{ backgroundImage: c.thumbnailUrl ? `url("${c.thumbnailUrl}")` : undefined }} aria-label={`Use clip by ${c.author}`} title={`${c.author} · ${Math.round(c.durationSec)} s`} />
+                    ))}
+                  </div>
+                )}
+                {sel.kind === 'broll' && (
+                  <Button variant="outline" size="sm" onClick={deleteSel}>
+                    <Trash2 /> Remove clip
+                  </Button>
+                )}
+                <p className="text-[11px] text-muted-foreground">Stock clips from Pixabay, credited in the finished video. The preview shows a still; the export uses the moving clip.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Music</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <Select
+                id="music-track"
+                value={tl.music?.mode === 'track' ? tl.music.file : (tl.music?.mode ?? 'auto')}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const base = { volume: tl.music?.volume ?? 0.25, duck: tl.music?.duck ?? true };
+                  change((t) => ({ ...t, music: v === 'auto' || v === 'none' ? { ...base, mode: v } : { ...base, mode: 'track', file: v } }));
+                }}
+              >
+                <option value="auto">Match the style (automatic)</option>
+                <option value="none">No music</option>
+                {tracks.map((t) => (
+                  <option key={t.file} value={t.file}>
+                    {t.title} — {t.artist} ({t.moods.join(', ')})
+                  </option>
+                ))}
+              </Select>
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                Volume: {Math.round((tl.music?.volume ?? 0.25) * 100)}%
+                <input
+                  id="music-volume"
+                  type="range"
+                  min={0}
+                  max={60}
+                  step={5}
+                  value={Math.round((tl.music?.volume ?? 0.25) * 100)}
+                  onChange={(e) => change((t) => ({ ...t, music: { mode: t.music?.mode ?? 'auto', file: t.music?.file, duck: t.music?.duck ?? true, volume: Number(e.target.value) / 100 } }))}
+                  className="accent-[hsl(var(--primary))]"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input id="music-duck" type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={tl.music?.duck ?? true} onChange={(e) => change((t) => ({ ...t, music: { mode: t.music?.mode ?? 'auto', file: t.music?.file, volume: t.music?.volume ?? 0.25, duck: e.target.checked } }))} />
+                Lower the music while you speak
+              </label>
+              {!tracks.length && <p className="text-xs text-muted-foreground">No music in the library yet — an admin adds Pixabay tracks in Admin → Music library.</p>}
             </CardContent>
           </Card>
 
@@ -485,6 +643,18 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
             <Button size="sm" variant="outline" onClick={addText} title="Add text at the playhead">
               <Type /> Text
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setSel({ kind: 'newBroll', at: playhead });
+                setResults([]);
+                setQuery('');
+              }}
+              title="Add a stock clip at the playhead"
+            >
+              <Film /> B-roll
+            </Button>
             <span className="mx-1 h-5 w-px bg-border" />
             <Button size="sm" variant="ghost" onClick={undo} disabled={!past.length} aria-label="Undo (Ctrl+Z)">
               <Undo2 />
@@ -505,7 +675,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
           <div ref={strip} className="overflow-x-auto rounded-lg border border-border bg-muted/30">
             <div
               className="relative select-none"
-              style={{ width, height: 202 }}
+              style={{ width, height: 262 }}
               onMouseDown={(e) => {
                 if ((e.target as HTMLElement).dataset.track !== 'ruler') return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -597,7 +767,29 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                 );
               })}
               {/* Zooms */}
-              <TrackLabel top={136} label="Zoom" />
+              {/* B-roll */}
+              <TrackLabel top={138} label="B-roll" />
+              {(tl.broll ?? []).map((b, i) => {
+                const clip = pool[b.clipId];
+                return (
+                  <button
+                    key={`${b.clipId}-${i}`}
+                    type="button"
+                    onClick={() => {
+                      setSel({ kind: 'broll', index: i });
+                      setQuery(b.query);
+                      setResults([]);
+                      seekSource(b.start);
+                    }}
+                    title={`B-roll “${b.query}” · ${fmt(b.start)}–${fmt(b.end)} · click to swap or delete`}
+                    className={cn('absolute top-[136px] h-8 overflow-hidden rounded-sm border border-sky-400/60 bg-sky-400/20 bg-cover bg-center', sel?.kind === 'broll' && sel.index === i && 'ring-2 ring-highlight')}
+                    style={{ left: x(b.start), width: Math.max(14, x(b.end) - x(b.start)), backgroundImage: clip?.thumbnailUrl ? `url("${clip.thumbnailUrl}")` : undefined }}
+                  >
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 text-[9px] text-white">{b.query}</span>
+                  </button>
+                );
+              })}
+              <TrackLabel top={170} label="Zoom" />
               {tl.zooms.map((z, i) => (
                 <button
                   key={i}
@@ -607,12 +799,12 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                     seekSource(z.at);
                   }}
                   title={`Zoom ${Math.round((z.scale - 1) * 100)}% for ${z.dur}s`}
-                  className={cn('absolute top-[136px] h-6 rounded-sm border border-accent/60 bg-accent/30', sel?.kind === 'zoom' && sel.index === i && 'ring-2 ring-highlight')}
+                  className={cn('absolute top-[170px] h-6 rounded-sm border border-accent/60 bg-accent/30', sel?.kind === 'zoom' && sel.index === i && 'ring-2 ring-highlight')}
                   style={{ left: x(z.at), width: Math.max(8, z.dur * pxPerSec) }}
                 />
               ))}
               {/* Text */}
-              <TrackLabel top={166} label="Text" />
+              <TrackLabel top={198} label="Text" />
               {tl.texts.map((t, i) => (
                 <button
                   key={i}
@@ -621,12 +813,22 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                     setSel({ kind: 'text', index: i });
                     seekSource(t.start);
                   }}
-                  className={cn('absolute top-[166px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-success/60 bg-success/20 px-1 text-left text-[10px] leading-7', sel?.kind === 'text' && sel.index === i && 'ring-2 ring-highlight')}
+                  className={cn('absolute top-[198px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-success/60 bg-success/20 px-1 text-left text-[10px] leading-7', sel?.kind === 'text' && sel.index === i && 'ring-2 ring-highlight')}
                   style={{ left: x(t.start), width: Math.max(12, x(t.end) - x(t.start)) }}
                 >
                   {t.text}
                 </button>
               ))}
+              {/* Music */}
+              <TrackLabel top={230} label="Music" />
+              {(() => {
+                const t = musicTrackFor(tl.music ?? null, tracks, settings.musicMood, project.style, project.id);
+                return (
+                  <div className="absolute top-[228px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-fuchsia-400/50 bg-fuchsia-400/15 px-2 text-[10px] leading-7 text-foreground" style={{ left: 0, width: x(duration) }}>
+                    {t ? `♪ ${t.title} — ${t.artist} · volume ${Math.round((tl.music?.volume ?? 0.25) * 100)}%${(tl.music?.duck ?? true) ? ' · dips while you speak' : ''}` : tracks.length ? 'No music' : 'No music in the library yet'}
+                  </div>
+                );
+              })()}
               {/* Playhead */}
               <div className="pointer-events-none absolute bottom-0 top-0 w-0.5 bg-highlight" style={{ left: x(playhead) }} />
             </div>
@@ -719,7 +921,18 @@ function TranscriptPanel({
 }
 
 /** Inputs for the live preview player: the real footage with this edit, captions, logo and watermark. */
-function useFootageInput(project: Project, settings: ProjectSettings, segments: Range[], zooms: EditDoc['zooms'], texts: EditDoc['texts'], captionLines?: EditDoc['captions']) {
+function useFootageInput(
+  project: Project,
+  settings: ProjectSettings,
+  segments: Range[],
+  zooms: EditDoc['zooms'],
+  texts: EditDoc['texts'],
+  captionLines?: EditDoc['captions'],
+  broll?: EditDoc['broll'],
+  pool?: EditDoc['brollPool'],
+  music?: EditDoc['music'],
+) {
+  const tracks = useMusicLibrary();
   const { data: wordsData } = useQuery({ queryKey: ['words', project.id, project.sourceAssetId], queryFn: () => api<{ data: { words: Word[] } }>(`/projects/${project.id}/words`).then((r) => r.data.words), staleTime: Infinity });
   const words = wordsData ?? [];
   const src = useAssetUrl(project.sourceAssetId);
@@ -748,8 +961,16 @@ function useFootageInput(project: Project, settings: ProjectSettings, segments: 
         : null,
       logo: logoUrl.data && kit ? { url: logoUrl.data, position: kit.logoPosition, widthFrac: LOGO_W[kit.logoSize], opacity: kit.logoOpacity } : null,
       watermark: workspace?.plan === 'free',
+      broll: (broll ?? []).flatMap((b) => {
+        const r = rangeToOutput(segments, b.start, b.end);
+        return r ? [{ ...r, image: pool?.[b.clipId]?.thumbnailUrl ?? null }] : [];
+      }),
+      music: (() => {
+        const t = musicTrackFor(music ?? null, tracks, settings.musicMood, project.style, project.id);
+        return t ? { src: t.previewUrl, volume: music?.volume ?? 0.25, duck: music?.duck ?? true, speech: mergeRanges(lines.flatMap((l) => l.words.map((w) => ({ start: w.start, end: w.end })))) } : null;
+      })(),
     };
-  }, [words, segments, src.data, framing, zooms, texts, captionLines, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
+  }, [words, segments, src.data, framing, zooms, texts, captionLines, broll, pool, music, tracks, project.style, project.id, settings.musicMood, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
 
   return { inputProps, words, src, W, H };
 }
@@ -758,7 +979,7 @@ function useFootageInput(project: Project, settings: ProjectSettings, segments: 
 export function FootagePreview({ project, settings }: { project: Project; settings: ProjectSettings }) {
   const e = project.edit;
   const segments = useMemo(() => (e ? (e.segments.length ? e.segments : keepSegments(e)) : []), [e]);
-  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions);
+  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions, e?.broll, e?.brollPool, e?.music);
   if (!e || !segments.length) return null;
   return (
     <div className="grid gap-1.5">
@@ -780,4 +1001,35 @@ function TrackLabel({ top, label }: { top: number; label: string }) {
       {label}
     </span>
   );
+}
+
+export interface MusicTrack {
+  file: string;
+  title: string;
+  artist: string;
+  moods: string[];
+  durationSec: number | null;
+  previewUrl: string;
+}
+
+/** The licensed background-music library (with short-lived preview links). */
+function useMusicLibrary(): MusicTrack[] {
+  const { data } = useQuery({ queryKey: ['music-library'], queryFn: () => api<{ data: { tracks: MusicTrack[] } }>('/music').then((r) => r.data.tracks), staleTime: 30 * 60_000 });
+  return data ?? [];
+}
+
+const STYLE_MOOD: Record<string, string> = { viral: 'upbeat', podcast: 'lofi', cinematic: 'cinematic', educational: 'calm', business: 'corporate', storytelling: 'cinematic', vlog: 'upbeat', product_promotion: 'upbeat' };
+
+/** The track the export will use — same rule as the server (services/ai/music.ts → pickTrack). */
+function musicTrackFor(music: EditDoc['music'] | null, tracks: MusicTrack[], mood: string, style: string, seed: string): MusicTrack | null {
+  if (!tracks.length) return null;
+  const mode = music?.mode ?? (mood === 'none' ? 'none' : 'auto');
+  if (mode === 'none') return null;
+  if (mode === 'track') return tracks.find((t) => t.file === music?.file) ?? null;
+  const m = !mood || mood === 'auto' || mood === 'none' ? (STYLE_MOOD[style] ?? 'upbeat') : mood;
+  const list = tracks.filter((t) => t.moods.includes(m));
+  const pick = list.length ? list : tracks;
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return pick[h % pick.length]!;
 }

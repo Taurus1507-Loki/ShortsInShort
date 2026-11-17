@@ -1,4 +1,5 @@
 import { Schema, model, type HydratedDocument, type InferSchemaType, Types } from 'mongoose';
+import { publicEdit, type EditDoc } from '../services/video/edl.js';
 
 export const PROJECT_MODES = ['editor', 'avatar', 'faceless'] as const;
 export const PROJECT_STATUSES = ['draft', 'queued', 'processing', 'completed', 'failed'] as const;
@@ -293,7 +294,7 @@ export function toPublicProject(p: ProjectDoc) {
     })),
     scenesKey: p.scenesKey ?? null,
     scenesPlannedWith: p.scenesPlannedWith ?? null,
-    edit: (p.edit as unknown) ?? null,
+    edit: publicEdit(p.edit as EditDoc | null),
     createdAt: p.get('createdAt') as Date,
     updatedAt: p.get('updatedAt') as Date,
   };

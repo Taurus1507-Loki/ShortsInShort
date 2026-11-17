@@ -11,6 +11,10 @@ import { registerRenderJob } from '../services/video/renderJob.js';
 import { registerAnalyzeJob } from '../services/video/analyzeJob.js';
 import { runFfmpeg } from '../services/video/ffmpeg.js';
 import { setTranscriptionProvider, type TranscriptionProvider, type Word } from '../services/ai/transcription.js';
+import { setLLMProvider, type LLMProvider } from '../services/ai/llm.js';
+import { setStockProvider, type StockVideoProvider } from '../services/ai/stock.js';
+import { env } from '../config/env.js';
+import { writeFile } from 'node:fs/promises';
 import { keepSegments, rangeToOutput, removedRanges, toOutputTime, type EditDoc } from '../services/video/edl.js';
 
 let fixture: Buffer;
@@ -214,5 +218,106 @@ describe('styled text overlays in the export', () => {
     expect(ass).toContain(",TitleBox,,0,0,0,,{\\fad(200,200)\\an2}Boxed");
     expect(ass).toContain("TitleBox,,0,0,0,,{\\fad(200,200)\\fs65\\3c&H481DE1&}Accent");
     expect(ass).toContain(",Title,,0,0,0,,{\\fad(200,200)\\an5\\c&H15CCFA&}Yellow");
+  });
+});
+
+describe('B-roll and music tracks', () => {
+  let redClip = '';
+  const llm: LLMProvider = {
+    name: 'fake-llm',
+    async generateJson<T>(prompt: string, schema: { properties?: Record<string, unknown> }) {
+      const key = Object.keys(schema.properties ?? {})[0]!;
+      if (key === 'keywords') return { keywords: (JSON.parse(prompt.split(String.fromCharCode(10)).at(-1)!) as string[]).map((l) => l.split(' ').at(-1)!) } as T;
+      if (key === 'moments') return { moments: [{ sentence: 1, queries: ['coffee cup'] }] } as T;
+      throw new Error('unexpected');
+    },
+  };
+  const clip = (id: string, q: string) => ({ id, provider: 'fake-stock', downloadUrl: `https://example.test/${id}.mp4`, pageUrl: `https://example.test/${id}`, author: 'tester', width: 640, height: 360, durationSec: 6, tags: q.split(' '), thumbnailUrl: `https://example.test/${id}.jpg` });
+  const stock: StockVideoProvider = {
+    name: 'fake-stock',
+    license: 'test',
+    async searchVideos(query) {
+      return [clip(`${query.replace(/\s+/g, '-')}-1`, query), clip(`${query.replace(/\s+/g, '-')}-2`, query)];
+    },
+    async download(_clip, dest) {
+      await writeFile(dest, await readFile(redClip));
+    },
+  };
+
+  beforeAll(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'sis-broll-'));
+    redClip = path.join(dir, 'red.mp4');
+    await runFfmpeg(['-f', 'lavfi', '-i', 'color=c=red:s=640x360:r=25:d=6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', redClip]);
+    // One licensed music track in the library.
+    await runFfmpeg(['-f', 'lavfi', '-i', "aevalsrc='0.1*sin(2*PI*220*t)':s=44100:d=12", '-c:a', 'libmp3lame', '-b:a', '128k', path.join(env.music.libraryDir, 'calm-bed-1234abcd.mp3')]);
+    await writeFile(path.join(env.music.libraryDir, 'music.json'), JSON.stringify([{ file: 'calm-bed-1234abcd.mp3', title: 'Calm Bed', artist: 'Tester', moods: ['calm'], license: 'Pixabay Content License', durationSec: 12 }]));
+  }, 120_000);
+  // A transcript whose second sentence leaves room for a cutaway inside the 7 s clip.
+  const BROLL_WORDS: Word[] = [
+    { text: 'Consistency', start: 0.2, end: 0.8 }, { text: 'beats', start: 0.85, end: 1.3 }, { text: 'talent.', start: 1.35, end: 1.9 },
+    { text: 'Every', start: 3.0, end: 3.4 }, { text: 'single', start: 3.45, end: 3.9 }, { text: 'day', start: 3.95, end: 4.3 }, { text: 'you', start: 4.6, end: 4.9 }, { text: 'win.', start: 4.95, end: 5.6 },
+  ];
+  beforeEach(() => {
+    setTranscriptionProvider({ name: 'fake-broll', async transcribe(_a, o) { return { provider: 'fake-broll', language: o.language, words: BROLL_WORDS }; } });
+    setLLMProvider(llm);
+    setStockProvider(stock);
+  });
+  afterEach(() => {
+    setLLMProvider(undefined);
+    setStockProvider(undefined);
+  });
+
+  it('suggests B-roll you can swap and search, keeps download links private, and exports exactly what you chose', async () => {
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/analyze`).set(auth).expect(202);
+    await worker.runOnce();
+
+    const sug = await request(app).post(`/api/projects/${p.id}/broll/suggest`).set(auth).send({ amount: 'medium' }).expect(200);
+    expect(sug.body.meta.suggested).toBe(1);
+    const edit = sug.body.data.edit as EditDoc;
+    expect(edit.broll![0]).toMatchObject({ query: 'coffee cup', clipId: 'coffee-cup-1', candidateIds: ['coffee-cup-1', 'coffee-cup-2'] });
+    expect(edit.broll![0]!.start).toBeGreaterThanOrEqual(3); // sentence 1 starts at 3.0 s
+    expect(edit.broll![0]!.start).toBeLessThan(3.5);
+    // The browser sees thumbnails and credits, never the download links.
+    expect(JSON.stringify(sug.body.data)).not.toContain('downloadUrl');
+    expect(edit.brollPool!['coffee-cup-2']).toMatchObject({ thumbnailUrl: 'https://example.test/coffee-cup-2.jpg', author: 'tester' });
+
+    // Search adds new options; a clip that was never offered is refused.
+    const found = await request(app).post(`/api/projects/${p.id}/broll/search`).set(auth).send({ query: 'sunrise' }).expect(200);
+    expect(found.body.data.clips.map((c: { id: string }) => c.id)).toEqual(['sunrise-1', 'sunrise-2']);
+    const swap = [{ start: 5, end: 6.5, query: 'sunrise', clipId: 'sunrise-2', candidateIds: ['sunrise-2', 'coffee-cup-1'] }];
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ broll: [{ ...swap[0], clipId: 'https://evil.test/x.mp4' }] }).expect(400);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ broll: swap, music: { mode: 'track', file: 'calm-bed-1234abcd.mp3', volume: 0.3, duck: true } }).expect(200);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ music: { mode: 'track', file: 'gone-0000aaaa.mp3', volume: 0.3, duck: true } }).expect(400);
+
+    await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;
+    expect(done.status).toBe('completed');
+    expect(done.renderStats.brollCount).toBe(1);
+    expect(done.renderStats.broll[0]).toMatchObject({ query: 'sunrise', pageUrl: 'https://example.test/sunrise-2', author: 'tester' });
+    expect(done.renderStats.music).toMatchObject({ title: 'Calm Bed' });
+  }, 180_000);
+
+  it('still suggests B-roll from keywords when the AI is down', async () => {
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/analyze`).set(auth).expect(202);
+    await worker.runOnce();
+    setLLMProvider({ name: 'down', async generateJson() { throw new Error('AI unavailable'); } });
+    const res = await request(app).post(`/api/projects/${p.id}/broll/suggest`).set(auth).send({ amount: 'medium' }).expect(200);
+    expect(res.body.meta).toMatchObject({ plannedWith: 'keywords', suggested: 1 });
+    expect(res.body.data.edit.broll[0].query).toMatch(/single|day/);
+  }, 120_000);
+
+  it('lists library music with expiring preview links', async () => {
+    const { auth } = await registerUser({ verify: true });
+    await request(app).get('/api/music').expect(401);
+    const list = (await request(app).get('/api/music').set(auth).expect(200)).body.data.tracks;
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ file: 'calm-bed-1234abcd.mp3', title: 'Calm Bed', moods: ['calm'] });
+    const audio = await request(app).get(list[0].previewUrl).expect(200);
+    expect(audio.headers['content-type']).toMatch(/audio\/mpeg/);
+    await request(app).get(list[0].previewUrl.replace(/sig=[0-9a-f]+/, 'sig=00')).expect(403);
+    await request(app).get('/api/music/audio/calm-bed-1234abcd.mp3?exp=1&sig=00').expect(403);
   });
 });

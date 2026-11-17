@@ -27,6 +27,30 @@ export interface EditCaption {
   words: Array<{ text: string; start: number; end: number }>;
   keyword: number;
 }
+/** A stock clip found for this project (the download link stays on the server). */
+export interface PoolClip {
+  id: string;
+  provider: string;
+  pageUrl: string;
+  author: string;
+  thumbnailUrl: string | null;
+  durationSec: number;
+  width: number;
+  height: number;
+}
+export interface EditBroll {
+  start: number;
+  end: number;
+  query: string;
+  clipId: string;
+  candidateIds: string[];
+}
+export interface EditMusic {
+  mode: 'auto' | 'none' | 'track';
+  file?: string;
+  volume: number;
+  duck: boolean;
+}
 export interface EditDoc {
   sourceAssetId: string;
   analyzedAt: string;
@@ -40,6 +64,9 @@ export interface EditDoc {
   zooms: EditZoom[];
   texts: EditText[];
   captions?: EditCaption[] | null;
+  broll?: EditBroll[];
+  brollPool?: Record<string, PoolClip>;
+  music?: EditMusic | null;
   segments: Range[];
 }
 export interface Word {

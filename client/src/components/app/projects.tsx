@@ -297,7 +297,7 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
       <section className="grid gap-6">
         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Editing</h3>
         <div className="grid gap-6 sm:grid-cols-2">
-          {!faceless && (
+          {!faceless && mode !== 'editor' && (
           <Setting
             label="B-roll (stock footage)"
             status={brollLive ? 'applied' : 'soon'}

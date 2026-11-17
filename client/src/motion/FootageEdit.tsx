@@ -1,4 +1,4 @@
-import { AbsoluteFill, Html5Video, interpolate, Series, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Html5Audio, Html5Video, Img, interpolate, Series, useCurrentFrame, useVideoConfig } from 'remotion';
 import { CaptionLayer } from './captions';
 import { finishTheme } from './themes';
 import type { CaptionTrack } from './types';
@@ -18,6 +18,10 @@ export interface FootageEditProps {
   captions: CaptionTrack | null;
   logo: { url: string; position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; widthFrac: number; opacity: number } | null;
   watermark: boolean;
+  /** B-roll cutaways (edited-timeline seconds). The preview shows the clip's still; the export uses the clip. */
+  broll?: Array<{ start: number; end: number; image: string | null }>;
+  /** Background music, dipped while someone speaks (`speech` = edited-timeline ranges). */
+  music?: { src: string; volume: number; duck: boolean; speech: Array<{ start: number; end: number }> } | null;
   [key: string]: unknown;
 }
 
@@ -34,7 +38,7 @@ function zoomAt(t: number, zooms: FootageEditProps['zooms']) {
   return 1;
 }
 
-export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark }: FootageEditProps) {
+export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark, broll = [], music = null }: FootageEditProps) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
@@ -57,6 +61,32 @@ export function FootageEdit({ src, segments, framing, zooms, texts, captions, lo
           ))}
         </Series>
       </AbsoluteFill>
+      {broll
+        .filter((b) => t >= b.start && t < b.end)
+        .map((b, i) => (
+          <AbsoluteFill key={`b${i}`} style={{ background: '#111', overflow: 'hidden' }}>
+            {b.image ? (
+              <Img
+                src={b.image}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${interpolate(t, [b.start, b.end], [1.04, 1.14])})` }}
+              />
+            ) : null}
+            <div style={{ position: 'absolute', left: short * 0.03, bottom: short * 0.03, padding: `${short * 0.006}px ${short * 0.014}px`, borderRadius: short * 0.008, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: short * 0.024, fontWeight: 600 }}>
+              B-roll (still preview)
+            </div>
+          </AbsoluteFill>
+        ))}
+      {music && music.src && (
+        <Html5Audio
+          src={music.src}
+          loop
+          volume={(f) => {
+            const sec = f / fps;
+            const talking = music.duck && music.speech.some((r) => sec >= r.start - 0.15 && sec <= r.end + 0.25);
+            return music.volume * (talking ? 0.45 : 1);
+          }}
+        />
+      )}
       {texts
         .filter((x) => t >= x.start && t <= x.end)
         .map((x, i) => (
