@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Interval } from './silence.js';
 import { SFX_KINDS, type SfxKind } from '../audio/sfx.js';
+import { MOTION_ICONS } from '../faceless/motion.js';
 
 /**
  * AI Video Editor timeline ("edit decision list"). All times are seconds on the SOURCE footage, so
@@ -67,6 +68,25 @@ export interface EditSfx {
   /** 0–1.5 on top of the effect's own level (default 1). */
   volume?: number;
 }
+/** Animated emoji a graphic can show (client/src/motion/graphics.tsx → GRAPHIC_EMOJI). */
+export const GRAPHIC_EMOJI = ['fire', 'rocket', 'idea', 'mind_blown', 'hundred', 'heart_eyes', 'check', 'thumbs_up', 'eyes', 'party', 'celebrate', 'star', 'laughing', 'raised_hands', 'heart'] as const;
+/** A motion graphic over the footage, on the SOURCE timeline. */
+export interface EditGraphic {
+  start: number;
+  end: number;
+  kind: 'counter' | 'emoji' | 'callout';
+  value?: number;
+  prefix?: string;
+  suffix?: string;
+  label?: string;
+  emoji?: (typeof GRAPHIC_EMOJI)[number];
+  text?: string;
+  heading?: string;
+  icon?: (typeof MOTION_ICONS)[number];
+  position: 'top' | 'middle' | 'bottom';
+  /** Accent colour (default: the project's highlight colour). */
+  color?: string;
+}
 /** What the last Auto edit did (shown to the user; never used for rendering). */
 export interface AutoSummary {
   at: string;
@@ -74,7 +94,7 @@ export interface AutoSummary {
   hookBy: 'ai' | 'rules' | null;
   mood: string | null;
   brollBy: 'ai' | 'keywords' | null;
-  counts: { broll: number; zooms: number; sfx: number };
+  counts: { broll: number; zooms: number; sfx: number; graphics?: number };
   music: string | null;
   notes: string[];
 }
@@ -102,6 +122,7 @@ export interface EditDoc {
   brollPool?: Record<string, PoolClip>;
   music?: EditMusic | null;
   sfx?: EditSfx[];
+  graphics?: EditGraphic[];
   auto?: AutoSummary | null;
   /** What the export keeps, in order. Empty until the editor first saves (then `keepSegments` decides). */
   segments: Interval[];
@@ -189,6 +210,16 @@ export function fromOutputTime(segments: Interval[], t: number): number {
   return last ? last.end : 0;
 }
 
+/** Graphics on the edited timeline: from their first kept moment, for their length (cut moments don't shorten them). */
+export function graphicsToOutput(graphics: EditGraphic[], segments: Interval[], totalSec: number) {
+  return graphics.flatMap((g) => {
+    const r = rangeToOutput(segments, g.start, g.end);
+    if (!r) return [];
+    const end = Math.min(totalSec, r.start + (g.end - g.start));
+    return end - r.start >= 0.5 ? [{ ...g, start: r.start, end: r3(end) }] : [];
+  });
+}
+
 /** Seconds a sound starts before its moment, so it peaks on the cut. */
 export const SFX_LEAD: Partial<Record<SfxKind, number>> = { whoosh: 0.22 };
 
@@ -241,6 +272,7 @@ export function initialEdit(sourceAssetId: string, durationSec: number, silences
     brollPool: keepUser ? (previous.brollPool ?? {}) : {},
     music: keepUser ? (previous.music ?? null) : null,
     sfx: keepUser ? (previous.sfx ?? []) : [],
+    graphics: keepUser ? (previous.graphics ?? []) : [],
     auto: keepUser ? (previous.auto ?? null) : null,
     segments: keepUser ? previous.segments : [],
   };
@@ -249,6 +281,27 @@ export function initialEdit(sourceAssetId: string, durationSec: number, silences
 /* ── Validation of edits sent by the web editor ── */
 
 const interval = z.object({ start: z.number().min(0), end: z.number().positive() }).strict().refine((i) => i.end > i.start, 'A range must end after it starts.');
+const label = z.string().trim().min(1).max(40);
+export const graphicSchema = z
+  .object({
+    start: z.number().min(0),
+    end: z.number().positive(),
+    kind: z.enum(['counter', 'emoji', 'callout']),
+    value: z.number().min(-1e12).max(1e12).optional(),
+    prefix: z.string().max(4).optional(),
+    suffix: z.string().max(10).optional(),
+    label: label.optional(),
+    emoji: z.enum(GRAPHIC_EMOJI).optional(),
+    text: z.string().trim().min(1).max(70).optional(),
+    heading: z.string().trim().min(1).max(24).optional(),
+    icon: z.enum(MOTION_ICONS).optional(),
+    position: z.enum(['top', 'middle', 'bottom']),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  })
+  .strict()
+  .refine((g) => g.end - g.start >= 0.8 && g.end - g.start <= 8, 'A graphic is shown for 0.8–8 seconds.')
+  .refine((g) => (g.kind === 'counter' ? g.value !== undefined : g.kind === 'emoji' ? Boolean(g.emoji) : Boolean(g.text)), 'A counter needs a number, an emoji graphic an emoji and a callout some text.');
+
 export const editPatchSchema = z
   .object({
     pauseSec: z.union([z.literal(0), z.literal(0.3), z.literal(0.6), z.literal(1)]),
@@ -299,6 +352,7 @@ export const editPatchSchema = z
     sfx: z
       .array(z.object({ at: z.number().min(0), kind: z.enum(SFX_KINDS), volume: z.number().min(0).max(1.5).optional() }).strict())
       .max(150),
+    graphics: z.array(graphicSchema).max(40),
     segments: z.array(interval).max(400),
   })
   .strict()

@@ -1,5 +1,6 @@
 import { AbsoluteFill, Html5Audio, Html5Video, Img, interpolate, Sequence, Series, useCurrentFrame, useVideoConfig } from 'remotion';
 import { CaptionLayer } from './captions';
+import { GraphicView, type GraphicSpec } from './graphics';
 import { finishTheme } from './themes';
 import type { CaptionTrack } from './types';
 
@@ -24,6 +25,8 @@ export interface FootageEditProps {
   music?: { src: string; volume: number; duck: boolean; speech: Array<{ start: number; end: number }> } | null;
   /** Sound effects (edited-timeline seconds); `volume` already includes the effect's own level. */
   sfx?: Array<{ at: number; src: string; volume: number }>;
+  /** Motion graphics (edited-timeline seconds), drawn above B-roll and below captions. */
+  graphics?: Array<GraphicSpec & { start: number; end: number }>;
   [key: string]: unknown;
 }
 
@@ -40,7 +43,7 @@ function zoomAt(t: number, zooms: FootageEditProps['zooms']) {
   return 1;
 }
 
-export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark, broll = [], music = null, sfx = [] }: FootageEditProps) {
+export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark, broll = [], music = null, sfx = [], graphics = [] }: FootageEditProps) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
@@ -89,6 +92,14 @@ export function FootageEdit({ src, segments, framing, zooms, texts, captions, lo
           }}
         />
       )}
+      {graphics.map((g, i) => {
+        const d = Math.max(1, Math.round((g.end - g.start) * fps));
+        return (
+          <Sequence key={`g${i}-${g.start}`} from={Math.round(g.start * fps)} durationInFrames={d}>
+            <GraphicView g={g} durationInFrames={d} />
+          </Sequence>
+        );
+      })}
       {sfx.map((x, i) => (
         <Sequence key={`sfx${i}-${x.at}`} from={Math.round(x.at * fps)} durationInFrames={Math.round(1.2 * fps)} layout="none">
           <Html5Audio src={x.src} volume={Math.min(1, x.volume)} />

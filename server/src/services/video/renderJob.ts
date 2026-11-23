@@ -35,7 +35,8 @@ import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, renderScenes, type BackgroundKind, type SceneTransition } from './background.js';
 import { mixSfx, sfxCues } from '../audio/sfx.js';
-import { captionsToOutput, keepSegments, rangeToOutput, sfxToOutput, type EditDoc } from './edl.js';
+import { captionsToOutput, graphicsToOutput, keepSegments, rangeToOutput, sfxToOutput, type EditDoc } from './edl.js';
+import { getGraphicsRenderer, graphicClipPath } from './graphics.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -739,6 +740,28 @@ async function run({ job, signal, progress: report }: JobContext) {
         })
       : planZooms({ intensity: zoomIntensity, durationSec: keptSec, lines: zoomLines, avoid: broll });
 
+    // 4b2. Motion graphics from the timeline: each rendered with transparency, laid over the footage.
+    let graphics: Array<{ path: string; start: number; end: number }> = [];
+    if (edit?.graphics?.length) {
+      const placed = graphicsToOutput(edit.graphics, segments, keptSec);
+      if (placed.length) {
+        await progress(14, 'drawing_graphics');
+        const color = settings.highlightColor ?? '#A78BFA';
+        const jobs = placed.map((g, i) => {
+          const { start, end, ...look } = g;
+          return { graphic: { ...look, color: g.color ?? color }, durationSec: end - start, output: graphicClipPath(workDir, i) };
+        });
+        try {
+          await getGraphicsRenderer()(jobs, outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution), signal);
+          graphics = placed.map((g, i) => ({ path: jobs[i]!.output, start: g.start, end: g.end }));
+        } catch (err) {
+          if (signal.aborted) throw err;
+          logger.warn({ err }, 'Motion graphics failed; rendering without them');
+          notes.push('Motion graphics were not added: drawing them failed on the server. Try exporting again.');
+        }
+      }
+    }
+
     // 4c. Brand Kit logo, Free-plan watermark, licensed music
     const wsDoc = await Workspace.findById(job.workspaceId).select('plan').lean();
     const plan = PLANS[(wsDoc?.plan ?? 'free') as PlanId];
@@ -792,7 +815,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     const outFile = path.join(workDir, 'output.mp4');
     let lastReported = 15;
     await renderVideo(
-      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing, broll, zooms, logo, watermark, music },
+      { input, output: outFile, segments, sourceDurationSec: duration, hasAudio: Boolean(info.audio), aspect, resolution, captions, framing, broll, graphics, zooms, logo, watermark, music },
       {
         signal,
         timeoutMs: Math.max(5 * 60_000, keptSec * 20_000),
@@ -891,6 +914,7 @@ async function run({ job, signal, progress: report }: JobContext) {
       captionsTranslatedTo: translatedTo,
       captionsFromEdits,
       zoomCount: zooms.length,
+      graphicCount: graphics.length,
       logoApplied: Boolean(logo),
       watermark: plan.watermark,
       disclosure: Boolean(disclosure),

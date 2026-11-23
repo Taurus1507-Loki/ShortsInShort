@@ -1,3 +1,4 @@
+import type { GraphicSpec } from '@/motion/graphics';
 /**
  * AI Video Editor timeline, browser side. Mirrors server/src/services/video/edl.ts (keep the two in
  * step): all times are seconds on the SOURCE footage. The editor computes `segments` with
@@ -60,13 +61,19 @@ export interface EditSfx {
   kind: SfxKind;
   volume?: number;
 }
+/** A motion graphic over the footage (SOURCE times); looks: client/src/motion/graphics.tsx. */
+export interface EditGraphic extends Omit<GraphicSpec, 'color'> {
+  start: number;
+  end: number;
+  color?: string;
+}
 export interface AutoSummary {
   at: string;
   hook: string | null;
   hookBy: 'ai' | 'rules' | null;
   mood: string | null;
   brollBy: 'ai' | 'keywords' | null;
-  counts: { broll: number; zooms: number; sfx: number };
+  counts: { broll: number; zooms: number; sfx: number; graphics?: number };
   music: string | null;
   notes: string[];
 }
@@ -87,6 +94,7 @@ export interface EditDoc {
   brollPool?: Record<string, PoolClip>;
   music?: EditMusic | null;
   sfx?: EditSfx[];
+  graphics?: EditGraphic[];
   auto?: AutoSummary | null;
   segments: Range[];
 }
@@ -272,5 +280,15 @@ export function sfxToOutput(sfx: EditSfx[], segments: Range[]) {
   return sfx.flatMap((x) => {
     const t = toOutput(segments, x.at);
     return t === null ? [] : [{ kind: x.kind, at: Math.max(0, t - (SFX_LEAD[x.kind] ?? 0)), volume: x.volume ?? 1 }];
+  });
+}
+
+/** Graphics on the edited timeline: from their first kept moment, for their own length (same as the export). */
+export function graphicsToOutput(graphics: EditGraphic[], segments: Range[], totalSec: number) {
+  return graphics.flatMap((g) => {
+    const r = rangeToOutput(segments, g.start, g.end);
+    if (!r) return [];
+    const end = Math.min(totalSec, r.start + (g.end - g.start));
+    return end - r.start >= 0.5 ? [{ ...g, start: r.start, end }] : [];
   });
 }

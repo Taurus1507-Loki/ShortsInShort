@@ -13,6 +13,7 @@ import { runFfmpeg } from '../services/video/ffmpeg.js';
 import { setTranscriptionProvider, type TranscriptionProvider, type Word } from '../services/ai/transcription.js';
 import { setLLMProvider, type LLMProvider } from '../services/ai/llm.js';
 import { setStockProvider, type StockVideoProvider } from '../services/ai/stock.js';
+import { setGraphicsRenderer, type GraphicRenderJob } from '../services/video/graphics.js';
 import { env } from '../config/env.js';
 import { writeFile } from 'node:fs/promises';
 import { keepSegments, rangeToOutput, removedRanges, toOutputTime, type EditDoc } from '../services/video/edl.js';
@@ -230,6 +231,7 @@ describe('B-roll and music tracks', () => {
       if (key === 'keywords') return { keywords: (JSON.parse(prompt.split(String.fromCharCode(10)).at(-1)!) as string[]).map((l) => l.split(' ').at(-1)!) } as T;
       if (key === 'moments') return { moments: [{ sentence: 1, queries: ['coffee cup'] }] } as T;
       if (key === 'hook') return { hook: 'Talent loses to consistency', mood: 'calm' } as T;
+      if (key === 'graphics') return { graphics: [{ sentence: 1, kind: 'counter', value: 365, suffix: ' days', label: 'of practice' }, { sentence: 0, kind: 'emoji', emoji: 'fire' }, { sentence: 1, kind: 'emoji', emoji: 'unicorn' }] } as T;
       throw new Error('unexpected');
     },
   };
@@ -258,7 +260,16 @@ describe('B-roll and music tracks', () => {
     { text: 'Consistency', start: 0.2, end: 0.8 }, { text: 'beats', start: 0.85, end: 1.3 }, { text: 'talent.', start: 1.35, end: 1.9 },
     { text: 'Every', start: 3.0, end: 3.4 }, { text: 'single', start: 3.45, end: 3.9 }, { text: 'day', start: 3.95, end: 4.3 }, { text: 'you', start: 4.6, end: 4.9 }, { text: 'win.', start: 4.95, end: 5.6 },
   ];
+  const rendered: GraphicRenderJob[] = [];
   beforeEach(() => {
+    rendered.length = 0;
+    // Stand-in for the Remotion renderer: a half-transparent red clip of the right size and length.
+    setGraphicsRenderer(async (jobs, size) => {
+      for (const j of jobs) {
+        rendered.push(j);
+        await runFfmpeg(['-y', '-f', 'lavfi', '-i', `color=c=red@0.5:s=${size.width}x${size.height}:r=30:d=${j.durationSec.toFixed(2)},format=yuva444p10le`, '-c:v', 'prores_ks', '-profile:v', '4444', j.output]);
+      }
+    });
     setTranscriptionProvider({ name: 'fake-broll', async transcribe(_a, o) { return { provider: 'fake-broll', language: o.language, words: BROLL_WORDS }; } });
     setLLMProvider(llm);
     setStockProvider(stock);
@@ -266,6 +277,7 @@ describe('B-roll and music tracks', () => {
   afterEach(() => {
     setLLMProvider(undefined);
     setStockProvider(undefined);
+    setGraphicsRenderer(undefined);
   });
 
   it('suggests B-roll you can swap and search, keeps download links private, and exports exactly what you chose', async () => {
@@ -322,7 +334,10 @@ describe('B-roll and music tracks', () => {
     expect(edit.music).toMatchObject({ mode: 'track', file: 'calm-bed-1234abcd.mp3', duck: true });
     expect(edit.sfx![0]).toMatchObject({ kind: 'impact', at: edit.texts[0]!.start });
     expect(edit.auto).toMatchObject({ hookBy: 'ai', mood: 'calm', music: 'Calm Bed — Tester', brollBy: 'ai' });
-    expect(edit.auto!.counts).toEqual({ broll: edit.broll!.length, zooms: edit.zooms.length, sfx: edit.sfx!.length });
+    expect(edit.auto!.counts).toEqual({ broll: edit.broll!.length, zooms: edit.zooms.length, sfx: edit.sfx!.length, graphics: edit.graphics!.length });
+    // The AI's counter is kept; the hook sentence and the unknown emoji are refused.
+    expect(edit.graphics).toEqual([expect.objectContaining({ kind: 'counter', value: 365, suffix: ' days', label: 'of practice', position: 'middle' })]);
+    expect(edit.sfx!.some((x) => x.kind === 'ding')).toBe(true); // the counter lands with a bell
     // B-roll never covers the hook.
     expect(edit.broll!.every((b) => b.start >= edit.texts[0]!.end)).toBe(true);
 
@@ -337,6 +352,8 @@ describe('B-roll and music tracks', () => {
     expect(done.status).toBe('completed');
     expect(done.renderStats.titleCount).toBe(1);
     expect(done.renderStats.sfxCount).toBe(edit.sfx!.length + 1);
+    expect(done.renderStats.graphicCount).toBe(edit.graphics!.length);
+    expect(rendered.map((j) => j.graphic.kind)).toEqual(edit.graphics!.map((g) => g.kind));
     expect(done.renderStats.music).toMatchObject({ title: 'Calm Bed' });
 
     // The effect files are served for the live preview.
@@ -344,6 +361,19 @@ describe('B-roll and music tracks', () => {
     expect(fx.headers['content-type']).toMatch(/audio\/wav/);
     await request(app).get('/api/music/sfx/laser').expect(400);
   }, 180_000);
+
+  it('suggests motion graphics you can edit, and checks them', async () => {
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/graphics/suggest`).set(auth).expect(409); // not analysed yet
+    await request(app).post(`/api/projects/${p.id}/analyze`).set(auth).expect(202);
+    await worker.runOnce();
+    const res = await request(app).post(`/api/projects/${p.id}/graphics/suggest`).set(auth).expect(200);
+    expect(res.body.meta).toMatchObject({ suggested: 1, plannedWith: 'ai' });
+    const g = res.body.data.edit.graphics[0];
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ graphics: [{ ...g, kind: 'callout' }] }).expect(400); // a callout needs text
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ graphics: [{ ...g, end: g.start + 20 }] }).expect(400);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ graphics: [{ ...g, kind: 'callout', text: 'Show up daily', heading: 'Tip', icon: 'calendar', color: '#22C55E' }] }).expect(200);
+  }, 120_000);
 
   it('auto edit still works when the AI is down (hook from the opening line)', async () => {
     setLLMProvider({ name: 'down', async generateJson() { throw new Error('AI unavailable'); } });

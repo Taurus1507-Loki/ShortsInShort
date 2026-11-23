@@ -199,3 +199,20 @@ is ordinary timeline data, so the user can change or delete any of it, and "Auto
 - Sound effects are a new timeline track (`edit.sfx`), synthesised by FFmpeg (`services/audio/sfx.ts`), played in the live
   preview and mixed into the export after rendering (with a limiter so they never clip).
 - Price: the same as analysing (3 credits per minute, free when already analysed); export prices are unchanged.
+
+## Motion graphics on footage — Release B (2026-11-23)
+
+Three animated graphics over real footage: a **number counter** (counts up to a stat the speaker
+says, then lands with a bell), an **animated emoji** pop-up with an optional label, and a **callout
+card** (heading, key point, animated line icon, underline sweep). AI picks the moments from the
+transcript (Gemini, 20 s cap; word rules — numbers like "1%", "₹10,000", "3x" become counters, strong
+words get an emoji — when it's slow), at most one per 5 s and one per 8 s of video, sliding to the
+first kept moment that's clear of the hook and B-roll. Auto edit adds them (with pop / ding / whoosh
+sound effects); "Suggest graphics" re-plans them; every graphic is editable on the new Graphics track.
+
+- One React component (`client/src/motion/graphics.tsx`) draws them in the live preview and in the export:
+  the server renders each graphic alone with Remotion (`GraphicClip` composition, ProRes 4444 with
+  transparency, one headless browser per export, ~4 s per graphic, hard 60 s + 20 s/graphic limit) and
+  FFmpeg lays it over the footage above B-roll, below captions. If drawing fails the export continues
+  without graphics and says so.
+- `MOTION_BUNDLE_DIR` bundles must be rebuilt (`npm run motion:prepare`) to include `GraphicClip`.

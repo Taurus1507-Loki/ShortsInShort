@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AudioWaveform, Coins, Film, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Sparkles, Trash2, Type, Undo2, Wand2, ZoomIn } from 'lucide-react';
+import { AudioWaveform, Coins, Film, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Shapes, Sparkles, Trash2, Type, Undo2, Wand2, ZoomIn } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input, Select } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Notice } from '../ui/primitives';
@@ -12,7 +12,9 @@ import { FootageEdit, type FootageEditProps } from '@/motion/FootageEdit';
 import { api, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useBrandKit, useJob } from '@/lib/queries';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, sfxToOutput, SFX_KINDS, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type PoolClip, type Range, type SfxKind, type Word } from '@/features/edl';
+import { GRAPHIC_EMOJI } from '@/motion/graphics';
+import { ICONS } from '@/motion/types';
+import { captionsToOutput, graphicsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, sfxToOutput, SFX_KINDS, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type EditGraphic, type PoolClip, type Range, type SfxKind, type Word } from '@/features/edl';
 import { cn } from '@/lib/utils';
 import type { Project, ProjectSettings } from '@/types/api';
 
@@ -34,11 +36,15 @@ const playSfx = (k: SfxKind, volume = 1) => {
   a.volume = Math.min(1, SFX_INFO[k].level * volume * 1.4);
   void a.play().catch(() => undefined);
 };
+const EMOJI_CHAR: Record<(typeof GRAPHIC_EMOJI)[number], string> = {
+  fire: '🔥', rocket: '🚀', idea: '💡', mind_blown: '🤯', hundred: '💯', heart_eyes: '😍', check: '✅', thumbs_up: '👍', eyes: '👀', party: '🥳', celebrate: '🎉', star: '⭐', laughing: '😂', raised_hands: '🙌', heart: '❤️',
+};
+const graphicName = (g: EditGraphic) => (g.kind === 'counter' ? `${g.prefix ?? ''}${g.value ?? ''}${g.suffix ?? ''}` : g.kind === 'emoji' ? `${EMOJI_CHAR[g.emoji ?? 'fire']} ${g.label ?? ''}` : (g.text ?? ''));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
-type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | { kind: 'broll'; index: number } | { kind: 'newBroll'; at: number } | { kind: 'sfx'; index: number } | null;
-type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions' | 'broll' | 'music' | 'sfx'>;
+type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | { kind: 'broll'; index: number } | { kind: 'newBroll'; at: number } | { kind: 'sfx'; index: number } | { kind: 'graphic'; index: number } | null;
+type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions' | 'broll' | 'music' | 'sfx' | 'graphics'>;
 
 /**
  * AI Video Editor "Edit" step: analyse once, then edit by hand on a timeline while a player shows the
@@ -175,7 +181,7 @@ function AutoEditCard({ project, edit, disabled }: { project: Project; edit: Edi
         </CardTitle>
         <CardDescription>
           {a
-            ? `Added ${a.hook ? `the hook “${a.hook}”${a.hookBy === 'rules' ? ' (your opening line — the AI was slow)' : ''}, ` : ''}${plural(a.counts.broll, 'B-roll clip')}, ${plural(a.counts.zooms, 'zoom')}, ${plural(a.counts.sfx, 'sound effect')}${a.music ? ` and the track “${a.music}”` : ''}. Change anything on the timeline.`
+            ? `Added ${a.hook ? `the hook “${a.hook}”${a.hookBy === 'rules' ? ' (your opening line — the AI was slow)' : ''}, ` : ''}${plural(a.counts.broll, 'B-roll clip')}, ${plural(a.counts.zooms, 'zoom')}, ${a.counts.graphics ? `${plural(a.counts.graphics, 'graphic')}, ` : ''}${plural(a.counts.sfx, 'sound effect')}${a.music ? ` and the track “${a.music}”` : ''}. Change anything on the timeline.`
             : 'Let AI build the whole edit: hook line, B-roll, zooms on key words, music and sound effects.'}
         </CardDescription>
       </CardHeader>
@@ -202,7 +208,7 @@ function AutoEditCard({ project, edit, disabled }: { project: Project; edit: Edi
 
 function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; settings: ProjectSettings }) {
   const duration = edit.durationSec;
-  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null, broll: edit.broll ?? [], music: edit.music ?? null, sfx: edit.sfx ?? [] });
+  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null, broll: edit.broll ?? [], music: edit.music ?? null, sfx: edit.sfx ?? [], graphics: edit.graphics ?? [] });
   const [past, setPast] = useState<Timeline[]>([]);
   const [future, setFuture] = useState<Timeline[]>([]);
   const [sel, setSel] = useState<Selection>(null);
@@ -275,6 +281,16 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
+  const suggestGraphics = useMutation({
+    mutationFn: () => api<{ data: Project; meta: { suggested: number; plannedWith?: string } }>(`/projects/${project.id}/graphics/suggest`, { method: 'POST' }),
+    onSuccess: (r) => {
+      queryClient.setQueryData(keys.project(project.id), r.data);
+      change((t) => ({ ...t, graphics: r.data.edit?.graphics ?? [] }));
+      setSel(null);
+      toast.success(r.meta.suggested ? `${r.meta.suggested} graphics added${r.meta.plannedWith === 'rules' ? ' from your words (the AI was slow)' : ''} — click one to change it` : 'No good moments for graphics were found');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
   const search = useMutation({
     mutationFn: (q: string) => api<{ data: { clips: PoolClip[] } }>(`/projects/${project.id}/broll/search`, { method: 'POST', body: { query: q } }).then((r) => r.data.clips),
     onSuccess: (clips) => {
@@ -325,7 +341,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   }, [tl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Player inputs ── */
-  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions, tl.broll, pool, tl.music, tl.sfx);
+  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions, tl.broll, pool, tl.music, tl.sfx, tl.graphics);
 
   // Keep the playhead (source time) in sync with the player.
   useEffect(() => {
@@ -386,6 +402,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     else if (sel.kind === 'text') change((t) => ({ ...t, texts: t.texts.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'caption') change((t) => ({ ...t, captions: (t.captions ?? []).filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'broll') change((t) => ({ ...t, broll: (t.broll ?? []).filter((_, i) => i !== sel.index) }));
+    else if (sel.kind === 'graphic') change((t) => ({ ...t, graphics: (t.graphics ?? []).filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'sfx') change((t) => ({ ...t, sfx: (t.sfx ?? []).filter((_, i) => i !== sel.index) }));
     setSel(null);
   };
@@ -400,6 +417,15 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     playSfx('whoosh');
   };
   const setSfx = (index: number, patch: Partial<NonNullable<Timeline['sfx']>[number]>) => change((t) => ({ ...t, sfx: (t.sfx ?? []).map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
+  const addGraphic = () => {
+    const start = Math.round(playhead * 100) / 100;
+    const item: EditGraphic = { start, end: Math.min(duration, start + 2.5), kind: 'counter', value: 100, suffix: '%', label: 'Your label', position: 'middle' };
+    if (item.end - item.start < 0.8) return toast.info('Move the playhead earlier — a graphic needs at least 0.8 s.');
+    const next = [...(tl.graphics ?? []), item].sort((a, b) => a.start - b.start);
+    change((t) => ({ ...t, graphics: next }));
+    setSel({ kind: 'graphic', index: next.indexOf(item) });
+  };
+  const setGraphic = (index: number, patch: Partial<EditGraphic>) => change((t) => ({ ...t, graphics: (t.graphics ?? []).map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
   const addText = () => {
     const start = Math.round(playhead * 100) / 100;
     change((t) => ({ ...t, texts: [...t.texts, { start, end: Math.min(duration, start + 2.5), text: 'Your text here', position: 'top' as const }] }));
@@ -435,6 +461,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   const selText = sel?.kind === 'text' ? tl.texts[sel.index] : null;
   const selZoom = sel?.kind === 'zoom' ? tl.zooms[sel.index] : null;
   const selSfx = sel?.kind === 'sfx' ? tl.sfx?.[sel.index] : null;
+  const selGraphic = sel?.kind === 'graphic' ? tl.graphics?.[sel.index] : null;
   const selCaption = sel?.kind === 'caption' ? tl.captions?.[sel.index] : null;
   const setText = (index: number, patch: Partial<Timeline['texts'][number]>) => change((t) => ({ ...t, texts: t.texts.map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
   const setCaption = (index: number, next: NonNullable<Timeline['captions']>[number]) => change((t) => ({ ...t, captions: (t.captions ?? []).map((c, i) => (i === index ? next : c)) }));
@@ -520,6 +547,91 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
               </CardContent>
             </Card>
           )}
+          {selGraphic && sel?.kind === 'graphic' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Graphic</CardTitle>
+                <CardDescription>Shown from {fmt(selGraphic.start)} for {Math.round((selGraphic.end - selGraphic.start) * 10) / 10} s.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Graphic type">
+                  {(['counter', 'emoji', 'callout'] as const).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={selGraphic.kind === k}
+                      onClick={() => setGraphic(sel.index, { kind: k, ...(k === 'counter' && selGraphic.value === undefined ? { value: 100, suffix: '%' } : {}), ...(k === 'emoji' && !selGraphic.emoji ? { emoji: 'fire' as const } : {}), ...(k === 'callout' && !selGraphic.text ? { text: 'Key point', heading: 'Tip' } : {}) })}
+                      className={cn('rounded-md border px-2 py-1.5 text-xs font-medium', selGraphic.kind === k ? 'border-highlight bg-highlight/15 ring-1 ring-highlight' : 'border-border hover:border-primary/50')}
+                    >
+                      {k === 'counter' ? 'Number' : k === 'emoji' ? 'Emoji' : 'Callout'}
+                    </button>
+                  ))}
+                </div>
+                {selGraphic.kind === 'counter' && (
+                  <div className="grid grid-cols-[64px_1fr_72px] gap-1.5">
+                    <Input id="graphic-prefix" placeholder="₹" maxLength={4} value={selGraphic.prefix ?? ''} onChange={(ev) => setGraphic(sel.index, { prefix: ev.target.value || undefined })} aria-label="Before the number" />
+                    <Input id="graphic-value" type="number" value={selGraphic.value ?? 0} onChange={(ev) => setGraphic(sel.index, { value: Number(ev.target.value) || 0 })} aria-label="Number" />
+                    <Input id="graphic-suffix" placeholder="%" maxLength={10} value={selGraphic.suffix ?? ''} onChange={(ev) => setGraphic(sel.index, { suffix: ev.target.value || undefined })} aria-label="After the number" />
+                  </div>
+                )}
+                {selGraphic.kind === 'emoji' && (
+                  <div className="grid grid-cols-5 gap-1" role="radiogroup" aria-label="Emoji">
+                    {GRAPHIC_EMOJI.map((e) => (
+                      <button key={e} type="button" role="radio" aria-checked={selGraphic.emoji === e} onClick={() => setGraphic(sel.index, { emoji: e })} className={cn('rounded-md border py-1 text-lg', selGraphic.emoji === e ? 'border-highlight bg-highlight/15' : 'border-border hover:border-primary/50')} title={e.replace(/_/g, ' ')}>
+                        {EMOJI_CHAR[e]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selGraphic.kind === 'callout' && (
+                  <>
+                    <Input id="graphic-text" maxLength={70} value={selGraphic.text ?? ''} onChange={(ev) => setGraphic(sel.index, { text: ev.target.value })} aria-label="Callout text" placeholder="Key point" />
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input id="graphic-heading" maxLength={24} value={selGraphic.heading ?? ''} onChange={(ev) => setGraphic(sel.index, { heading: ev.target.value || undefined })} aria-label="Small heading" placeholder="Heading (optional)" />
+                      <Select id="graphic-icon" value={selGraphic.icon ?? ''} onChange={(ev) => setGraphic(sel.index, { icon: (ev.target.value || undefined) as EditGraphic['icon'] })} aria-label="Icon">
+                        <option value="">No icon</option>
+                        {ICONS.map((i) => (
+                          <option key={i} value={i}>
+                            {i}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </>
+                )}
+                {selGraphic.kind !== 'callout' && (
+                  <Input id="graphic-label" maxLength={40} value={selGraphic.label ?? ''} onChange={(ev) => setGraphic(sel.index, { label: ev.target.value || undefined })} aria-label="Label" placeholder="Label (optional)" />
+                )}
+                <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                  <Select id="graphic-position" value={selGraphic.position} onChange={(ev) => setGraphic(sel.index, { position: ev.target.value as EditGraphic['position'] })} aria-label="Position">
+                    <option value="top">Top</option>
+                    <option value="middle">Middle</option>
+                    <option value="bottom">Above the captions</option>
+                  </Select>
+                  <input type="color" aria-label="Accent colour" className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent" value={selGraphic.color ?? settings.highlightColor ?? '#A78BFA'} onChange={(ev) => setGraphic(sel.index, { color: ev.target.value })} />
+                </div>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Shows for (seconds)
+                  <Input id="graphic-length" type="number" min={0.8} max={8} step={0.5} value={Math.round((selGraphic.end - selGraphic.start) * 10) / 10} onChange={(ev) => setGraphic(sel.index, { end: Math.min(duration, selGraphic.start + Math.min(8, Math.max(0.8, Number(ev.target.value) || 0.8))) })} />
+                </label>
+                <Button variant="outline" size="sm" onClick={deleteSel}>
+                  <Trash2 /> Remove graphic
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Motion graphics</CardTitle>
+              <CardDescription>AI adds animated numbers for stats you say, emoji reactions and callout cards for key points. Click one on the timeline to change it.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" size="sm" onClick={() => suggestGraphics.mutate()} loading={suggestGraphics.isPending}>
+                <Shapes /> {tl.graphics?.length ? 'Suggest again' : 'Suggest graphics'}
+              </Button>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Automatic cuts</CardTitle>
@@ -827,6 +939,9 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
             <Button size="sm" variant="outline" onClick={addSfx} title="Add a sound effect at the playhead">
               <AudioWaveform /> Sound
             </Button>
+            <Button size="sm" variant="outline" onClick={addGraphic} title="Add a motion graphic at the playhead">
+              <Shapes /> Graphic
+            </Button>
             <span className="mx-1 h-5 w-px bg-border" />
             <Button size="sm" variant="ghost" onClick={undo} disabled={!past.length} aria-label="Undo (Ctrl+Z)">
               <Undo2 />
@@ -847,7 +962,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
           <div ref={strip} className="overflow-x-auto rounded-lg border border-border bg-muted/30">
             <div
               className="relative select-none"
-              style={{ width, height: 296 }}
+              style={{ width, height: 330 }}
               onMouseDown={(e) => {
                 if ((e.target as HTMLElement).dataset.track !== 'ruler') return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -1019,6 +1134,23 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                   {SFX_INFO[f.kind].label}
                 </button>
               ))}
+              {/* Motion graphics */}
+              <TrackLabel top={298} label="Graphics" />
+              {(tl.graphics ?? []).map((g, i) => (
+                <button
+                  key={`${g.start}-${i}`}
+                  type="button"
+                  onClick={() => {
+                    setSel({ kind: 'graphic', index: i });
+                    seekSource(g.start + 0.6);
+                  }}
+                  title={`${graphicName(g)} · ${fmt(g.start)}–${fmt(g.end)} · click to change or delete`}
+                  className={cn('absolute top-[296px] h-7 overflow-hidden whitespace-nowrap rounded-sm border border-rose-400/60 bg-rose-400/20 px-1 text-left text-[10px] leading-7', sel?.kind === 'graphic' && sel.index === i && 'ring-2 ring-highlight')}
+                  style={{ left: x(g.start), width: Math.max(16, x(g.end) - x(g.start)) }}
+                >
+                  {graphicName(g)}
+                </button>
+              ))}
               {/* Playhead */}
               <div className="pointer-events-none absolute bottom-0 top-0 w-0.5 bg-highlight" style={{ left: x(playhead) }} />
             </div>
@@ -1122,6 +1254,7 @@ function useFootageInput(
   pool?: EditDoc['brollPool'],
   music?: EditDoc['music'],
   sfx?: EditDoc['sfx'],
+  graphics?: EditDoc['graphics'],
 ) {
   const tracks = useMusicLibrary();
   const { data: wordsData } = useQuery({ queryKey: ['words', project.id, project.sourceAssetId], queryFn: () => api<{ data: { words: Word[] } }>(`/projects/${project.id}/words`).then((r) => r.data.words), staleTime: Infinity });
@@ -1156,13 +1289,14 @@ function useFootageInput(
         const r = rangeToOutput(segments, b.start, b.end);
         return r ? [{ ...r, image: pool?.[b.clipId]?.thumbnailUrl ?? null }] : [];
       }),
+      graphics: graphicsToOutput(graphics ?? [], segments, totalLength(segments)).map((g) => ({ ...g, color: g.color ?? settings.highlightColor ?? '#A78BFA' })),
       sfx: sfxToOutput(sfx ?? [], segments).map((x) => ({ at: x.at, src: sfxUrl(x.kind), volume: SFX_INFO[x.kind].level * x.volume * 1.4 })),
       music: (() => {
         const t = musicTrackFor(music ?? null, tracks, settings.musicMood, project.style, project.id);
         return t ? { src: t.previewUrl, volume: music?.volume ?? 0.25, duck: music?.duck ?? true, speech: mergeRanges(lines.flatMap((l) => l.words.map((w) => ({ start: w.start, end: w.end })))) } : null;
       })(),
     };
-  }, [words, segments, src.data, framing, zooms, texts, captionLines, broll, pool, music, sfx, tracks, project.style, project.id, settings.musicMood, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
+  }, [words, segments, src.data, framing, zooms, texts, captionLines, broll, pool, music, sfx, graphics, tracks, project.style, project.id, settings.musicMood, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
 
   return { inputProps, words, src, W, H };
 }
@@ -1171,7 +1305,7 @@ function useFootageInput(
 export function FootagePreview({ project, settings }: { project: Project; settings: ProjectSettings }) {
   const e = project.edit;
   const segments = useMemo(() => (e ? (e.segments.length ? e.segments : keepSegments(e)) : []), [e]);
-  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions, e?.broll, e?.brollPool, e?.music, e?.sfx);
+  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions, e?.broll, e?.brollPool, e?.music, e?.sfx, e?.graphics);
   if (!e || !segments.length) return null;
   return (
     <div className="grid gap-1.5">

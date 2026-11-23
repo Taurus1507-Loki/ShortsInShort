@@ -94,7 +94,8 @@ Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, 
 | GET | `/words` | Transcript words |
 | POST | `/captions/rebuild` | Lays captions out again for the current style |
 | POST | `/broll/suggest` · `/broll/search` | B-roll moments + clips (download links never reach the browser) |
-| PATCH | `/edit` | Partial timeline save: `pauseSec, removeFillers, cuts, restores, zooms, texts, captions, broll, music, sfx, segments`. `sfx`: `[{at, kind: whoosh|pop|impact|ding|tick|type, volume? 0–1.5}]` (source seconds, max 150) |
+| POST | `/graphics/suggest` | Free. AI places motion graphics from what is said (word rules when the AI is slow): `counter` (value, prefix, suffix, label), `emoji` (emoji, label), `callout` (text, heading, icon). Replaces `edit.graphics`; `meta {suggested, plannedWith}` |
+| PATCH | `/edit` | Partial timeline save: `pauseSec, removeFillers, cuts, restores, zooms, texts, captions, broll, music, sfx, segments`. `sfx`: `[{at, kind: whoosh|pop|impact|ding|tick|type, volume? 0–1.5}]` (source seconds, max 150). `graphics`: `[{start, end (0.8–8 s), kind, position: top|middle|bottom, color?, …}]` (max 40) |
 
 Sound-effect files for the preview: `GET /api/music/sfx/:kind` (WAV, synthesised by the server — no third-party samples).
 

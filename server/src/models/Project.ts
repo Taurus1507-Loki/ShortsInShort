@@ -173,6 +173,7 @@ const projectSchema = new Schema(
       captionsTranslatedTo: { type: String, default: null },
       captionsFromEdits: { type: Boolean, default: false },
       zoomCount: { type: Number, default: 0 },
+      graphicCount: { type: Number, default: 0 },
       logoApplied: { type: Boolean, default: false },
       watermark: { type: Boolean, default: false },
       disclosure: { type: Boolean, default: false },

@@ -64,3 +64,42 @@ describe('auto edit rules', () => {
     await expect(aiHookAndMood(llm('', 'calm'), s, { language: 'en', style: 'viral' })).rejects.toThrow();
   });
 });
+
+import { parseNumber, ruleMoments, scheduleGraphics } from '../services/video/graphics.js';
+import { buildRenderArgs } from '../services/video/render.js';
+import { graphicsToOutput } from '../services/video/edl.js';
+
+describe('motion graphics rules', () => {
+  it('reads numbers the way people say them', () => {
+    expect(parseNumber('1%')).toEqual({ value: 1, suffix: '%' });
+    expect(parseNumber('₹10,000.')).toEqual({ value: 10000, prefix: '₹' });
+    expect(parseNumber('3x')).toEqual({ value: 3, suffix: 'x' });
+    expect(parseNumber('50K')).toEqual({ value: 50, suffix: 'K' });
+    expect(parseNumber('300')).toEqual({ value: 300 });
+    expect(parseNumber('2024')).toBeNull(); // a year
+    expect(parseNumber('5')).toBeNull(); // too small to animate alone
+    expect(parseNumber('hello')).toBeNull();
+  });
+
+  it('word rules: counters for numbers, emoji for strong words, scheduled 5 s apart off the hook', () => {
+    const s = (text: string, start: number) => ({ text, start, end: start + 2.5 });
+    const sentences = [s('Grow your money fast.', 0), s('You get 1% better daily.', 3), s('This idea is crazy.', 6), s('In 300 days it adds up.', 11)];
+    const moments = ruleMoments(sentences);
+    expect(moments.map((m) => m.graphic.kind)).toEqual(['counter', 'emoji', 'counter']);
+    expect(moments[0]!.graphic).toMatchObject({ value: 1, suffix: '%' });
+    expect(moments[2]!.graphic).toMatchObject({ value: 300, label: 'days it' });
+    const timed = scheduleGraphics(moments, sentences, { segments: [{ start: 0, end: 20 }], avoid: [{ start: 0, end: 2.8 }], max: 5, color: '#FF0000' });
+    // 3.1 kept; 6.1 too close; 11.1 kept.
+    expect(timed.map((g) => g.start)).toEqual([3.1, 11.1]);
+    expect(timed[0]).toMatchObject({ end: 5.7, color: '#FF0000' });
+  });
+
+  it('places graphics on the edited timeline and layers them over the video', () => {
+    const out = graphicsToOutput([{ start: 4, end: 6.5, kind: 'counter', value: 3, position: 'middle' }, { start: 3.2, end: 4.1, kind: 'emoji', emoji: 'fire', position: 'top' }], [{ start: 0, end: 3 }, { start: 5, end: 10 }], 8);
+    expect(out).toEqual([{ start: 3, end: 5.5, kind: 'counter', value: 3, position: 'middle' }]);
+    const args = buildRenderArgs({ input: 'in.mp4', output: 'out.mp4', segments: [{ start: 0, end: 8 }], sourceDurationSec: 8, hasAudio: true, aspect: '9:16', resolution: '720p', graphics: [{ path: 'g0.mov', start: 3, end: 5.5 }] }).join(' ');
+    expect(args).toContain('-i g0.mov');
+    expect(args).toContain('setpts=PTS-STARTPTS+3.000/TB');
+    expect(args).toContain("overlay=enable='between(t,3.000,5.500)':eof_action=pass:format=auto");
+  });
+});

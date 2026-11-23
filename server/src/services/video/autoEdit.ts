@@ -6,7 +6,8 @@ import { MOODS, STYLE_MOOD, loadLibrary, pickTrack } from '../ai/music.js';
 import { logger } from '../../config/logger.js';
 import type { Interval } from './silence.js';
 import { suggestBroll } from './brollSuggest.js';
-import { fromOutputTime, keepSegments, toOutputTime, type AutoSummary, type EditCaption, type EditDoc, type EditSfx, type EditText, type EditZoom } from './edl.js';
+import { fromOutputTime, keepSegments, toOutputTime, type AutoSummary, type EditCaption, type EditDoc, type EditGraphic, type EditSfx, type EditText, type EditZoom } from './edl.js';
+import { planGraphics } from './graphics.js';
 
 /**
  * Auto edit: one button turns analysed footage into a finished edit on the timeline — pauses and
@@ -101,12 +102,17 @@ export function planAutoZooms(captions: EditCaption[], segments: Interval[], avo
  * Sound effects: an impact on the hook, a whoosh into and out of every B-roll clip, a pop on every
  * zoom. Effects closer than 0.6 s to the previous one are dropped so they never crowd the voice.
  */
-export function planAutoSfx(opts: { hook: EditText | null; broll: Interval[]; zooms: EditZoom[]; durationSec: number; segments: Interval[] }): EditSfx[] {
+export function planAutoSfx(opts: { hook: EditText | null; broll: Interval[]; zooms: EditZoom[]; graphics?: EditGraphic[]; durationSec: number; segments: Interval[] }): EditSfx[] {
   const cues: EditSfx[] = [];
   if (opts.hook) cues.push({ at: opts.hook.start, kind: 'impact' });
   for (const b of opts.broll) {
     cues.push({ at: r2(b.start), kind: 'whoosh' });
     if (b.end < opts.durationSec - 0.4) cues.push({ at: r2(b.end), kind: 'whoosh', volume: 0.7 });
+  }
+  for (const g of opts.graphics ?? []) {
+    cues.push({ at: g.start, kind: g.kind === 'callout' ? 'whoosh' : 'pop', volume: g.kind === 'callout' ? 0.6 : 1 });
+    // A counter lands with a bell when it reaches its number.
+    if (g.kind === 'counter') cues.push({ at: r2(g.start + 0.9), kind: 'ding', volume: 0.7 });
   }
   for (const z of opts.zooms) cues.push({ at: z.at, kind: 'pop', volume: 0.8 });
   const kept = cues.filter((c) => toOutputTime(opts.segments, c.at) !== null).sort((a, b) => a.at - b.at);
@@ -195,8 +201,20 @@ export async function autoEdit(input: AutoEditInput): Promise<EditDoc> {
   if (track) next.music = { mode: 'track', file: track.file, volume: 0.22, duck: true };
   else notes.push('No music was added: the music library is empty (an admin adds tracks in Admin → Music library).');
 
+  // Motion graphics (counters, emoji, callouts), away from the hook and B-roll
+  const planned = await planGraphics({
+    sentences,
+    durationSec: edit.durationSec,
+    language: input.language,
+    segments: next.segments,
+    avoid: [...(hook ? [hook] : []), ...(next.broll ?? [])],
+    llm,
+    signal,
+  });
+  next.graphics = planned.graphics;
+
   // Sound effects
-  next.sfx = planAutoSfx({ hook, broll: next.broll ?? [], zooms: next.zooms, durationSec: edit.durationSec, segments: next.segments });
+  next.sfx = planAutoSfx({ hook, broll: next.broll ?? [], zooms: next.zooms, graphics: next.graphics, durationSec: edit.durationSec, segments: next.segments });
 
   const summary: AutoSummary = {
     at: new Date().toISOString(),
@@ -204,7 +222,7 @@ export async function autoEdit(input: AutoEditInput): Promise<EditDoc> {
     hookBy: hook ? (ai ? 'ai' : 'rules') : null,
     mood,
     brollBy: broll ? broll.plannedWith : null,
-    counts: { broll: next.broll?.length ?? 0, zooms: next.zooms.length, sfx: next.sfx.length },
+    counts: { broll: next.broll?.length ?? 0, zooms: next.zooms.length, sfx: next.sfx.length, graphics: next.graphics.length },
     music: track ? `${track.title} — ${track.artist}` : null,
     notes,
   };

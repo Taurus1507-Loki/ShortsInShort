@@ -53,7 +53,7 @@ export const MOTION_ENTRY = env.motion.entry ?? path.resolve(here, '../../../../
 let bundled: Promise<string> | null = null;
 
 /** Bundles the compositions once per process (webpack, ~10–20 s) and reuses the result. */
-function serveUrl(): Promise<string> {
+export function motionServeUrl(): Promise<string> {
   if (env.motion.bundleDir) return Promise.resolve(env.motion.bundleDir);
   bundled ??= (async () => {
     const { bundle } = await import('@remotion/bundler');
@@ -71,7 +71,7 @@ function serveUrl(): Promise<string> {
 /** Remotion server-side render in headless Chrome (downloaded by Remotion on first use). */
 export const remotionRenderer: MotionRenderer = async (input) => {
   const { renderMedia, selectComposition, makeCancelSignal } = await import('@remotion/renderer');
-  const url = await serveUrl();
+  const url = await motionServeUrl();
   const inputProps = {
     scenes: input.scenes,
     theme: input.theme,

@@ -31,6 +31,8 @@ export interface RenderInput {
   broll?: Array<{ path: string; start: number; end: number }>;
   /** Punch-in zooms (scale > 1) at [start, end] seconds of the edited timeline. */
   zooms?: Array<{ start: number; end: number; scale: number }>;
+  /** Motion graphics: transparent clips (alpha) shown from `start` on the edited timeline, above B-roll. */
+  graphics?: Array<{ path: string; start: number; end: number }>;
   /** Brand logo image overlaid in a corner for the whole video. */
   logo?: { path: string; position: LogoPosition; widthFrac: number; opacity: number };
   /** Separate ASS file (e.g. Free-plan watermark) burned in last. */
@@ -138,6 +140,17 @@ export function buildRenderArgs(r: RenderInput): string[] {
     input++;
   });
 
+  // 3b. Motion graphics (counters, emoji, callouts) rendered with transparency, above B-roll.
+  (r.graphics ?? []).forEach((g, i) => {
+    const d = Math.max(0.1, g.end - g.start);
+    const from = cur;
+    graph.push(
+      `[${input}:v:0]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS+${g.start.toFixed(3)}/TB,fps=${fps},scale=${width}:${height},format=yuva420p[g${i}]`,
+      `[${from}][g${i}]overlay=enable='between(t,${g.start.toFixed(3)},${g.end.toFixed(3)})':eof_action=pass:format=auto[${next(`gfx${i}`)}]`,
+    );
+    input++;
+  });
+
   // 4. Brand logo in a corner (above B-roll, below captions).
   const logoInput = r.logo ? input++ : -1;
   if (r.logo) {
@@ -188,6 +201,7 @@ export function buildRenderArgs(r: RenderInput): string[] {
   return [
     '-i', r.input,
     ...broll.flatMap((b) => ['-i', b.path]),
+    ...(r.graphics ?? []).flatMap((g) => ['-i', g.path]),
     ...(r.logo ? ['-i', r.logo.path] : []),
     ...(r.music ? ['-stream_loop', '-1', '-i', r.music.path] : []),
     '-filter_complex', graph.join(';'),

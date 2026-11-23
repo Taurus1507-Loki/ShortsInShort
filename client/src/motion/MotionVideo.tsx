@@ -5,6 +5,7 @@ import { SceneView } from './scenes';
 import { Backdrop, BACKDROPS } from './backdrops';
 import { CaptionLayer } from './captions';
 import { pickSticker, Sticker } from './lottie';
+import { GraphicClip, type GraphicSpec } from './graphics';
 import { pickTransition, presentationFor } from './transitions';
 import { finishTheme, resolveTheme, type MotionTheme } from './themes';
 import { FONT_STACK, MOTION_FPS, type MotionProps } from './types';
@@ -74,6 +75,7 @@ export const DEFAULT_MOTION_PROPS: MotionProps = {
 
 /** Registered for server rendering; size and length come from the input props. */
 export const MotionRoot: React.FC = () => (
+  <>
   <Composition
     id="MotionVideo"
     component={MotionVideo}
@@ -92,4 +94,19 @@ export const MotionRoot: React.FC = () => (
       };
     }}
   />
+  {/* One AI Video Editor motion graphic, transparent, for overlaying on footage (export). */}
+  <Composition
+    id="GraphicClip"
+    component={GraphicClip}
+    fps={MOTION_FPS}
+    width={1080}
+    height={1920}
+    durationInFrames={60}
+    defaultProps={{ graphic: { kind: 'counter', value: 100, suffix: '%', label: 'Preview', position: 'middle', color: '#7C3AED' } as GraphicSpec }}
+    calculateMetadata={({ props }) => {
+      const p = props as { width?: number; height?: number; durationInFrames?: number };
+      return { durationInFrames: Math.max(1, Math.round(p.durationInFrames ?? 60)), width: p.width ?? 1080, height: p.height ?? 1920 };
+    }}
+  />
+  </>
 );

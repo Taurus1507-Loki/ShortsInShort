@@ -10,13 +10,15 @@ import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
 import { avatarCreditCost, editorAnalyzeCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
-import { editPatchSchema, segmentsProblem, type EditBroll, type EditDoc, type PoolClip } from '../../services/video/edl.js';
+import { editPatchSchema, keepSegments, segmentsProblem, type EditBroll, type EditDoc, type PoolClip } from '../../services/video/edl.js';
 import { buildEditCaptions } from '../../services/video/analyzeJob.js';
 import type { Word } from '../../services/ai/transcription.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
 import { getStockProvider, rankClips, type StockClip } from '../../services/ai/stock.js';
 import { poolClip, prunePool, suggestBroll } from '../../services/video/brollSuggest.js';
+import { planGraphics } from '../../services/video/graphics.js';
+import { toSentences } from '../../services/ai/creative.js';
 import { loadLibrary } from '../../services/ai/music.js';
 import { MAX_SCENES, fallbackQuery, findClips, planSceneQueries, scenesKey, scriptFromScenes, splitSceneText, splitScenes } from '../../services/faceless/scenes.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
@@ -544,6 +546,34 @@ projectsRouter.post(
   }),
 );
 
+/** AI places motion graphics (counters, emoji, callouts) from what is said. Replaces the current graphics. Free. */
+projectsRouter.post(
+  '/:id/graphics/suggest',
+  jobStartLimiter,
+  validate({ params: idParams }),
+  asyncHandler(async (req, res) => {
+    const { project, edit } = await analysedEditor(req);
+    const stt = getTranscriptionProvider();
+    const t = stt ? await Transcript.findOne({ assetId: project.sourceAssetId, provider: stt.name, language: project.settings?.language ?? 'en' }).lean() : null;
+    const words = ((t?.words ?? []) as Word[]).filter((w) => !w.filler);
+    if (words.length < 4) throw badRequest('Graphics are chosen from what you say, and this video has too little speech.', 'NO_TRANSCRIPT');
+    const segments = edit.segments.length ? edit.segments : keepSegments(edit);
+    const hook = edit.texts.filter((x) => x.position === 'top');
+    const { graphics, plannedWith } = await planGraphics({
+      sentences: toSentences(words),
+      durationSec: edit.durationSec,
+      language: project.settings?.language ?? 'en',
+      segments,
+      avoid: [...hook, ...(edit.broll ?? [])],
+      llm: getLLMProvider(),
+    });
+    project.set('edit', { ...edit, graphics });
+    project.markModified('edit');
+    await project.save();
+    res.json({ data: await withMedia(project), meta: { suggested: graphics.length, plannedWith } });
+  }),
+);
+
 /** Searches stock footage for a B-roll slot (results join this project's clip pool). */
 projectsRouter.post(
   '/:id/broll/search',
@@ -605,7 +635,7 @@ projectsRouter.patch(
       if (problem) throw badRequest(problem, 'INVALID_SEGMENTS');
       if (patch.segments.length === 0) throw badRequest('Keep at least part of the video.', 'INVALID_SEGMENTS');
     }
-    const outOfRange = [...(patch.cuts ?? []), ...(patch.restores ?? []), ...(patch.texts ?? [])].some((r) => r.end > edit.durationSec + 0.05) || [...(patch.zooms ?? []), ...(patch.sfx ?? [])].some((z) => z.at > edit.durationSec);
+    const outOfRange = [...(patch.cuts ?? []), ...(patch.restores ?? []), ...(patch.texts ?? [])].some((r) => r.end > edit.durationSec + 0.05) || [...(patch.zooms ?? []), ...(patch.sfx ?? [])].some((z) => z.at > edit.durationSec) || (patch.graphics ?? []).some((g) => g.end > edit.durationSec + 0.05);
     if (outOfRange) throw badRequest('An edit is past the end of the video.', 'INVALID_EDIT');
     // B-roll can only use clips the server found for this project (no outside URLs).
     if (patch.broll) {
