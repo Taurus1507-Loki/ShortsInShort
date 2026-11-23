@@ -21,7 +21,10 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
   const lineFrame = (t - line.start) * fps;
   const enter = spring({ frame: lineFrame, fps, config: { damping: 14, stiffness: 180, mass: 0.5 } });
   const hl = track.highlightColor || theme.secondary;
-  // Readable on any background: white text with a dark outline and soft shadow.
+  // Light themes: white text with an outline still reads poorly on pastel backgrounds, so the line sits
+  // on a dark rounded panel (like the Boxed style) — every caption style stays readable.
+  const panel = track.style === 'boxed' || theme.mode === 'light';
+  // Dark themes: white text with a dark outline and soft shadow.
   const outline = `${Math.max(3, fontSize * 0.11)}px`;
   const vertical = track.position === 'top' ? 'flex-start' : track.position === 'middle' ? 'center' : 'flex-end';
   const pad = height * (track.position === 'middle' ? 0 : 0.1);
@@ -40,7 +43,7 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
         color = key || active ? hl : '#FFFFFF';
         break;
       case 'karaoke':
-        color = spoken ? (key ? hl : '#FFFFFF') : 'rgba(255,255,255,0.45)';
+        color = spoken ? (key ? hl : '#FFFFFF') : panel ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.45)';
         break;
       case 'boxed':
         background = active ? hl : 'transparent';
@@ -48,7 +51,7 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
         break;
       case 'clean_minimal':
         color = key ? hl : '#FFFFFF';
-        opacity = spoken ? 1 : 0.55;
+        opacity = spoken ? 1 : panel ? 0.7 : 0.55;
         break;
       case 'cinematic':
         opacity = interpolate(wf, [-2, 4], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
@@ -65,7 +68,7 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
           borderRadius: fontSize * 0.18,
           padding: background !== 'transparent' ? `0 ${fontSize * 0.18}px` : 0,
           transform: `scale(${track.style === 'cinematic' ? 1 : pop})`,
-          WebkitTextStroke: background !== 'transparent' ? undefined : `${outline} #000000`,
+          WebkitTextStroke: background !== 'transparent' || panel ? undefined : `${outline} #000000`,
           paintOrder: 'stroke fill',
         }}
       >
@@ -74,7 +77,6 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
     );
   });
 
-  const boxed = track.style === 'boxed';
   return (
     <AbsoluteFill style={{ justifyContent: vertical, alignItems: 'center', paddingTop: pad, paddingBottom: pad, pointerEvents: 'none' }}>
       <div
@@ -89,10 +91,10 @@ export function CaptionLayer({ track, theme }: { track: CaptionTrack; theme: Mot
           letterSpacing: track.style === 'cinematic' ? fontSize * 0.12 : 0,
           lineHeight: 1.15,
           textAlign: 'center',
-          textShadow: boxed ? undefined : `0 ${fontSize * 0.07}px ${fontSize * 0.2}px rgba(0,0,0,0.55)`,
+          textShadow: panel ? undefined : `0 ${fontSize * 0.07}px ${fontSize * 0.2}px rgba(0,0,0,0.55)`,
           transform: `translateY(${(1 - enter) * fontSize * 0.5}px) scale(${0.92 + 0.08 * enter})`,
           opacity: Math.min(1, enter * 1.5),
-          ...(boxed ? { background: 'rgba(10,10,18,0.78)', padding: `${fontSize * 0.25}px ${fontSize * 0.45}px`, borderRadius: fontSize * 0.35 } : {}),
+          ...(panel ? { background: 'rgba(10,10,18,0.8)', padding: `${fontSize * 0.25}px ${fontSize * 0.45}px`, borderRadius: fontSize * 0.35, boxShadow: `0 ${fontSize * 0.1}px ${fontSize * 0.4}px rgba(0,0,0,0.25)` } : {}),
         }}
       >
         {words}
