@@ -216,3 +216,18 @@ sound effects); "Suggest graphics" re-plans them; every graphic is editable on t
   FFmpeg lays it over the footage above B-roll, below captions. If drawing fails the export continues
   without graphics and says so.
 - `MOTION_BUNDLE_DIR` bundles must be rebuilt (`npm run motion:prepare`) to include `GraphicClip`.
+
+## Niche templates and batch create — Release C (2026-11-23)
+
+- **Niche templates:** every template says who it is for (`niches`), and the gallery has a "Made for" filter
+  (Creators, Tech & AI, Doctors, Coaches, Finance & CAs, Real estate, Businesses, Educators, Food, Storytellers).
+  Six new templates: Tech & AI update, Doctor's health tip, Money tip, Fitness coach, Know your rights, Storytime
+  (19 in total). The preview dialog shows "You give" (a script like this) next to "You get" (the animation).
+- **Batch create** (`/app/batch`): pick a Faceless template, visuals, language, quality (capped by plan) and one
+  voice, paste up to 30 scripts separated by `---`, see the live price, and create. Each script becomes a normal
+  project that runs voiceover → scene planning → export on its own (`services/batch/autopilot.ts`, driven by a
+  job-finished hook in the worker). Steps are charged as they start at the usual prices; the batch needs its
+  estimated total up front. A video whose next step can't start (no clip for a scene, not enough credits, a failed
+  step, or the user pressed Stop) stops with a note; the others carry on and it can be finished from its page.
+- The batch page shows each video's step (Voiceover, Planning scenes, Exporting, Ready, Needs you) and links to
+  watch and download. Verified locally: 2 videos, voiced by Sarvam, scenes planned by Gemini, exported in ~75 s.

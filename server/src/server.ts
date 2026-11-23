@@ -9,6 +9,7 @@ import { registerNarrationJob } from './services/audio/narrationJob.js';
 import { registerCloneJob } from './services/voice/cloneJob.js';
 import { registerPlanScenesJob } from './services/faceless/planJob.js';
 import { registerAnalyzeJob } from './services/video/analyzeJob.js';
+import { registerAutopilot } from './services/batch/autopilot.js';
 
 async function main() {
   // Fail fast: the API never serves traffic without its database.
@@ -30,6 +31,7 @@ async function main() {
     registerCloneJob();
     registerPlanScenesJob();
     registerAnalyzeJob();
+    registerAutopilot();
     worker = new Worker();
     worker.start();
   }

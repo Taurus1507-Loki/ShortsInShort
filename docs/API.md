@@ -99,6 +99,17 @@ Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, 
 
 Sound-effect files for the preview: `GET /api/music/sfx/:kind` (WAV, synthesised by the server — no third-party samples).
 
+## Batch create — `/batches` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/estimate` | Body `{name, templateId?, aspectRatio?, style?, settings (voiceId required, facelessStyle stock|motion, language, resolution…), videos: [{title?, script (20–5000 chars)}] (1–30)}` → `{videos: [{durationSec, narration, export, total}], total, balance}`. 400 `NO_VOICE` / `INVALID_VOICE`, 403 `PLAN_LIMIT`, 503 `NOT_CONFIGURED` |
+| POST | `/` | Same body; requires verified email and `balance ≥ total` (402 otherwise). Creates one Faceless project per script (`batchId`, `autopilot.state: running`) and starts each voiceover → 201 `{batch, started}`. Each video then plans its scenes and exports by itself; every step is charged when it starts, at the normal step price |
+| GET | `/` | Batches, newest first, with `videos`, `done`, `stopped` counts |
+| GET | `/:id` | `{batch, projects}`; a project's `autopilot` is `{state: running|done|stopped, error}` (e.g. no clip found for a scene, not enough credits). Stopping a video (`POST /projects/:id/stop`) stops its autopilot |
+
+Templates now carry `niches` (creators, tech, doctors, coaches, finance, real_estate, business, educators, food, storytellers).
+
 ## Avatar Studio voiceover — `/projects/:id` (auth, mode `avatar`)
 
 | Method | Path | Notes |

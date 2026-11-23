@@ -8,6 +8,7 @@ import { registerNarrationJob } from './services/audio/narrationJob.js';
 import { registerCloneJob } from './services/voice/cloneJob.js';
 import { registerPlanScenesJob } from './services/faceless/planJob.js';
 import { registerAnalyzeJob } from './services/video/analyzeJob.js';
+import { registerAutopilot } from './services/batch/autopilot.js';
 
 async function main() {
   await connectDB(env.mongodbUri);
@@ -16,6 +17,7 @@ async function main() {
   registerCloneJob();
   registerPlanScenesJob();
   registerAnalyzeJob();
+  registerAutopilot();
   const worker = new Worker();
   worker.start();
   const shutdown = async (signal: string) => {

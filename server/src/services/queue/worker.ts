@@ -20,6 +20,18 @@ export interface JobHandler {
 }
 
 const handlers = new Map<JobType, JobHandler>();
+/** Listeners for finished jobs (e.g. batch autopilot starting a project's next step). Errors are logged, never thrown. */
+const finishedHooks: Array<(job: JobDoc, outcome: 'completed' | 'dead') => Promise<void>> = [];
+export const onJobFinished = (fn: (job: JobDoc, outcome: 'completed' | 'dead') => Promise<void>) => void finishedHooks.push(fn);
+async function runFinishedHooks(job: JobDoc, outcome: 'completed' | 'dead') {
+  for (const fn of finishedHooks) {
+    try {
+      await fn(job, outcome);
+    } catch (err) {
+      logger.error({ err, jobId: job._id.toString() }, 'Job finished hook failed');
+    }
+  }
+}
 export const registerHandler = (type: JobType, h: JobHandler) => handlers.set(type, h);
 
 /** Jobs running in this process, so a cancel can stop them at once instead of on the next heartbeat. */
@@ -125,6 +137,7 @@ export class Worker {
       });
       await complete(job._id, this.id, result ?? null);
       log.info('Job completed');
+      await runFinishedHooks(job, 'completed');
     } catch (err) {
       const outcome = await fail(job, this.id, err);
       if (outcome === 'lost') log.info('Job stopped: cancelled or taken over by another worker');
@@ -146,5 +159,6 @@ export class Worker {
     } catch (e) {
       logger.error({ err: e, jobId: job._id.toString() }, 'onDead compensation failed');
     }
+    await runFinishedHooks(job, 'dead');
   }
 }

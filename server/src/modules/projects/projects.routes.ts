@@ -25,7 +25,8 @@ import { getLLMProvider } from '../../services/ai/llm.js';
 import { fallbackMotionScene, motionSceneSchema, parseMotionScene, planMotionScenes } from '../../services/faceless/motion.js';
 import { logger } from '../../config/logger.js';
 import { applyCreditChange } from '../../services/credit.service.js';
-import { cancelJob, enqueue } from '../../services/queue/queue.js';
+import { cancelJob } from '../../services/queue/queue.js';
+import { startJob } from '../../services/projectJobs.js';
 import { abortLocalJob } from '../../services/queue/worker.js';
 import { audit } from '../../services/audit.service.js';
 import { jobStartLimiter } from '../../middleware/security.js';
@@ -179,6 +180,8 @@ projectsRouter.post(
     if (!project) throw notFound('Project not found.');
     const stopped = await stopProjectJob(req, project);
     if (!stopped) throw conflict('Nothing is running for this project — it may have just finished.', 'NOTHING_TO_STOP');
+    // A batch video stops its automatic steps too.
+    await Project.updateOne({ _id: project._id, 'autopilot.state': 'running' }, { $set: { 'autopilot.state': 'stopped', 'autopilot.error': 'You stopped this video.' } });
     const fresh = await Project.findById(project._id);
     res.json({ data: { project: await withMedia(fresh!), refundedCredits: stopped.credits, stopped: stopped.type } });
   }),
@@ -356,55 +359,8 @@ async function startProjectJob(
   opts: { type: JobType; credits: number; note: string; payload?: Record<string, unknown>; auditAction: string },
 ) {
   const { user, workspaceId } = req.auth!;
-  const jobId = new Types.ObjectId();
-  const previousStatus = project.status;
-  const claimed = await Project.findOneAndUpdate(
-    { _id: project._id, workspaceId, status: { $in: ['draft', 'completed', 'failed'] } },
-    { $set: { status: 'queued', lastJobId: jobId, lastError: null } },
-    { new: true },
-  );
-  if (!claimed) throw conflict('This project is already being processed.', 'PROJECT_BUSY');
-
-  try {
-    if (opts.credits > 0) await applyCreditChange({
-      workspaceId,
-      type: 'consume',
-      amount: -opts.credits,
-      idempotencyKey: `job:${jobId.toString()}`,
-      note: `${opts.note}: ${project.title}`.slice(0, 300),
-      reference: { kind: 'job', id: jobId.toString() },
-      actorId: user._id,
-    });
-  } catch (err) {
-    await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
-    throw err;
-  }
-
-  let job;
-  try {
-    job = await enqueue({
-      _id: jobId,
-      type: opts.type,
-      workspaceId,
-      projectId: project._id,
-      payload: { projectId: project._id.toString(), credits: opts.credits, ...opts.payload },
-      maxAttempts: 3,
-    });
-  } catch (err) {
-    // Never leave credits charged for a job that doesn't exist, or a project stuck in `queued`.
-    // The refund key matches the worker's, so even a racing compensation can only refund once.
-    if (opts.credits > 0) await applyCreditChange({
-      workspaceId,
-      type: 'refund',
-      amount: opts.credits,
-      idempotencyKey: `refund:${jobId.toString()}`,
-      note: 'Refund: job could not be queued',
-      reference: { kind: 'job', id: jobId.toString() },
-    });
-    await Project.updateOne({ _id: project._id, lastJobId: jobId }, { $set: { status: previousStatus } });
-    throw err;
-  }
-  await audit(req, opts.auditAction, { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: jobId.toString(), credits: opts.credits } });
+  const job = await startJob({ workspaceId, actorId: user._id, project, type: opts.type, credits: opts.credits, note: opts.note, payload: opts.payload });
+  await audit(req, opts.auditAction, { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: job._id.toString(), credits: opts.credits } });
   return { job: toPublicJob(job), credits: opts.credits };
 }
 

@@ -21,7 +21,7 @@ import {
 
 export const SUPPORTED_LANGUAGES = ['en', 'hi', 'te', 'ta', 'mr'] as const;
 
-const settingsSchema = z
+export const settingsSchema = z
   .object({
     captionsEnabled: z.boolean(),
     captionStyle: z.enum(['bold_pop', 'clean_minimal', 'karaoke', 'boxed', 'cinematic']),
@@ -60,7 +60,7 @@ const assetIdField = z
   .optional();
 
 /** Editable project fields, with no defaults (an update must only change what was sent). */
-const projectFields = {
+export const projectFields = {
   title: z.string().trim().min(1, 'Give your project a title.').max(120),
   aspectRatio: z.enum(ASPECT_RATIOS),
   style: z.enum(EDITING_STYLES),

@@ -8,6 +8,7 @@ import {
   Image,
   LayoutDashboard,
   LayoutTemplate,
+  Layers,
   LifeBuoy,
   LogOut,
   Menu,
@@ -51,6 +52,7 @@ const NAV: { section?: string; items: NavItem[] }[] = [
       { to: '/app/new?mode=avatar', label: 'AI Avatar', icon: UserRound },
       { to: '/app/voices', label: 'AI Voices', icon: Mic },
       { to: '/app/new?mode=faceless', label: 'Faceless Videos', icon: Clapperboard },
+      { to: '/app/batch', label: 'Batch create', icon: Layers },
     ],
   },
   {

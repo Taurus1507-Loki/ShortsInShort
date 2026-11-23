@@ -139,6 +139,12 @@ const projectSchema = new Schema(
     backgroundAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     outputAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     lastJobId: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
+    /** Batch create: the batch this project belongs to, and its automatic voiceover → scenes → export run. */
+    batchId: { type: Schema.Types.ObjectId, ref: 'Batch', default: null, index: true },
+    autopilot: {
+      state: { type: String, enum: ['running', 'done', 'stopped', null], default: null },
+      error: { type: String, default: null, maxlength: 300 },
+    },
     lastError: { type: String, default: null, maxlength: 500 },
     lastRenderedAt: { type: Date, default: null },
     /** Caption lines of the last render, on the edited timeline. */
@@ -274,6 +280,8 @@ export function toPublicProject(p: ProjectDoc) {
     backgroundAssetId: p.backgroundAssetId?.toString() ?? null,
     outputAssetId: p.outputAssetId?.toString() ?? null,
     lastJobId: p.lastJobId?.toString() ?? null,
+    batchId: p.batchId?.toString() ?? null,
+    autopilot: p.autopilot?.state ? { state: p.autopilot.state, error: p.autopilot.error ?? null } : null,
     lastError: p.lastError,
     lastRenderedAt: p.lastRenderedAt,
     renderStats: p.renderStats,

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Player, Thumbnail } from '@remotion/player';
 import { toast } from 'sonner';
-import { Clapperboard, Eye, Search, Star, UserRound, Wand2, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Clapperboard, Eye, Layers, Search, Star, UserRound, Wand2, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
 import { useMotionLook } from '@/components/app/MotionScenes';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import { MotionVideo } from '@/motion/MotionVideo';
 import { MOTION_FPS } from '@/motion/types';
 import type { AspectRatio, ProjectMode } from '@/types/api';
-import { useTemplates, type VideoTemplate } from '@/features/templates';
+import { NICHE_LABEL, useTemplates, type TemplateNiche, type VideoTemplate } from '@/features/templates';
 
 const CATEGORIES: Array<[VideoTemplate['category'] | 'all' | 'favorites', string]> = [
   ['all', 'All'],
@@ -48,16 +48,18 @@ export default function TemplatesPage() {
   const { data, isLoading, isError, error } = useTemplates();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<(typeof CATEGORIES)[number][0]>('all');
+  const [niche, setNiche] = useState<TemplateNiche | 'all'>('all');
   const [open, setOpen] = useState<VideoTemplate | null>(null);
 
   const list = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     return (data ?? []).filter((t) => {
       if (cat === 'favorites' ? !t.favorite : cat !== 'all' && t.category !== cat) return false;
+      if (niche !== 'all' && !t.niches.includes(niche)) return false;
       const hay = `${t.name} ${t.description} ${t.bestFor} ${t.category} ${modeName(t.mode)}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
-  }, [data, q, cat]);
+  }, [data, q, cat, niche]);
 
   const use = (t: VideoTemplate) => navigate(`/app/new?mode=${t.mode}&template=${t.id}`);
 
@@ -65,6 +67,20 @@ export default function TemplatesPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Templates" description="Start from a proven format. A template sets the mode, style, frame, captions and a script outline — you change anything after." />
       <div className="mb-6 grid gap-3">
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Made for">
+          <span className="mr-1 text-sm font-medium">Made for</span>
+          {(['all', ...Object.keys(NICHE_LABEL)] as Array<TemplateNiche | 'all'>).map((n) => (
+            <button
+              key={n}
+              role="tab"
+              aria-selected={niche === n}
+              onClick={() => setNiche(n)}
+              className={cn('rounded-full border px-3 py-1 text-sm transition-colors', niche === n ? 'border-accent bg-accent/15 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+            >
+              {n === 'all' ? 'Everyone' : NICHE_LABEL[n]}
+            </button>
+          ))}
+        </div>
         <div className="relative max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search templates (e.g. recipe, pitch, podcast)" aria-label="Search templates" className="pl-9" />
@@ -104,7 +120,7 @@ export default function TemplatesPage() {
           ))}
         </ul>
       )}
-      {open && <PreviewDialog t={open} onClose={() => setOpen(null)} onUse={() => use(open)} />}
+      {open && <PreviewDialog t={open} onClose={() => setOpen(null)} onUse={() => use(open)} onBatch={() => navigate(`/app/batch?template=${open.id}`)} />}
     </div>
   );
 }
@@ -212,7 +228,7 @@ function StockStrip({ t, className }: { t: VideoTemplate; className?: string }) 
   );
 }
 
-function PreviewDialog({ t, onClose, onUse }: { t: VideoTemplate; onClose: () => void; onUse: () => void }) {
+function PreviewDialog({ t, onClose, onUse, onBatch }: { t: VideoTemplate; onClose: () => void; onUse: () => void; onBatch: () => void }) {
   const look = useMotionLook(t.settings.motionTheme, t.id);
   const [w, h] = SIZE[t.aspectRatio];
   const motion = t.preview === 'motion' && t.motionScenes?.length;
@@ -224,6 +240,9 @@ function PreviewDialog({ t, onClose, onUse }: { t: VideoTemplate; onClose: () =>
         <DialogDescription className="text-sm text-muted-foreground">{t.description}</DialogDescription>
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <div>
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              You get <ArrowRight className="h-3 w-3" />
+            </p>
             {motion ? (
               <div className="mx-auto overflow-hidden rounded-lg border border-border bg-black" style={{ maxWidth: w > h ? '100%' : 260 }}>
                 <Player component={MotionVideo} inputProps={inputProps} durationInFrames={inputProps.scenes.length * 3 * MOTION_FPS} fps={MOTION_FPS} compositionWidth={w} compositionHeight={h} style={{ width: '100%', aspectRatio: `${w} / ${h}` }} controls autoPlay loop acknowledgeRemotionLicense />
@@ -244,15 +263,27 @@ function PreviewDialog({ t, onClose, onUse }: { t: VideoTemplate; onClose: () =>
               ))}
             </div>
             <div>
-              <p className="mb-1 font-semibold">{t.mode === 'editor' ? 'How to use it' : 'Script outline'}</p>
+              <p className="mb-1 font-semibold">{t.mode === 'editor' ? 'How to use it' : 'You give: a script like this'}</p>
               <p className="whitespace-pre-line rounded-md bg-muted/40 p-3 text-muted-foreground">{t.script}</p>
               {t.mode !== 'editor' && <p className="mt-1 text-[11px] text-muted-foreground">Pre-filled in the next step — rewrite it or use “Write it with AI”.</p>}
             </div>
             <p className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Best for:</span> {t.bestFor}
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {t.niches.map((n) => (
+                <Badge key={n} variant="accent">
+                  {NICHE_LABEL[n]}
+                </Badge>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button onClick={onUse}>Use template</Button>
+              {t.mode === 'faceless' && (
+                <Button variant="outline" onClick={onBatch} title="Make many videos with this template at once">
+                  <Layers /> Batch create
+                </Button>
+              )}
               <FavoriteInline t={t} />
             </div>
           </div>

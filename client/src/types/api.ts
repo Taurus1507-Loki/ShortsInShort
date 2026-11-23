@@ -226,6 +226,9 @@ export interface Project {
   sourceAssetId: string | null;
   outputAssetId: string | null;
   lastJobId: string | null;
+  /** Batch create: the batch and its automatic voiceover → scenes → export run. */
+  batchId?: string | null;
+  autopilot?: { state: 'running' | 'done' | 'stopped'; error: string | null } | null;
   lastError: string | null;
   lastRenderedAt: string | null;
   renderStats?: RenderStats;

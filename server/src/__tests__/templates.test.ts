@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { app, connectTestDb, registerUser, resetDb } from './helpers.js';
-import { TEMPLATE_CATEGORIES, VIDEO_TEMPLATES } from '../config/templates.js';
+import { TEMPLATE_CATEGORIES, TEMPLATE_NICHES, VIDEO_TEMPLATES } from '../config/templates.js';
 import { createProjectSchema } from '../modules/projects/projects.schemas.js';
 import { motionSceneSchema } from '../services/faceless/motion.js';
 import { setStockProvider, type StockClip, type StockVideoProvider } from '../services/ai/stock.js';
@@ -21,6 +21,14 @@ describe('template catalogue', () => {
       expect(r.success, `${t.id}: ${r.success ? '' : JSON.stringify(r.error.issues)}`).toBe(true);
       if (t.mode !== 'editor') expect(t.script.length, t.id).toBeLessThanOrEqual(5000);
     }
+  });
+
+  it('says who every template is for, and every niche has templates', () => {
+    for (const t of VIDEO_TEMPLATES) {
+      expect(t.niches.length, t.id).toBeGreaterThan(0);
+      for (const n of t.niches) expect(TEMPLATE_NICHES, t.id).toContain(n);
+    }
+    for (const n of TEMPLATE_NICHES) expect(VIDEO_TEMPLATES.some((t) => t.niches.includes(n)), n).toBe(true);
   });
 
   it('has valid sample scenes for every Motion template and a preview for every template', () => {
