@@ -50,6 +50,8 @@ export interface SfxCue {
   kind: SfxKind;
   /** Seconds on the final timeline. */
   at: number;
+  /** Multiplier on the effect's own level (default 1). */
+  volume?: number;
 }
 
 const F = 30; // composition fps — cue times mirror the animation timings in client/src/motion/scenes.tsx
@@ -128,11 +130,12 @@ export function buildSfxMixArgs(input: string, output: string, cues: SfxCue[], f
     parts.push(`[${ki + 1}:a]volume=${VOLUME[k]},asplit=${mine.length}${outs.join('')}`);
     mine.forEach((c, j) => {
       const ms = Math.max(0, Math.round(c.at * 1000));
-      parts.push(`[${k}${j}]adelay=${ms}|${ms}[${k}d${j}]`);
+      const gain = c.volume !== undefined && c.volume !== 1 ? `volume=${c.volume.toFixed(2)},` : '';
+      parts.push(`[${k}${j}]${gain}adelay=${ms}|${ms}[${k}d${j}]`);
       labels.push(`[${k}d${j}]`);
     });
   });
-  const graph = `${parts.join(';')};[0:a]${labels.join('')}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0[a]`;
+  const graph = `${parts.join(';')};[0:a]${labels.join('')}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=disabled[a]`;
   return [...args, '-filter_complex', graph, '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', output];
 }
 

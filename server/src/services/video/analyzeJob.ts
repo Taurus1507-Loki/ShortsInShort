@@ -21,6 +21,8 @@ import { logger } from '../../config/logger.js';
 import type { ProjectDoc } from '../../models/Project.js';
 import type { Word } from '../ai/transcription.js';
 import { loadTranscript } from './renderJob.js';
+import { autoEdit } from './autoEdit.js';
+import { getStockProvider } from '../ai/stock.js';
 
 /**
  * AI Video Editor analysis: transcribes the footage (cached per source) and finds every pause of
@@ -63,10 +65,12 @@ interface AnalyzePayload {
   projectId: string;
   credits: number;
   previousStatus: string;
+  /** Auto edit: after analysing, build the whole edit (hook, B-roll, zooms, music, sound effects). */
+  auto?: { pace: 'natural' | 'fast' } | null;
 }
 
 async function run({ job, signal, progress }: JobContext) {
-  const { projectId, previousStatus } = job.payload as AnalyzePayload;
+  const { projectId, previousStatus, auto } = job.payload as AnalyzePayload;
   const project = await Project.findOne({ _id: projectId, workspaceId: job.workspaceId, deletedAt: null });
   if (!project) throw new PermanentJobError('The project no longer exists.');
   if (!project.sourceAssetId) throw new PermanentJobError('Upload a video first.');
@@ -96,10 +100,26 @@ async function run({ job, signal, progress }: JobContext) {
       silences = parseSilences(stderr, duration);
     }
     const fillers = transcript.words ? fillerIntervals(transcript.words) : [];
-    const edit: EditDoc = initialEdit(source._id.toString(), duration, silences, fillers, (project.edit as EditDoc | null) ?? null);
+    let edit: EditDoc = initialEdit(source._id.toString(), duration, silences, fillers, (project.edit as EditDoc | null) ?? null);
     if (!edit.captions && transcript.words?.length) {
       await progress(85, 'styling_captions');
       edit.captions = await buildEditCaptions(project, transcript.words, signal);
+    }
+
+    if (auto) {
+      await progress(88, 'auto_editing');
+      edit = await autoEdit({
+        edit,
+        words: transcript.words ?? [],
+        language,
+        style: project.style,
+        projectId: project._id.toString(),
+        pace: auto.pace,
+        color: project.settings?.highlightColor ?? '#7C3AED',
+        llm: getLLMProvider(),
+        stock: getStockProvider(),
+        signal,
+      });
     }
 
     await progress(95, 'saving');
@@ -107,7 +127,7 @@ async function run({ job, signal, progress }: JobContext) {
     await Project.updateOne(ownedBy(project._id, job._id), {
       $set: { edit, status: previousStatus === 'completed' ? 'completed' : 'draft', lastError: transcript.error ? `Speech wasn’t transcribed: ${transcript.error}` : null },
     });
-    return { silences: silences.length, fillers: fillers.length, words: transcript.words?.length ?? 0 };
+    return { silences: silences.length, fillers: fillers.length, words: transcript.words?.length ?? 0, auto: edit.auto && auto ? edit.auto.counts : null };
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }

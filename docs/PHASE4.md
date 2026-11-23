@@ -184,3 +184,18 @@ Previously it was one clip per 20/12/7 s, at most 3.5 s each. A cutaway may now 
 - Admins can play, re-tag or remove tracks, and see how many tracks each mood has (aim for at least 3 per mood).
 - The library lives in `<STORAGE_LOCAL_DIR>/music` by default (`/data/storage/music` in Docker, on the storage volume). The render picks a track for the project's mood ("Match the style" follows the editing style), lowers it under speech and fades it out. This uses the existing music engine.
 - API: `GET/POST /api/admin/music`, `PATCH/DELETE /api/admin/music/:file`, `GET /api/admin/music/:file/audio`. All are admin-only and audited.
+
+## Auto edit — Release A of the ReelsDone-inspired plan (2026-11-23)
+
+One button on the Edit step turns raw footage into a finished edit on the timeline: pauses and filler
+words cut (natural 0.6 s or fast-paced 0.3 s), a hook line in the first 2.8 s (Gemini, 20 s cap; the
+opening line or first early question when the AI is slow), word-by-word captions, B-roll (shared
+`services/video/brollSuggest.ts`; never over the hook), punch-in zooms on highlighted words (one per
+4 s, not during B-roll), a music-library track matched to the mood the AI picks, and sound effects
+(impact on the hook, whooshes in and out of B-roll, pops on zooms; 0.6 s minimum spacing). Everything
+is ordinary timeline data, so the user can change or delete any of it, and "Auto edit again" redoes it.
+
+- Code: `services/video/autoEdit.ts` (planner), `analyze_project` job with `payload.auto`, `POST /projects/:id/auto-edit`.
+- Sound effects are a new timeline track (`edit.sfx`), synthesised by FFmpeg (`services/audio/sfx.ts`), played in the live
+  preview and mixed into the export after rendering (with a limiter so they never clip).
+- Price: the same as analysing (3 credits per minute, free when already analysed); export prices are unchanged.

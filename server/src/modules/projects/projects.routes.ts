@@ -15,8 +15,8 @@ import { buildEditCaptions } from '../../services/video/analyzeJob.js';
 import type { Word } from '../../services/ai/transcription.js';
 import { getAvatarProvider, listAvatarsCached } from '../../services/ai/avatar.js';
 import { KEY_GREEN } from '../../services/video/renderJob.js';
-import { getStockProvider, rankClips, relevance, type StockClip } from '../../services/ai/stock.js';
-import { BROLL_PROFILE, planBroll, scheduleBroll, toSentences } from '../../services/ai/creative.js';
+import { getStockProvider, rankClips, type StockClip } from '../../services/ai/stock.js';
+import { poolClip, prunePool, suggestBroll } from '../../services/video/brollSuggest.js';
 import { loadLibrary } from '../../services/ai/music.js';
 import { MAX_SCENES, fallbackQuery, findClips, planSceneQueries, scenesKey, scriptFromScenes, splitSceneText, splitScenes } from '../../services/faceless/scenes.js';
 import { getLLMProvider } from '../../services/ai/llm.js';
@@ -471,6 +471,31 @@ projectsRouter.post(
   }),
 );
 
+/**
+ * Auto edit: analyses the footage (same price as analysing; free when it was analysed before) and
+ * builds the whole edit — cuts, hook line, captions, B-roll, zooms, music and sound effects — on the
+ * timeline. Replaces the current text, zooms, B-roll, music and sound effects; keeps manual cuts.
+ */
+projectsRouter.post(
+  '/:id/auto-edit',
+  jobStartLimiter,
+  requireVerifiedEmail,
+  validate({ params: idParams, body: z.object({ pace: z.enum(['natural', 'fast']).default('natural') }).strict() }),
+  asyncHandler(async (req, res) => {
+    const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
+    if (!project) throw notFound('Project not found.');
+    const q = await analyzeQuote(project, req.auth!.workspaceId);
+    const data = await startProjectJob(req, project, {
+      type: 'analyze_project',
+      credits: q.credits,
+      note: 'Auto edit',
+      payload: { previousStatus: project.status, auto: { pace: (req.body as { pace: 'natural' | 'fast' }).pace } },
+      auditAction: 'project.auto_edit',
+    });
+    res.status(202).json({ data });
+  }),
+);
+
 /** The transcript words of the footage (for the timeline and live preview captions). */
 projectsRouter.get(
   '/:id/words',
@@ -486,20 +511,7 @@ projectsRouter.get(
 
 /* B-roll on the timeline: AI suggests moments and clips; the user keeps, swaps, searches or deletes. */
 
-const poolClip = (c: StockClip): PoolClip => ({
-  id: c.id, provider: c.provider, downloadUrl: c.downloadUrl, pageUrl: c.pageUrl, author: c.author, thumbnailUrl: c.thumbnailUrl ?? null, durationSec: c.durationSec, width: c.width, height: c.height,
-});
 const publicClipOf = (c: PoolClip) => ({ id: c.id, provider: c.provider, pageUrl: c.pageUrl, author: c.author, thumbnailUrl: c.thumbnailUrl, durationSec: c.durationSec, width: c.width, height: c.height });
-
-/** Keeps the pool bounded: clips in use first, then the newest. */
-function prunePool(pool: Record<string, PoolClip>, broll: EditBroll[], max = 300) {
-  const keep = new Set(broll.flatMap((b) => [b.clipId, ...b.candidateIds]));
-  const ids = Object.keys(pool);
-  if (ids.length <= max) return pool;
-  const extra = ids.filter((id) => !keep.has(id)).slice(0, ids.length - max);
-  for (const id of extra) delete pool[id];
-  return pool;
-}
 
 async function analysedEditor(req: Request) {
   const project = await Project.findOne({ _id: req.params.id, workspaceId: req.auth!.workspaceId, deletedAt: null });
@@ -524,45 +536,8 @@ projectsRouter.post(
     const words = ((t?.words ?? []) as Word[]).filter((w) => !w.filler);
     if (words.length < 4) throw badRequest('B-roll is chosen from what you say, and this video has too little speech.', 'NO_TRANSCRIPT');
     const amount = (req.body as { amount: 'low' | 'medium' | 'high' }).amount;
-    const sentences = toSentences(words);
-    let moments;
-    let plannedWith: 'ai' | 'keywords' = 'ai';
-    try {
-      // The AI gets 25 s; when it's slow or down, moments are picked from keywords instead.
-      if (!llm) throw new Error('AI is not configured');
-      moments = await planBroll(llm, sentences, { intensity: amount, durationSec: edit.durationSec, language: project.settings?.language ?? 'en' }, AbortSignal.timeout(25_000));
-    } catch {
-      plannedWith = 'keywords';
-      const profile = BROLL_PROFILE[amount];
-      moments = scheduleBroll(
-        sentences.slice(1).filter((_, i) => amount === 'high' || i % 2 === 0).map((s) => ({ start: s.start, end: s.end, query: fallbackQuery(s.text) })).filter((m) => m.query),
-        { durationSec: edit.durationSec, maxCount: Math.max(1, Math.floor(edit.durationSec / profile.spacing)), minGap: profile.minGap, maxLen: profile.maxLen, preferredLen: profile.preferredLen },
-      );
-    }
-    const pool: Record<string, PoolClip> = { ...(edit.brollPool ?? {}) };
-    const used = new Set<string>();
-    const broll: EditBroll[] = [];
-    for (const m of moments) {
-      let found: StockClip[] = [];
-      let query = m.query;
-      for (const q of [m.query, ...(m.alternatives ?? [])]) {
-        try {
-          const clips = await stock.searchVideos(q, { perPage: 10, minDurationSec: Math.ceil(m.end - m.start) });
-          found = rankClips(clips, q).filter((c) => !used.has(c.id) && relevance(c, q) > 0 && c.downloadUrl.startsWith('https://')).slice(0, 4);
-        } catch {
-          found = [];
-        }
-        if (found.length) {
-          query = q;
-          break;
-        }
-      }
-      if (!found.length) continue;
-      found.forEach((c) => (pool[c.id] = poolClip(c)));
-      used.add(found[0]!.id);
-      broll.push({ start: Math.round(m.start * 1000) / 1000, end: Math.round(m.end * 1000) / 1000, query, clipId: found[0]!.id, candidateIds: found.map((c) => c.id) });
-    }
-    project.set('edit', { ...edit, broll, brollPool: prunePool(pool, broll) });
+    const { broll, pool, plannedWith } = await suggestBroll({ words, durationSec: edit.durationSec, language: project.settings?.language ?? 'en', amount, pool: edit.brollPool ?? {}, llm, stock });
+    project.set('edit', { ...edit, broll, brollPool: pool });
     project.markModified('edit');
     await project.save();
     res.json({ data: await withMedia(project), meta: { suggested: broll.length, plannedWith } });
@@ -630,7 +605,7 @@ projectsRouter.patch(
       if (problem) throw badRequest(problem, 'INVALID_SEGMENTS');
       if (patch.segments.length === 0) throw badRequest('Keep at least part of the video.', 'INVALID_SEGMENTS');
     }
-    const outOfRange = [...(patch.cuts ?? []), ...(patch.restores ?? []), ...(patch.texts ?? [])].some((r) => r.end > edit.durationSec + 0.05) || (patch.zooms ?? []).some((z) => z.at > edit.durationSec);
+    const outOfRange = [...(patch.cuts ?? []), ...(patch.restores ?? []), ...(patch.texts ?? [])].some((r) => r.end > edit.durationSec + 0.05) || [...(patch.zooms ?? []), ...(patch.sfx ?? [])].some((z) => z.at > edit.durationSec);
     if (outOfRange) throw badRequest('An edit is past the end of the video.', 'INVALID_EDIT');
     // B-roll can only use clips the server found for this project (no outside URLs).
     if (patch.broll) {

@@ -51,6 +51,25 @@ export interface EditMusic {
   volume: number;
   duck: boolean;
 }
+/** Sound effects the server synthesises (same list as server/src/services/audio/sfx.ts). */
+export const SFX_KINDS = ['whoosh', 'pop', 'impact', 'ding', 'tick', 'type'] as const;
+export type SfxKind = (typeof SFX_KINDS)[number];
+/** A sound effect at a SOURCE moment. */
+export interface EditSfx {
+  at: number;
+  kind: SfxKind;
+  volume?: number;
+}
+export interface AutoSummary {
+  at: string;
+  hook: string | null;
+  hookBy: 'ai' | 'rules' | null;
+  mood: string | null;
+  brollBy: 'ai' | 'keywords' | null;
+  counts: { broll: number; zooms: number; sfx: number };
+  music: string | null;
+  notes: string[];
+}
 export interface EditDoc {
   sourceAssetId: string;
   analyzedAt: string;
@@ -67,6 +86,8 @@ export interface EditDoc {
   broll?: EditBroll[];
   brollPool?: Record<string, PoolClip>;
   music?: EditMusic | null;
+  sfx?: EditSfx[];
+  auto?: AutoSummary | null;
   segments: Range[];
 }
 export interface Word {
@@ -241,4 +262,15 @@ export function retimeCaption(c: EditCaption, text: string): EditCaption {
     return w;
   });
   return { words, keyword: Math.min(c.keyword, words.length - 1) };
+}
+
+/** Seconds a sound starts before its moment so it peaks on the cut (same as the export). */
+export const SFX_LEAD: Partial<Record<SfxKind, number>> = { whoosh: 0.22 };
+
+/** Sound effects on the edited timeline (effects on cut moments are dropped) — same rule as the export. */
+export function sfxToOutput(sfx: EditSfx[], segments: Range[]) {
+  return sfx.flatMap((x) => {
+    const t = toOutput(segments, x.at);
+    return t === null ? [] : [{ kind: x.kind, at: Math.max(0, t - (SFX_LEAD[x.kind] ?? 0)), volume: x.volume ?? 1 }];
+  });
 }

@@ -8,6 +8,7 @@ import { asyncHandler, forbidden, notFound } from '../../utils/errors.js';
 import { safeEqual } from '../../utils/crypto.js';
 import { loadLibrary } from '../../services/ai/music.js';
 import { readManifest, trackPath } from '../../services/ai/musicLibrary.js';
+import { SFX_KINDS, sfxFile, type SfxKind } from '../../services/audio/sfx.js';
 
 /**
  * Background-music library for creators: the tracks they can pick on the editor's music track, each
@@ -43,5 +44,15 @@ musicRouter.get(
     const full = trackPath(file);
     if (!full) throw notFound('Track not found.');
     res.set('Cache-Control', 'private, max-age=3600').type('audio/mpeg').sendFile(full);
+  }),
+);
+
+/** Sound effects for the editor's live preview (synthesised by the server, so nothing to license or protect). */
+musicRouter.get(
+  '/sfx/:kind',
+  validate({ params: z.object({ kind: z.enum(SFX_KINDS) }) }),
+  asyncHandler(async (req, res) => {
+    const file = await sfxFile(req.params.kind as SfxKind);
+    res.set('Cache-Control', 'public, max-age=86400').type('audio/wav').sendFile(file);
   }),
 );

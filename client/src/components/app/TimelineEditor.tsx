@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Coins, Film, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Sparkles, Trash2, Type, Undo2, ZoomIn } from 'lucide-react';
+import { AudioWaveform, Coins, Film, Loader2, Minus, Pause, Play, Plus, Redo2, RotateCcw, Scissors, Sparkles, Trash2, Type, Undo2, Wand2, ZoomIn } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input, Select } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Notice } from '../ui/primitives';
@@ -12,17 +12,33 @@ import { FootageEdit, type FootageEditProps } from '@/motion/FootageEdit';
 import { api, errorMessage } from '@/lib/api';
 import { keys, queryClient, useAssetUrl, useBrandKit, useJob } from '@/lib/queries';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type PoolClip, type Range, type Word } from '@/features/edl';
+import { captionsToOutput, retimeCaption, keepSegments, mergeRanges, previewLines, rangeToOutput, remapWords, removedRanges, sfxToOutput, SFX_KINDS, subtractRanges, toOutput, toSource, totalLength, type EditDoc, type PoolClip, type Range, type SfxKind, type Word } from '@/features/edl';
 import { cn } from '@/lib/utils';
 import type { Project, ProjectSettings } from '@/types/api';
 
 const FPS = 30;
 const SIZE: Record<string, [number, number]> = { '9:16': [720, 1280], '16:9': [1280, 720], '1:1': [720, 720], '4:5': [720, 900] };
 const LOGO_W = { small: 0.12, medium: 0.18, large: 0.25 } as const;
+/** Sound effects: names, preview link and level (same levels as the export's mix). */
+const SFX_INFO: Record<SfxKind, { label: string; level: number }> = {
+  whoosh: { label: 'Whoosh', level: 0.7 },
+  pop: { label: 'Pop', level: 0.3 },
+  impact: { label: 'Impact', level: 0.4 },
+  ding: { label: 'Ding', level: 0.28 },
+  tick: { label: 'Tick', level: 0.18 },
+  type: { label: 'Typing', level: 0.16 },
+};
+const sfxUrl = (k: SfxKind) => `/api/music/sfx/${k}`;
+const playSfx = (k: SfxKind, volume = 1) => {
+  const a = new Audio(sfxUrl(k));
+  a.volume = Math.min(1, SFX_INFO[k].level * volume * 1.4);
+  void a.play().catch(() => undefined);
+};
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
-type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | { kind: 'broll'; index: number } | { kind: 'newBroll'; at: number } | null;
-type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions' | 'broll' | 'music'>;
+type Selection = { kind: 'kept' | 'removed' | 'words'; start: number; end: number } | { kind: 'zoom'; index: number } | { kind: 'text'; index: number } | { kind: 'caption'; index: number } | { kind: 'broll'; index: number } | { kind: 'newBroll'; at: number } | { kind: 'sfx'; index: number } | null;
+type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores' | 'zooms' | 'texts' | 'captions' | 'broll' | 'music' | 'sfx'>;
 
 /**
  * AI Video Editor "Edit" step: analyse once, then edit by hand on a timeline while a player shows the
@@ -32,53 +48,108 @@ type Timeline = Pick<EditDoc, 'pauseSec' | 'removeFillers' | 'cuts' | 'restores'
 export function TimelineEditor({ project, settings }: { project: Project; settings: ProjectSettings }) {
   const edit = project.edit;
   const analyzed = Boolean(edit && edit.sourceAssetId === project.sourceAssetId);
-  if (!analyzed) return <AnalyzeCard project={project} />;
+  const busy = project.status === 'queued' || project.status === 'processing';
+  const job = useJob(project.id, busy);
+  // While an analysis or Auto edit runs, show its progress (the timeline is rebuilt when it finishes).
+  if (!analyzed || (busy && job.data?.type === 'analyze_project')) return <AnalyzeCard project={project} />;
   return <Editor key={edit!.analyzedAt} project={project} edit={edit!} settings={settings} />;
 }
+
+type Pace = 'natural' | 'fast';
+
+/** Starts "Analyse" (edit by hand) or "Auto edit" (AI builds the whole edit), with their price. */
+function useStartEdit(project: Project, enabled: boolean) {
+  const estimate = useQuery({
+    queryKey: ['analyze-estimate', project.id, project.sourceAssetId],
+    queryFn: () => api<{ data: { credits: number; balance: number; sourceDurationSec: number } }>(`/projects/${project.id}/analyze/estimate`).then((r) => r.data),
+    enabled: Boolean(project.sourceAssetId) && enabled,
+  });
+  const onSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: keys.project(project.id) });
+    queryClient.invalidateQueries({ queryKey: keys.job(project.id) });
+    queryClient.invalidateQueries({ queryKey: keys.me });
+  };
+  const analyze = useMutation({ mutationFn: () => api(`/projects/${project.id}/analyze`, { method: 'POST' }), onSuccess, onError: (e) => toast.error(errorMessage(e)) });
+  const auto = useMutation({ mutationFn: (pace: Pace) => api(`/projects/${project.id}/auto-edit`, { method: 'POST', body: { pace } }), onSuccess, onError: (e) => toast.error(errorMessage(e)) });
+  return { estimate, analyze, auto };
+}
+
+const STAGE_LABEL: Record<string, string> = {
+  transcribing: 'Transcribing speech…',
+  finding_pauses: 'Finding pauses and filler words…',
+  styling_captions: 'Laying out captions…',
+  auto_editing: 'AI is editing: hook line, B-roll, zooms, music and sound effects…',
+  saving: 'Putting it on the timeline…',
+};
 
 function AnalyzeCard({ project }: { project: Project }) {
   const busy = project.status === 'queued' || project.status === 'processing';
   const job = useJob(project.id, busy);
-  const estimate = useQuery({
-    queryKey: ['analyze-estimate', project.id, project.sourceAssetId],
-    queryFn: () => api<{ data: { credits: number; balance: number; sourceDurationSec: number } }>(`/projects/${project.id}/analyze/estimate`).then((r) => r.data),
-    enabled: Boolean(project.sourceAssetId) && !busy,
-  });
-  const analyze = useMutation({
-    mutationFn: () => api(`/projects/${project.id}/analyze`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.project(project.id) });
-      queryClient.invalidateQueries({ queryKey: keys.job(project.id) });
-      queryClient.invalidateQueries({ queryKey: keys.me });
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
+  const { estimate, analyze, auto } = useStartEdit(project, !busy);
+  const [pace, setPace] = useState<Pace>('natural');
   const e = estimate.data;
+  const cantPay = !e || e.balance < e.credits;
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Analyse your video</CardTitle>
-        <CardDescription>
-          AI transcribes the speech and finds every pause and filler word (“um”, “uh”). Then you edit on a timeline: cut, restore, add zooms and text, and watch the result as you go. Nothing is removed until you decide.
-        </CardDescription>
+        <CardTitle>Edit your video</CardTitle>
+        <CardDescription>Let AI do the whole edit in one click, or edit it yourself on a timeline. Either way you can change everything before you export.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
         {busy ? (
           <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 p-4 text-sm" aria-live="polite">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="flex-1">{job.data?.stage === 'transcribing' ? 'Transcribing speech…' : job.data?.stage === 'finding_pauses' ? 'Finding pauses and filler words…' : 'Analysing…'} {job.data?.progress ?? 0}%</span>
+            <span className="flex-1">
+              {STAGE_LABEL[job.data?.stage ?? ''] ?? 'Analysing…'} {job.data?.progress ?? 0}%
+            </span>
             <StopButton project={project} />
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid content-between gap-3 rounded-xl border-2 border-primary/50 bg-primary/5 p-4">
+                <div className="grid gap-1.5">
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">
+                    <Wand2 className="h-4 w-4 text-primary" /> Auto edit
+                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Recommended</span>
+                  </p>
+                  <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                    <li>Cuts pauses and filler words</li>
+                    <li>Writes a hook line for the first seconds</li>
+                    <li>Word-by-word captions, key words highlighted</li>
+                    <li>B-roll and zooms on key words</li>
+                    <li>Music matched to the mood, sound effects on every change</li>
+                  </ul>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select id="auto-pace" value={pace} onChange={(ev) => setPace(ev.target.value as Pace)} className="w-auto" aria-label="Pace">
+                    <option value="natural">Natural pace</option>
+                    <option value="fast">Fast-paced</option>
+                  </Select>
+                  <Button variant="gradient" onClick={() => auto.mutate(pace)} loading={auto.isPending} disabled={cantPay || analyze.isPending}>
+                    <Wand2 /> Auto edit
+                  </Button>
+                </div>
+              </div>
+              <div className="grid content-between gap-3 rounded-xl border border-border p-4">
+                <div className="grid gap-1.5">
+                  <p className="flex items-center gap-2 font-semibold">
+                    <Scissors className="h-4 w-4" /> Edit by hand
+                  </p>
+                  <p className="text-sm text-muted-foreground">AI transcribes the speech and finds every pause and filler word. Then you cut and add zooms, text, B-roll, music and sound effects yourself, watching the result as you go.</p>
+                </div>
+                <div>
+                  <Button variant="outline" onClick={() => analyze.mutate()} loading={analyze.isPending} disabled={cantPay || auto.isPending}>
+                    <Sparkles /> Analyse video
+                  </Button>
+                </div>
+              </div>
+            </div>
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Coins className="h-4 w-4 text-highlight" />
-              {e ? (e.credits ? `${e.credits} credits (3 per minute of footage, once) · you have ${e.balance}` : 'Free — this video was analysed before') : 'Checking the price…'}
+              {e ? (e.credits ? `Either option: ${e.credits} credits (3 per minute of footage, once) · you have ${e.balance}` : 'Free — this video was analysed before') : 'Checking the price…'}
             </p>
-            <Button variant="gradient" onClick={() => analyze.mutate()} loading={analyze.isPending} disabled={!e || e.balance < e.credits}>
-              <Sparkles /> Analyse video
-            </Button>
-          </div>
+          </>
         )}
         {project.lastError && !busy && <Notice tone="warning">{project.lastError}</Notice>}
       </CardContent>
@@ -86,9 +157,52 @@ function AnalyzeCard({ project }: { project: Project }) {
   );
 }
 
+/** Editor side panel: what Auto edit did, and running it again. */
+function AutoEditCard({ project, edit, disabled }: { project: Project; edit: EditDoc; disabled: boolean }) {
+  const { estimate, auto } = useStartEdit(project, true);
+  const [pace, setPace] = useState<Pace>(edit.pauseSec === 0.3 ? 'fast' : 'natural');
+  const a = edit.auto;
+  const e = estimate.data;
+  const run = () => {
+    if (a && !window.confirm('Auto edit replaces the text, zooms, B-roll, music and sound effects on the timeline (your own cuts stay). Continue?')) return;
+    auto.mutate(pace);
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Wand2 className="h-4 w-4 text-primary" /> Auto edit
+        </CardTitle>
+        <CardDescription>
+          {a
+            ? `Added ${a.hook ? `the hook “${a.hook}”${a.hookBy === 'rules' ? ' (your opening line — the AI was slow)' : ''}, ` : ''}${plural(a.counts.broll, 'B-roll clip')}, ${plural(a.counts.zooms, 'zoom')}, ${plural(a.counts.sfx, 'sound effect')}${a.music ? ` and the track “${a.music}”` : ''}. Change anything on the timeline.`
+            : 'Let AI build the whole edit: hook line, B-roll, zooms on key words, music and sound effects.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {a?.notes.map((n) => (
+          <p key={n} className="text-xs text-muted-foreground">
+            • {n}
+          </p>
+        ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <Select id="auto-pace-again" value={pace} onChange={(ev) => setPace(ev.target.value as Pace)} className="w-auto" aria-label="Pace">
+            <option value="natural">Natural pace</option>
+            <option value="fast">Fast-paced</option>
+          </Select>
+          <Button size="sm" variant={a ? 'outline' : 'gradient'} onClick={run} loading={auto.isPending} disabled={disabled || !e || e.balance < e.credits}>
+            <Wand2 /> {a ? 'Auto edit again' : 'Auto edit'}
+          </Button>
+        </div>
+        {e && e.credits > 0 && <p className="text-[11px] text-muted-foreground">{e.credits} credits</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; settings: ProjectSettings }) {
   const duration = edit.durationSec;
-  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null, broll: edit.broll ?? [], music: edit.music ?? null });
+  const [tl, setTl] = useState<Timeline>({ pauseSec: edit.pauseSec, removeFillers: edit.removeFillers, cuts: edit.cuts, restores: edit.restores, zooms: edit.zooms, texts: edit.texts, captions: edit.captions ?? null, broll: edit.broll ?? [], music: edit.music ?? null, sfx: edit.sfx ?? [] });
   const [past, setPast] = useState<Timeline[]>([]);
   const [future, setFuture] = useState<Timeline[]>([]);
   const [sel, setSel] = useState<Selection>(null);
@@ -211,7 +325,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   }, [tl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Player inputs ── */
-  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions, tl.broll, pool, tl.music);
+  const { inputProps, words, src, W, H } = useFootageInput(project, settings, segments, tl.zooms, tl.texts, tl.captions, tl.broll, pool, tl.music, tl.sfx);
 
   // Keep the playhead (source time) in sync with the player.
   useEffect(() => {
@@ -272,11 +386,20 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
     else if (sel.kind === 'text') change((t) => ({ ...t, texts: t.texts.filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'caption') change((t) => ({ ...t, captions: (t.captions ?? []).filter((_, i) => i !== sel.index) }));
     else if (sel.kind === 'broll') change((t) => ({ ...t, broll: (t.broll ?? []).filter((_, i) => i !== sel.index) }));
+    else if (sel.kind === 'sfx') change((t) => ({ ...t, sfx: (t.sfx ?? []).filter((_, i) => i !== sel.index) }));
     setSel(null);
   };
   const addZoom = () => {
     change((t) => ({ ...t, zooms: [...t.zooms, { at: Math.round(playhead * 100) / 100, dur: 1.5, scale: 1.12 }].sort((a, b) => a.at - b.at) }));
   };
+  const addSfx = () => {
+    const item = { at: Math.round(playhead * 100) / 100, kind: 'whoosh' as SfxKind };
+    const next = [...(tl.sfx ?? []), item].sort((a, b) => a.at - b.at);
+    change((t) => ({ ...t, sfx: next }));
+    setSel({ kind: 'sfx', index: next.indexOf(item) });
+    playSfx('whoosh');
+  };
+  const setSfx = (index: number, patch: Partial<NonNullable<Timeline['sfx']>[number]>) => change((t) => ({ ...t, sfx: (t.sfx ?? []).map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
   const addText = () => {
     const start = Math.round(playhead * 100) / 100;
     change((t) => ({ ...t, texts: [...t.texts, { start, end: Math.min(duration, start + 2.5), text: 'Your text here', position: 'top' as const }] }));
@@ -311,6 +434,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
   const x = (t: number) => t * pxPerSec;
   const selText = sel?.kind === 'text' ? tl.texts[sel.index] : null;
   const selZoom = sel?.kind === 'zoom' ? tl.zooms[sel.index] : null;
+  const selSfx = sel?.kind === 'sfx' ? tl.sfx?.[sel.index] : null;
   const selCaption = sel?.kind === 'caption' ? tl.captions?.[sel.index] : null;
   const setText = (index: number, patch: Partial<Timeline['texts'][number]>) => change((t) => ({ ...t, texts: t.texts.map((x, i) => (i === index ? { ...x, ...patch } : x)) }));
   const setCaption = (index: number, next: NonNullable<Timeline['captions']>[number]) => change((t) => ({ ...t, captions: (t.captions ?? []).map((c, i) => (i === index ? next : c)) }));
@@ -351,6 +475,51 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
         </Card>
 
         <div className="grid content-start gap-4">
+          <AutoEditCard project={project} edit={edit} disabled={saveState === 'saving'} />
+          {selSfx && sel?.kind === 'sfx' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Sound effect</CardTitle>
+                <CardDescription>At {fmt(selSfx.at)}. Click a sound to hear it.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Sound">
+                  {SFX_KINDS.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={selSfx.kind === k}
+                      onClick={() => {
+                        setSfx(sel.index, { kind: k });
+                        playSfx(k, selSfx.volume ?? 1);
+                      }}
+                      className={cn('rounded-md border px-2 py-1.5 text-xs font-medium', selSfx.kind === k ? 'border-highlight bg-highlight/15 ring-1 ring-highlight' : 'border-border hover:border-primary/50')}
+                    >
+                      {SFX_INFO[k].label}
+                    </button>
+                  ))}
+                </div>
+                <label className="grid gap-1 text-xs text-muted-foreground">
+                  Volume: {Math.round((selSfx.volume ?? 1) * 100)}%
+                  <input
+                    id="sfx-volume"
+                    type="range"
+                    min={0}
+                    max={150}
+                    step={10}
+                    value={Math.round((selSfx.volume ?? 1) * 100)}
+                    onChange={(ev) => setSfx(sel.index, { volume: Number(ev.target.value) / 100 })}
+                    onMouseUp={() => playSfx(selSfx.kind, selSfx.volume ?? 1)}
+                    className="accent-[hsl(var(--primary))]"
+                  />
+                </label>
+                <Button variant="outline" size="sm" onClick={deleteSel}>
+                  <Trash2 /> Remove sound
+                </Button>
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Automatic cuts</CardTitle>
@@ -655,6 +824,9 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
             >
               <Film /> B-roll
             </Button>
+            <Button size="sm" variant="outline" onClick={addSfx} title="Add a sound effect at the playhead">
+              <AudioWaveform /> Sound
+            </Button>
             <span className="mx-1 h-5 w-px bg-border" />
             <Button size="sm" variant="ghost" onClick={undo} disabled={!past.length} aria-label="Undo (Ctrl+Z)">
               <Undo2 />
@@ -675,7 +847,7 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
           <div ref={strip} className="overflow-x-auto rounded-lg border border-border bg-muted/30">
             <div
               className="relative select-none"
-              style={{ width, height: 262 }}
+              style={{ width, height: 296 }}
               onMouseDown={(e) => {
                 if ((e.target as HTMLElement).dataset.track !== 'ruler') return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -829,6 +1001,24 @@ function Editor({ project, edit, settings }: { project: Project; edit: EditDoc; 
                   </div>
                 );
               })()}
+              {/* Sound effects */}
+              <TrackLabel top={264} label="Sound" />
+              {(tl.sfx ?? []).map((f, i) => (
+                <button
+                  key={`${f.at}-${i}`}
+                  type="button"
+                  onClick={() => {
+                    setSel({ kind: 'sfx', index: i });
+                    seekSource(f.at);
+                    playSfx(f.kind, f.volume ?? 1);
+                  }}
+                  title={`${SFX_INFO[f.kind].label} at ${fmt(f.at)} · click to change or delete`}
+                  className={cn('absolute top-[262px] h-7 overflow-hidden rounded-sm border border-amber-400/60 bg-amber-400/20 px-1 text-[9px] leading-7', sel?.kind === 'sfx' && sel.index === i && 'ring-2 ring-highlight')}
+                  style={{ left: x(f.at), width: Math.max(18, 0.5 * pxPerSec) }}
+                >
+                  {SFX_INFO[f.kind].label}
+                </button>
+              ))}
               {/* Playhead */}
               <div className="pointer-events-none absolute bottom-0 top-0 w-0.5 bg-highlight" style={{ left: x(playhead) }} />
             </div>
@@ -931,6 +1121,7 @@ function useFootageInput(
   broll?: EditDoc['broll'],
   pool?: EditDoc['brollPool'],
   music?: EditDoc['music'],
+  sfx?: EditDoc['sfx'],
 ) {
   const tracks = useMusicLibrary();
   const { data: wordsData } = useQuery({ queryKey: ['words', project.id, project.sourceAssetId], queryFn: () => api<{ data: { words: Word[] } }>(`/projects/${project.id}/words`).then((r) => r.data.words), staleTime: Infinity });
@@ -965,12 +1156,13 @@ function useFootageInput(
         const r = rangeToOutput(segments, b.start, b.end);
         return r ? [{ ...r, image: pool?.[b.clipId]?.thumbnailUrl ?? null }] : [];
       }),
+      sfx: sfxToOutput(sfx ?? [], segments).map((x) => ({ at: x.at, src: sfxUrl(x.kind), volume: SFX_INFO[x.kind].level * x.volume * 1.4 })),
       music: (() => {
         const t = musicTrackFor(music ?? null, tracks, settings.musicMood, project.style, project.id);
         return t ? { src: t.previewUrl, volume: music?.volume ?? 0.25, duck: music?.duck ?? true, speech: mergeRanges(lines.flatMap((l) => l.words.map((w) => ({ start: w.start, end: w.end })))) } : null;
       })(),
     };
-  }, [words, segments, src.data, framing, zooms, texts, captionLines, broll, pool, music, tracks, project.style, project.id, settings.musicMood, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
+  }, [words, segments, src.data, framing, zooms, texts, captionLines, broll, pool, music, sfx, tracks, project.style, project.id, settings.musicMood, settings.captionsEnabled, settings.captionStyle, settings.captionPosition, settings.captionSize, settings.highlightColor, logoUrl.data, kit, workspace?.plan]);
 
   return { inputProps, words, src, W, H };
 }
@@ -979,7 +1171,7 @@ function useFootageInput(
 export function FootagePreview({ project, settings }: { project: Project; settings: ProjectSettings }) {
   const e = project.edit;
   const segments = useMemo(() => (e ? (e.segments.length ? e.segments : keepSegments(e)) : []), [e]);
-  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions, e?.broll, e?.brollPool, e?.music);
+  const { inputProps, src, W, H } = useFootageInput(project, settings, segments, e?.zooms ?? [], e?.texts ?? [], e?.captions, e?.broll, e?.brollPool, e?.music, e?.sfx);
   if (!e || !segments.length) return null;
   return (
     <div className="grid gap-1.5">

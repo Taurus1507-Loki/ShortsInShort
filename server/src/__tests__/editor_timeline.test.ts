@@ -229,6 +229,7 @@ describe('B-roll and music tracks', () => {
       const key = Object.keys(schema.properties ?? {})[0]!;
       if (key === 'keywords') return { keywords: (JSON.parse(prompt.split(String.fromCharCode(10)).at(-1)!) as string[]).map((l) => l.split(' ').at(-1)!) } as T;
       if (key === 'moments') return { moments: [{ sentence: 1, queries: ['coffee cup'] }] } as T;
+      if (key === 'hook') return { hook: 'Talent loses to consistency', mood: 'calm' } as T;
       throw new Error('unexpected');
     },
   };
@@ -307,6 +308,51 @@ describe('B-roll and music tracks', () => {
     const res = await request(app).post(`/api/projects/${p.id}/broll/suggest`).set(auth).send({ amount: 'medium' }).expect(200);
     expect(res.body.meta).toMatchObject({ plannedWith: 'keywords', suggested: 1 });
     expect(res.body.data.edit.broll[0].query).toMatch(/single|day/);
+  }, 120_000);
+
+  it('auto edit builds the whole edit on the timeline, and the export plays its sound effects', async () => {
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/auto-edit`).set(auth).send({ pace: 'turbo' }).expect(400);
+    await request(app).post(`/api/projects/${p.id}/auto-edit`).set(auth).send({ pace: 'natural' }).expect(202);
+    await worker.runOnce();
+    expect(await balance(auth)).toBe(47); // same price as analysing
+    const edit = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data.edit as EditDoc;
+    expect(edit.segments.length).toBeGreaterThan(0);
+    expect(edit.texts[0]).toMatchObject({ text: 'Talent loses to consistency', position: 'top', style: 'accent', size: 'l' });
+    expect(edit.music).toMatchObject({ mode: 'track', file: 'calm-bed-1234abcd.mp3', duck: true });
+    expect(edit.sfx![0]).toMatchObject({ kind: 'impact', at: edit.texts[0]!.start });
+    expect(edit.auto).toMatchObject({ hookBy: 'ai', mood: 'calm', music: 'Calm Bed — Tester', brollBy: 'ai' });
+    expect(edit.auto!.counts).toEqual({ broll: edit.broll!.length, zooms: edit.zooms.length, sfx: edit.sfx!.length });
+    // B-roll never covers the hook.
+    expect(edit.broll!.every((b) => b.start >= edit.texts[0]!.end)).toBe(true);
+
+    // Sound effects are editable like everything else (and checked).
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ sfx: [{ at: 1, kind: 'laser' }] }).expect(400);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ sfx: [{ at: 99, kind: 'pop' }] }).expect(400);
+    await request(app).patch(`/api/projects/${p.id}/edit`).set(auth).send({ sfx: [...edit.sfx!, { at: 5.2, kind: 'ding', volume: 0.5 }] }).expect(200);
+
+    await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
+    await worker.runOnce();
+    const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;
+    expect(done.status).toBe('completed');
+    expect(done.renderStats.titleCount).toBe(1);
+    expect(done.renderStats.sfxCount).toBe(edit.sfx!.length + 1);
+    expect(done.renderStats.music).toMatchObject({ title: 'Calm Bed' });
+
+    // The effect files are served for the live preview.
+    const fx = await request(app).get('/api/music/sfx/whoosh').expect(200);
+    expect(fx.headers['content-type']).toMatch(/audio\/wav/);
+    await request(app).get('/api/music/sfx/laser').expect(400);
+  }, 180_000);
+
+  it('auto edit still works when the AI is down (hook from the opening line)', async () => {
+    setLLMProvider({ name: 'down', async generateJson() { throw new Error('AI unavailable'); } });
+    const { auth, p } = await editorProject();
+    await request(app).post(`/api/projects/${p.id}/auto-edit`).set(auth).send({}).expect(202);
+    await worker.runOnce();
+    const edit = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data.edit as EditDoc;
+    expect(edit.texts[0]!.text).toBe('Consistency beats talent.');
+    expect(edit.auto).toMatchObject({ hookBy: 'rules', brollBy: 'keywords' });
   }, 120_000);
 
   it('lists library music with expiring preview links', async () => {

@@ -84,6 +84,20 @@ resolution (720p|1080p|4k)`.
 Projects also accept `sourceAssetId` on create/update and return `sourceAsset`, `outputAsset`,
 `renderStats`, `lastError`.
 
+## AI Video Editor timeline — `/projects/:id` (auth, mode `editor`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/analyze/estimate` | `{credits, balance, sourceDurationSec, transcribes}` — 3 credits per started minute, 0 when the footage was analysed before |
+| POST | `/analyze` | 202 `{job, credits}`. Transcribes, finds pauses and filler words, lays out captions → `project.edit` |
+| POST | `/auto-edit` | Body `{pace?: natural|fast}`. Same price as `/analyze`. Analyses, then builds the whole edit: pauses and fillers cut, AI hook line (opening line when the AI is slow), B-roll, zooms on key words, a library track matched to the mood, sound effects. Replaces text, zooms, B-roll, music and sound effects; keeps manual cuts. Summary in `edit.auto` |
+| GET | `/words` | Transcript words |
+| POST | `/captions/rebuild` | Lays captions out again for the current style |
+| POST | `/broll/suggest` · `/broll/search` | B-roll moments + clips (download links never reach the browser) |
+| PATCH | `/edit` | Partial timeline save: `pauseSec, removeFillers, cuts, restores, zooms, texts, captions, broll, music, sfx, segments`. `sfx`: `[{at, kind: whoosh|pop|impact|ding|tick|type, volume? 0–1.5}]` (source seconds, max 150) |
+
+Sound-effect files for the preview: `GET /api/music/sfx/:kind` (WAV, synthesised by the server — no third-party samples).
+
 ## Avatar Studio voiceover — `/projects/:id` (auth, mode `avatar`)
 
 | Method | Path | Notes |

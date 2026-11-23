@@ -35,7 +35,7 @@ import type { ProjectDoc } from '../../models/Project.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { renderBackground, renderScenes, type BackgroundKind, type SceneTransition } from './background.js';
 import { mixSfx, sfxCues } from '../audio/sfx.js';
-import { captionsToOutput, keepSegments, rangeToOutput, type EditDoc } from './edl.js';
+import { captionsToOutput, keepSegments, rangeToOutput, sfxToOutput, type EditDoc } from './edl.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -806,9 +806,20 @@ async function run({ job, signal, progress: report }: JobContext) {
       },
     );
 
+    // 4b. Timeline sound effects (whooshes, pops, impacts), mixed under the finished audio.
+    let finalFile = outFile;
+    if (edit?.sfx?.length) {
+      const cues = sfxToOutput(edit.sfx, segments).filter((c) => c.at < keptSec - 0.05);
+      const hasAudio = Boolean(info.audio) || Boolean(music);
+      if (cues.length && hasAudio) {
+        finalFile = await mixSfx(outFile, path.join(workDir, 'output-sfx.mp4'), cues, { signal });
+        sfxCount = cues.length;
+      } else if (cues.length) notes.push('Sound effects were not added: this video has no sound track to mix them into.');
+    }
+
     // 4. Quality checks on the actual output
     await progress(90, 'finalizing');
-    const out = await probe(outFile, { signal });
+    const out = await probe(finalFile, { signal });
     const expected = outputSize(aspect, resolution);
     if (!out.video || out.video.width !== expected.width || out.video.height !== expected.height) {
       throw new Error('Rendered video failed validation (unexpected dimensions).');
@@ -817,7 +828,7 @@ async function run({ job, signal, progress: report }: JobContext) {
       throw new Error(`Rendered video failed validation (duration ${out.durationSec.toFixed(1)}s, expected ${keptSec.toFixed(1)}s).`);
     }
     const thumbFile = path.join(workDir, 'thumb.jpg');
-    await extractThumbnail(outFile, thumbFile, Math.min(out.durationSec / 3, 3), { signal });
+    await extractThumbnail(finalFile, thumbFile, Math.min(out.durationSec / 3, 3), { signal });
 
     // 5. Store outputs (not if the user stopped the export meanwhile: they were refunded)
     await progress(95, 'saving');
@@ -826,7 +837,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     const thumbId = new Types.ObjectId();
     const renderKey = keys.render(ws.toString(), renderId.toString());
     const thumbKey = keys.thumbnail(ws.toString(), thumbId.toString());
-    await storage.uploadFile(renderKey, outFile, 'video/mp4');
+    await storage.uploadFile(renderKey, finalFile, 'video/mp4');
     await storage.uploadFile(thumbKey, thumbFile, 'image/jpeg');
     const baseName = project.title.replace(/[^\w\- ]+/g, '').trim().slice(0, 80) || 'video';
     await registerGeneratedAsset({
@@ -846,7 +857,7 @@ async function run({ job, signal, progress: report }: JobContext) {
       kind: 'render',
       storageKey: renderKey,
       mimeType: 'video/mp4',
-      sizeBytes: (await stat(outFile)).size,
+      sizeBytes: (await stat(finalFile)).size,
       originalName: `${baseName}.mp4`,
       durationSec: Math.round(out.durationSec * 1000) / 1000,
       width: out.video.width,

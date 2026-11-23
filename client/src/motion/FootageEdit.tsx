@@ -1,4 +1,4 @@
-import { AbsoluteFill, Html5Audio, Html5Video, Img, interpolate, Series, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Html5Audio, Html5Video, Img, interpolate, Sequence, Series, useCurrentFrame, useVideoConfig } from 'remotion';
 import { CaptionLayer } from './captions';
 import { finishTheme } from './themes';
 import type { CaptionTrack } from './types';
@@ -22,6 +22,8 @@ export interface FootageEditProps {
   broll?: Array<{ start: number; end: number; image: string | null }>;
   /** Background music, dipped while someone speaks (`speech` = edited-timeline ranges). */
   music?: { src: string; volume: number; duck: boolean; speech: Array<{ start: number; end: number }> } | null;
+  /** Sound effects (edited-timeline seconds); `volume` already includes the effect's own level. */
+  sfx?: Array<{ at: number; src: string; volume: number }>;
   [key: string]: unknown;
 }
 
@@ -38,7 +40,7 @@ function zoomAt(t: number, zooms: FootageEditProps['zooms']) {
   return 1;
 }
 
-export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark, broll = [], music = null }: FootageEditProps) {
+export function FootageEdit({ src, segments, framing, zooms, texts, captions, logo, watermark, broll = [], music = null, sfx = [] }: FootageEditProps) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
@@ -87,6 +89,11 @@ export function FootageEdit({ src, segments, framing, zooms, texts, captions, lo
           }}
         />
       )}
+      {sfx.map((x, i) => (
+        <Sequence key={`sfx${i}-${x.at}`} from={Math.round(x.at * fps)} durationInFrames={Math.round(1.2 * fps)} layout="none">
+          <Html5Audio src={x.src} volume={Math.min(1, x.volume)} />
+        </Sequence>
+      ))}
       {texts
         .filter((x) => t >= x.start && t <= x.end)
         .map((x, i) => (

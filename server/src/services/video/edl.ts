@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Interval } from './silence.js';
+import { SFX_KINDS, type SfxKind } from '../audio/sfx.js';
 
 /**
  * AI Video Editor timeline ("edit decision list"). All times are seconds on the SOURCE footage, so
@@ -59,6 +60,25 @@ export interface EditMusic {
   duck: boolean;
 }
 
+/** A sound effect at a SOURCE moment (whooshes start a little early so they peak on the cut). */
+export interface EditSfx {
+  at: number;
+  kind: SfxKind;
+  /** 0–1.5 on top of the effect's own level (default 1). */
+  volume?: number;
+}
+/** What the last Auto edit did (shown to the user; never used for rendering). */
+export interface AutoSummary {
+  at: string;
+  hook: string | null;
+  hookBy: 'ai' | 'rules' | null;
+  mood: string | null;
+  brollBy: 'ai' | 'keywords' | null;
+  counts: { broll: number; zooms: number; sfx: number };
+  music: string | null;
+  notes: string[];
+}
+
 export interface EditDoc {
   sourceAssetId: string;
   analyzedAt: string;
@@ -81,6 +101,8 @@ export interface EditDoc {
   /** Every clip offered for this project, by id (server-side: holds the download links). */
   brollPool?: Record<string, PoolClip>;
   music?: EditMusic | null;
+  sfx?: EditSfx[];
+  auto?: AutoSummary | null;
   /** What the export keeps, in order. Empty until the editor first saves (then `keepSegments` decides). */
   segments: Interval[];
 }
@@ -155,6 +177,29 @@ export function toOutputTime(segments: Interval[], t: number): number | null {
   return null;
 }
 
+/** Time in the edited video → source time (clamped to the video). */
+export function fromOutputTime(segments: Interval[], t: number): number {
+  let offset = 0;
+  for (const s of segments) {
+    const len = s.end - s.start;
+    if (t <= offset + len) return r3(s.start + Math.max(0, t - offset));
+    offset += len;
+  }
+  const last = segments[segments.length - 1];
+  return last ? last.end : 0;
+}
+
+/** Seconds a sound starts before its moment, so it peaks on the cut. */
+export const SFX_LEAD: Partial<Record<SfxKind, number>> = { whoosh: 0.22 };
+
+/** Sound effects on the edited timeline (effects on cut moments are dropped). */
+export function sfxToOutput(sfx: EditSfx[], segments: Interval[]) {
+  return sfx.flatMap((x) => {
+    const t = toOutputTime(segments, x.at);
+    return t === null ? [] : [{ kind: x.kind, at: r3(Math.max(0, t - (SFX_LEAD[x.kind] ?? 0))), volume: x.volume ?? 1 }];
+  });
+}
+
 /**
  * A source range on the edited timeline: the kept part from its first surviving moment, as one
  * continuous output range (cut gaps inside it shrink it). Null when it was cut entirely.
@@ -195,6 +240,8 @@ export function initialEdit(sourceAssetId: string, durationSec: number, silences
     broll: keepUser ? (previous.broll ?? []) : [],
     brollPool: keepUser ? (previous.brollPool ?? {}) : {},
     music: keepUser ? (previous.music ?? null) : null,
+    sfx: keepUser ? (previous.sfx ?? []) : [],
+    auto: keepUser ? (previous.auto ?? null) : null,
     segments: keepUser ? previous.segments : [],
   };
 }
@@ -249,6 +296,9 @@ export const editPatchSchema = z
       .strict()
       .refine((m) => m.mode !== 'track' || Boolean(m.file), 'Choose a track.')
       .nullable(),
+    sfx: z
+      .array(z.object({ at: z.number().min(0), kind: z.enum(SFX_KINDS), volume: z.number().min(0).max(1.5).optional() }).strict())
+      .max(150),
     segments: z.array(interval).max(400),
   })
   .strict()
