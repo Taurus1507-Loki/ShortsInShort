@@ -38,7 +38,7 @@ export const PLANS: Record<PlanId, Plan> = {
     customVoices: 0,
     photoAvatars: 0,
     brandKits: 1,
-    highlights: ['1 free video (800 credits) after email verification', '720p exports', 'Watermarked output'],
+    highlights: ['1 free video after email verification', '720p exports', 'Watermarked output'],
   },
   starter: {
     id: 'starter',
@@ -52,7 +52,7 @@ export const PLANS: Record<PlanId, Plan> = {
     customVoices: 1,
     photoAvatars: 1,
     brandKits: 1,
-    highlights: ['500 credits / month — 1 edited video', '1080p exports', 'No watermark', 'Brand Kit'],
+    highlights: ['1 edited video a month', '1080p exports', 'No watermark', 'Brand Kit'],
   },
   creator: {
     id: 'creator',
@@ -66,7 +66,7 @@ export const PLANS: Record<PlanId, Plan> = {
     customVoices: 3,
     photoAvatars: 3,
     brandKits: 3,
-    highlights: ['1,100 credits / month — 2 edited videos or a faceless reel', 'Everything in Starter', 'Faceless videos', 'Priority queue'],
+    highlights: ['2 edited videos or 1 faceless reel a month', 'Everything in Starter', 'Faceless videos', 'Priority queue'],
   },
   pro: {
     id: 'pro',
@@ -80,7 +80,7 @@ export const PLANS: Record<PlanId, Plan> = {
     customVoices: 5,
     photoAvatars: 5,
     brandKits: 5,
-    highlights: ['2,300 credits / month — about 3 faceless reels', 'AI Avatar Studio', '4K where supported', 'Premium AI models'],
+    highlights: ['2 faceless reels + 1 edited video a month', 'AI Avatar Studio', '4K where supported', 'Premium AI models'],
   },
   agency: {
     id: 'agency',
@@ -94,7 +94,7 @@ export const PLANS: Record<PlanId, Plan> = {
     customVoices: 10,
     photoAvatars: 10,
     brandKits: 25,
-    highlights: ['6,000 credits / month — about 12 edited videos', 'Team members', '25 brand kits', 'Dedicated support'],
+    highlights: ['Up to 12 edited videos a month', 'Team members', '25 brand kits', 'Dedicated support'],
   },
 };
 
