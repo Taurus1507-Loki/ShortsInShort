@@ -147,7 +147,7 @@ describe('render pipeline', () => {
 
   it('shows the whole picture over a blurred background when framing is "blur" (and auto picks it for landscape → vertical)', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 50);
+    await setBalance(user.defaultWorkspaceId, 3000);
     // 16:9 source with yellow bars on its far left/right edges: a vertical crop cuts them off,
     // a fit-over-blur keeps the whole picture, so the bars stay visible.
     const dir = await mkdtemp(path.join(tmpdir(), 'sis-edges-'));
@@ -198,13 +198,13 @@ describe('render pipeline', () => {
     const project = await projectWithVideo(auth);
 
     const est = await request(app).get(`/api/projects/${project.id}/estimate`).set(auth).expect(200);
-    expect(est.body.data).toMatchObject({ credits: 2, rerender: true, balance: 30, resolutionAllowed: true });
+    expect(est.body.data).toMatchObject({ credits: 499, balance: 3000, resolutionAllowed: true });
 
     const gen = await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202);
-    expect(gen.body.data.credits).toBe(2);
+    expect(gen.body.data.credits).toBe(499);
     await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(409); // no double-submit
     let me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(28);
+    expect(me.body.data.workspace.creditBalance).toBe(2501);
 
     expect(await worker.runOnce()).toBe(true);
 
@@ -231,7 +231,7 @@ describe('render pipeline', () => {
     expect(ranged.headers['content-type']).toMatch(/video\/mp4/);
 
     me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(28); // charged exactly once
+    expect(me.body.data.workspace.creditBalance).toBe(2501); // charged exactly once
   }, 120_000);
 
   it('blocks generation without enough credits and leaves the project editable', async () => {
@@ -254,7 +254,7 @@ describe('render pipeline', () => {
       spy.mockRestore();
     }
     const me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(30);
+    expect(me.body.data.workspace.creditBalance).toBe(3000);
     expect(await CreditTransaction.countDocuments({ type: 'refund', status: 'applied' })).toBe(1);
     expect((await Project.findById(project.id))!.status).toBe('draft');
     // And the user can simply try again.
@@ -285,7 +285,7 @@ describe('render pipeline', () => {
     expect(job!.status).toBe('dead');
 
     const me = await request(app).get('/api/auth/me').set(auth);
-    expect(me.body.data.workspace.creditBalance).toBe(30);
+    expect(me.body.data.workspace.creditBalance).toBe(3000);
     expect(await CreditTransaction.countDocuments({ type: 'refund' })).toBe(1);
   }, 60_000);
 
@@ -295,9 +295,9 @@ describe('render pipeline', () => {
     await request(app).post(`/api/projects/${project.id}/generate`).set(auth).expect(202); // 2 credits
 
     const stopped = await request(app).post(`/api/projects/${project.id}/stop`).set(auth).expect(200);
-    expect(stopped.body.data).toMatchObject({ refundedCredits: 2, stopped: 'render_project', project: { status: 'draft' } });
+    expect(stopped.body.data).toMatchObject({ refundedCredits: 499, stopped: 'render_project', project: { status: 'draft' } });
     expect((await Job.findOne())!.status).toBe('cancelled');
-    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(30);
+    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(3000);
 
     // Nothing left to stop; stopping twice never refunds twice.
     expect((await request(app).post(`/api/projects/${project.id}/stop`).set(auth).expect(409)).body.error.code).toBe('NOTHING_TO_STOP');
@@ -334,7 +334,7 @@ describe('render pipeline', () => {
     await request(app).delete(`/api/projects/${project.id}`).set(auth).expect(204);
     expect((await Project.findById(project.id))!.deletedAt).toBeTruthy();
     expect((await Job.findOne())!.status).toBe('cancelled');
-    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(30);
+    expect((await request(app).get('/api/auth/me').set(auth)).body.data.workspace.creditBalance).toBe(3000);
     await request(app).get(`/api/projects/${project.id}`).set(auth).expect(404);
   });
 
@@ -392,7 +392,7 @@ describe('captions (with a stand-in transcription provider)', () => {
   it('transcribes once, removes filler words and burns real captions into the video', async () => {
     setTranscriptionProvider(fake);
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 50);
+    await setBalance(user.defaultWorkspaceId, 3000);
     const asset = await readyVideo(auth);
     const res = await request(app)
       .post('/api/projects')
@@ -402,11 +402,11 @@ describe('captions (with a stand-in transcription provider)', () => {
 
     // First render pays for transcription; the re-render reuses it and is charged less.
     const first = await request(app).get(`/api/projects/${res.body.data.id}/estimate`).set(auth).expect(200);
-    expect(first.body.data).toMatchObject({ credits: 5, rerender: false });
+    expect(first.body.data).toMatchObject({ credits: 499, rerender: false });
     const plain = await renderProject(auth, res.body.data.id);
     expect(plain.renderStats).toMatchObject({ captionsAdded: false, fillerWordsRemoved: 1 });
     const again = await request(app).get(`/api/projects/${res.body.data.id}/estimate`).set(auth).expect(200);
-    expect(again.body.data).toMatchObject({ credits: 0, exportCredits: 2, freeCorrection: true, rerender: true });
+    expect(again.body.data).toMatchObject({ credits: 0, exportCredits: 499, freeCorrection: true, rerender: true });
     const plainFrame = await frameAt(plain.outputAsset.id, 0.6);
 
     await request(app).patch(`/api/projects/${res.body.data.id}`).set(auth).send({ settings: { captionsEnabled: true } }).expect(200);
@@ -426,7 +426,7 @@ describe('captions (with a stand-in transcription provider)', () => {
   it('applies edited captions on re-render, and sets them aside if the cut changes', async () => {
     setTranscriptionProvider(fake);
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 50);
+    await setBalance(user.defaultWorkspaceId, 3000);
     const asset = await readyVideo(auth);
     const res = await request(app)
       .post('/api/projects')
@@ -569,7 +569,7 @@ describe('AI keywords, translation and B-roll (stand-in providers)', () => {
 
   it('shows the stock clip only during its planned slot, with AI keywords on the captions', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await setBalance(user.defaultWorkspaceId, 50);
+    await setBalance(user.defaultWorkspaceId, 3000);
     const { assetId } = await upload(auth, longFixture, 'long.mp4');
     await request(app).post(`/api/assets/${assetId}/complete`).set(auth).expect(200);
     const res = await request(app)

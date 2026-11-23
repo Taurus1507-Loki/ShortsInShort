@@ -84,7 +84,7 @@ describe('billing basics', () => {
     const b = (await request(app).get('/api/billing').set(auth).expect(200)).body.data;
     expect(b).toMatchObject({ configured: false, plan: 'free', pricesIncludeGst: true });
     expect(b.packs).toHaveLength(4);
-    expect((await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_100' }).expect(503)).body.error.code).toBe('NOT_CONFIGURED');
+    expect((await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_500' }).expect(503)).body.error.code).toBe('NOT_CONFIGURED');
     expect((await request(app).get('/api/meta').expect(200)).body.data.features.payments).toBe(false);
   });
 
@@ -101,10 +101,10 @@ describe('credit top-ups', () => {
   it('creates an order, verifies the checkout signature and adds credits exactly once with an invoice', async () => {
     const { auth, user, email } = await buyer();
     const balance0 = (await Workspace.findById(user.defaultWorkspaceId))!.creditBalance;
-    const order = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_250' }).expect(201)).body.data;
-    expect(order).toMatchObject({ amountPaise: 69900, currency: 'INR', keyId: 'rzp_test_abc', credits: 250 });
+    const order = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_1000' }).expect(201)).body.data;
+    expect(order).toMatchObject({ amountPaise: 109900, currency: 'INR', keyId: 'rzp_test_abc', credits: 1000 });
     const created = calls.find((c) => c.path === '/orders')!.body as { amount: number; receipt: string; currency: string };
-    expect(created).toMatchObject({ amount: 69900, currency: 'INR' });
+    expect(created).toMatchObject({ amount: 109900, currency: 'INR' });
     expect(created.receipt.length).toBeLessThanOrEqual(40);
 
     // A forged signature is refused.
@@ -112,20 +112,20 @@ describe('credit top-ups', () => {
 
     const signature = hmacHex(`${order.orderId}|pay_A1`, KEY_SECRET);
     const ok = (await request(app).post('/api/billing/orders/verify').set(auth).send({ orderId: order.orderId, paymentId: 'pay_A1', signature }).expect(200)).body.data;
-    expect(ok).toMatchObject({ credited: true, creditBalance: balance0 + 250 });
+    expect(ok).toMatchObject({ credited: true, creditBalance: balance0 + 1000 });
     // Verifying again (double click / refresh) never adds credits twice.
     const again = (await request(app).post('/api/billing/orders/verify').set(auth).send({ orderId: order.orderId, paymentId: 'pay_A1', signature }).expect(200)).body.data;
-    expect(again).toMatchObject({ credited: false, creditBalance: balance0 + 250 });
+    expect(again).toMatchObject({ credited: false, creditBalance: balance0 + 1000 });
 
     const inv = await Invoice.findOne();
-    expect(inv).toMatchObject({ number: 'SIS2627-000001', totalPaise: 69900, taxablePaise: 59237, cgstPaise: 5331, sgstPaise: 5332, sac: '998314' });
+    expect(inv).toMatchObject({ number: 'SIS2627-000001', totalPaise: 109900, taxablePaise: 93136, cgstPaise: 8382, sgstPaise: 8382, sac: '998314' });
     expect(inv!.buyer).toMatchObject({ name: 'Asha Rao', email });
     expect(sentEmails.some((m) => m.to === email && m.tag === 'payment_receipt' && m.text.includes('SIS2627-000001'))).toBe(true);
 
     const pays = (await request(app).get('/api/billing/payments').set(auth).expect(200)).body.data;
-    expect(pays[0]).toMatchObject({ kind: 'credits', status: 'paid', credits: 250 });
+    expect(pays[0]).toMatchObject({ kind: 'credits', status: 'paid', credits: 1000 });
     const invs = (await request(app).get('/api/billing/invoices').set(auth).expect(200)).body.data;
-    expect(invs[0]).toMatchObject({ number: 'SIS2627-000001', totalPaise: 69900, taxPaise: 10663 });
+    expect(invs[0]).toMatchObject({ number: 'SIS2627-000001', totalPaise: 109900, taxPaise: 16764 });
     const pdf = await request(app).get(`/api/billing/invoices/${invs[0].id}/pdf`).set(auth).buffer(true).parse((res, cb) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
@@ -143,7 +143,7 @@ describe('credit top-ups', () => {
   it('fulfils from webhooks too: signed, deduplicated, never twice', async () => {
     const { auth, user } = await buyer();
     const balance0 = (await Workspace.findById(user.defaultWorkspaceId))!.creditBalance;
-    const order = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_100' }).expect(201)).body.data;
+    const order = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_500' }).expect(201)).body.data;
     const captured = { entity: 'event', event: 'payment.captured', payload: { payment: { entity: { id: 'pay_W1', order_id: order.orderId, amount: 29900, status: 'captured' } } } };
 
     await webhook(captured, 'evt_1', 'wrong-secret').expect(400);
@@ -152,11 +152,11 @@ describe('credit top-ups', () => {
     await webhook({ ...captured, event: 'order.paid' }, 'evt_2').expect(200); // another event for the same payment
     // The browser's success handler arriving last changes nothing either.
     await request(app).post('/api/billing/orders/verify').set(auth).send({ orderId: order.orderId, paymentId: 'pay_W1', signature: hmacHex(`${order.orderId}|pay_W1`, KEY_SECRET) }).expect(200);
-    expect((await Workspace.findById(user.defaultWorkspaceId))!.creditBalance).toBe(balance0 + 100);
+    expect((await Workspace.findById(user.defaultWorkspaceId))!.creditBalance).toBe(balance0 + 500);
     expect(await CreditTransaction.countDocuments({ type: 'purchase' })).toBe(1);
     expect(await Invoice.countDocuments()).toBe(1);
 
-    const order2 = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_100' }).expect(201)).body.data;
+    const order2 = (await request(app).post('/api/billing/orders').set(auth).send({ packId: 'pack_500' }).expect(201)).body.data;
     await webhook({ event: 'payment.failed', payload: { payment: { entity: { id: 'pay_F', order_id: order2.orderId, error_description: 'Card declined' } } } }, 'evt_3').expect(200);
     expect(await Payment.findOne({ orderId: order2.orderId })).toMatchObject({ status: 'failed', failureReason: 'Card declined' });
   });
@@ -193,7 +193,7 @@ describe('subscriptions', () => {
     await webhook({ event: 'subscription.charged', payload: { subscription: { entity }, payment: { entity: { id: 'pay_S2', amount: 99900 } } } }, 'e2').expect(200);
     await webhook({ event: 'subscription.charged', payload: { subscription: { entity }, payment: { entity: { id: 'pay_S2', amount: 99900 } } } }, 'e2b').expect(200);
     const ws2 = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws2!.creditBalance).toBe(afterFirst + 500);
+    expect(ws2!.creditBalance).toBe(afterFirst + 1100);
     expect(await Invoice.countDocuments()).toBe(2);
     const b = (await request(app).get('/api/billing').set(auth).expect(200)).body.data;
     expect(b.subscription).toMatchObject({ planId: 'creator', period: 'monthly', status: 'active' });
@@ -213,7 +213,7 @@ describe('subscriptions', () => {
     expect(up).toMatchObject({ upgrade: true, planId: 'pro' });
     expect(calls.at(-1)).toMatchObject({ method: 'PATCH', body: { schedule_change_at: 'now' } });
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws).toMatchObject({ plan: 'pro', creditBalance: before + 700 }); // 1,200 − 500
+    expect(ws).toMatchObject({ plan: 'pro', creditBalance: before + 1200 }); // 2,300 − 1,100
 
     const down = (await request(app).post('/api/billing/subscriptions/change').set(auth).send({ planId: 'starter' }).expect(200)).body.data;
     expect(down).toMatchObject({ upgrade: false, scheduledPlanId: 'starter' });
@@ -236,7 +236,7 @@ describe('subscriptions', () => {
     expect(calls.find((c) => c.path === '/subscriptions')!.body).toMatchObject({ total_count: 10 });
     const before = (await Workspace.findById(u.user.defaultWorkspaceId))!.creditBalance;
     await request(app).post('/api/billing/subscriptions/verify').set(u.auth).send({ subscriptionId: s.subscriptionId, paymentId: 'pay_Y1', signature: hmacHex(`pay_Y1|${s.subscriptionId}`, KEY_SECRET) }).expect(200);
-    expect((await Workspace.findById(u.user.defaultWorkspaceId))!.creditBalance).toBe(before + 2400);
+    expect((await Workspace.findById(u.user.defaultWorkspaceId))!.creditBalance).toBe(before + 6000);
     const inv = await Invoice.findOne();
     expect(inv).toMatchObject({ totalPaise: 499000, igstPaise: 76119, cgstPaise: 0, placeOfSupply: '29' });
     expect(inv!.buyer).toMatchObject({ gstin: '29ABCDE1234F1Z5', name: 'Asha Media' });

@@ -57,7 +57,7 @@ aiRouter.get(
       for (const a of mine) if (await ownPhotoAvatar(req.auth!.workspaceId, a.providerLookId!)) own.push(a);
       const stock = (await listAvatarsCached()).map((a) => ({ ...a, own: false }));
       const photos = own.map((a) => ({ id: a.providerLookId!, name: a.name, gender: null, previewImageUrl: a.previewImageUrl, previewVideoUrl: null, orientation: null, tags: ['your avatar'], own: true }));
-      res.json({ data: [...photos, ...stock], meta: { provider: provider.name, prices: { stockPer30s: CREDIT_COSTS.presenterPer30s, ownPer30s: CREDIT_COSTS.photoPresenterPer30s } } });
+      res.json({ data: [...photos, ...stock], meta: { provider: provider.name, prices: { perMinute: CREDIT_COSTS.presenterPerMin } } });
     } catch (err) {
       logger.warn({ err }, 'Avatar list failed');
       throw new AppError(502, 'PROVIDER_ERROR', err instanceof AvatarError ? err.message : 'Could not load presenters. Try again shortly.');

@@ -31,7 +31,12 @@ Items that must be done before ShortsInShort goes live. Add to this list as phas
 - [ ] Sarvam voice cloning (beta): clone + withdraw end to end (check the clone response field).
 - [ ] (Optional) ElevenLabs as a second provider.
 - [ ] `HEYGEN_API_KEY`: presenter list, one full-frame and one cut-out render, background field name, keying quality, timing.
-- [ ] Confirm presenter pricing (currently 50 credits / 30 s, see [PRICING.md](PRICING.md)) against HeyGen's real price.
+- [ ] Confirm presenter pricing (999 credits per minute, photo avatar creation 199 — see [PRICING.md](PRICING.md)) against HeyGen's real price.
+- [ ] Photo avatars live: create one from a real photo, check `GET /v3/avatars/looks/{id}` status values, the `background` field shape and that `DELETE /v3/avatars/{group}` really removes it at HeyGen.
+
+## AI provider (all AI features)
+- [ ] Turn on billing for the Gemini key's Google project (the free tier times out, so hooks, B-roll plans, graphics and scene plans fall back to rules).
+- [ ] (Optional) A second LLM provider as a backup.
 - [x] Sarvam voiceover price checked: ₹30 / 10,000 characters → 2 credits per 30 s (≈2× cost).
 
 ## Motion Explainer (Phase 4.3)

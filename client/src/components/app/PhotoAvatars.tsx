@@ -331,7 +331,7 @@ export function PhotoAvatars() {
           </CardTitle>
           <CardDescription className="mt-1.5">
             One photo becomes a talking presenter that speaks your scripts — no camera, no studio. Pair it with your cloned voice for videos that look and sound like you.
-            {status && ` Creating one costs ${status.createCredits} credits once; videos with it cost ${status.per30sCredits} credits per 30 s.`}
+            {status && ` Creating one costs ${status.createCredits} credits once; videos with it cost ${status.perMinuteCredits} credits per minute, everything included.`}
             {status && status.limit > 0 && ` ${status.used} of ${status.limit} used.`}
           </CardDescription>
         </div>

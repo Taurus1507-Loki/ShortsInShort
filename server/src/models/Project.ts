@@ -143,6 +143,8 @@ const projectSchema = new Schema(
     lastJobId: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
     /** Free corrections used (re-exports after the first export; see FREE_CORRECTIONS_PER_VIDEO). */
     freeCorrectionsUsed: { type: Number, default: 0, min: 0 },
+    /** Fingerprint of what the last export was made from (see exportKey): re-exports of the same video are corrections. */
+    exportedFor: { type: String, default: null },
     /** Batch create: the batch this project belongs to, and its automatic voiceover → scenes → export run. */
     batchId: { type: Schema.Types.ObjectId, ref: 'Batch', default: null, index: true },
     autopilot: {
@@ -263,6 +265,15 @@ export const Project = model('Project', projectSchema);
  * Filter for a job's writes to its project: only while that job is still the project's current job
  * and the project is still busy. A job the user stopped (or a superseded one) then changes nothing.
  */
+/**
+ * What a video is made from: the footage (AI Video Editor), or the voiceover and presenter (voiced
+ * modes). A re-export with the same fingerprint is a correction; anything else is a new video.
+ */
+export function exportKey(p: { mode: string; sourceAssetId?: unknown; narrationAssetId?: unknown; settings?: { avatarId?: string | null } | null }): string {
+  if (p.mode === 'editor') return `src:${String(p.sourceAssetId ?? '')}`;
+  return `nar:${String(p.narrationAssetId ?? '')}|av:${p.settings?.avatarId ?? ''}`;
+}
+
 export const ownedBy = (projectId: Types.ObjectId, jobId: Types.ObjectId) => ({ _id: projectId, lastJobId: jobId, status: { $in: ['queued', 'processing'] } });
 
 const publicClip = (c: { id?: string | null; provider?: string | null; pageUrl?: string | null; author?: string | null; durationSec?: number | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null }) => ({

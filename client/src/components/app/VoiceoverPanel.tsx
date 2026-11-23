@@ -85,7 +85,7 @@ export function VoiceoverPanel({
   const stats = project.narrationStats;
   const tooLong = scriptLength > 5000;
   // Cost for the current text (estimated locally while unsaved; the server quote is authoritative).
-  const perBlock = meta?.pricing.find((x) => x.step === 'voice')?.credits ?? 2;
+  const perBlock = meta?.pricing.find((x) => x.step === 'voice')?.credits ?? 10;
   const credits = !dirty && estimate.data ? estimate.data.credits : Math.max(1, Math.ceil(scriptLength / 400)) * perBlock;
   const balance = estimate.data?.balance;
   const blocker = !live

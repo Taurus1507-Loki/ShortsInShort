@@ -47,7 +47,7 @@ avatarsRouter.get(
         limit,
         used,
         createCredits: CREDIT_COSTS.photoAvatarCreate,
-        per30sCredits: CREDIT_COSTS.photoPresenterPer30s,
+        perMinuteCredits: CREDIT_COSTS.presenterPerMin,
         matchThreshold: STATEMENT_MATCH_THRESHOLD,
       },
     });

@@ -73,7 +73,7 @@ const maxLuma = (px: Buffer) => {
   return m;
 };
 
-const setPlan = (workspaceId: string, plan: string) => Workspace.updateOne({ _id: workspaceId }, { plan, creditBalance: 20 });
+const setPlan = (workspaceId: string, plan: string) => Workspace.updateOne({ _id: workspaceId }, { plan, creditBalance: 3000 });
 
 describe('Free-plan watermark', () => {
   it('appears top-right on Free exports and not on paid plans', async () => {

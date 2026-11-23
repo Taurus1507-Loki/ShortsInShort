@@ -158,7 +158,7 @@ export function PresenterPicker({ settings, onChange }: { settings: ProjectSetti
         >
           <span className="block text-sm font-semibold">Talking presenter</span>
           <span className="text-xs text-muted-foreground">
-            An AI presenter lip-synced to your voiceover. Your own photo avatar: {meta?.pricing.find((x) => x.step === 'presenter_photo')?.credits ?? 80} credits per 30 s; a stock presenter: {meta?.pricing.find((x) => x.step === 'presenter')?.credits ?? 160}. Charged once — re-exports reuse it.
+            An AI presenter lip-synced to your voiceover: {meta?.pricing.find((x) => x.step === 'presenter')?.credits ?? 999} credits per minute, everything included (your voiceover’s credits are deducted). Re-exports reuse it.
           </span>
         </button>
       </div>

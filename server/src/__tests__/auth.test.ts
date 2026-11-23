@@ -199,7 +199,7 @@ describe('email verification', () => {
 
     const me = await request(app).get('/api/auth/me').set(auth).expect(200);
     expect(me.body.data.user.emailVerified).toBe(true);
-    expect(me.body.data.workspace.creditBalance).toBe(30);
+    expect(me.body.data.workspace.creditBalance).toBe(3000);
   });
 
   it('only the newest verification link is valid after a resend', async () => {

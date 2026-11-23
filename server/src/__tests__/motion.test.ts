@@ -66,7 +66,7 @@ const SCRIPT = 'What is generative AI? It learns patterns from millions of examp
 
 async function motionProject() {
   const u = await registerUser({ verify: true });
-  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 30 });
+  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 3000 });
   const p = (
     await request(app)
       .post('/api/projects')
@@ -145,7 +145,7 @@ describe('Motion Explainer videos', () => {
     expect(planned.scenes.every((s: { motion: unknown }) => parseMotionScene(s.motion))).toBe(true);
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est.credits).toBe(5); // Motion Explainer: 5 per started 30 s
+    expect(est.credits).toBe(789); // a reel is 799, minus the 10 already paid for its voiceover
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
     const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;

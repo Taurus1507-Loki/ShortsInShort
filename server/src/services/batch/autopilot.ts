@@ -1,7 +1,7 @@
 import { Project, type ProjectDoc } from '../../models/Project.js';
 import { Asset } from '../../models/Asset.js';
 import type { JobDoc, JobType } from '../../models/Job.js';
-import { facelessCreditCost, motionCreditCost, narrationCreditCost } from '../../config/credits.js';
+import { narrationCreditCost, reelCost } from '../../config/credits.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { onJobFinished } from '../queue/worker.js';
 import { startJob } from '../projectJobs.js';
@@ -25,8 +25,10 @@ export function estimateVideo(script: string, opts: { motion: boolean; resolutio
   const words = script.trim().split(/\s+/).filter(Boolean).length;
   const durationSec = Math.max(5, words / WORDS_PER_SEC);
   const narration = narrationCreditCost(script.trim().length);
-  const exportCredits = opts.motion ? motionCreditCost(durationSec, opts.resolution) : facelessCreditCost(durationSec, opts.resolution);
-  return { durationSec: Math.round(durationSec), narration, export: exportCredits, total: narration + exportCredits };
+  // One flat price per reel: the voiceover is charged first and deducted from the export.
+  const total = Math.max(narration, reelCost(durationSec, opts.resolution));
+  void opts.motion;
+  return { durationSec: Math.round(durationSec), narration, export: total - narration, total };
 }
 
 async function stop(project: ProjectDoc, error: string) {
@@ -51,7 +53,7 @@ export async function continueAutopilot(project: ProjectDoc, finished: JobType) 
       const narration = project.narrationAssetId ? await Asset.findById(project.narrationAssetId).select('durationSec').lean() : null;
       const durationSec = narration?.durationSec ?? project.narrationStats?.durationSec ?? 0;
       const resolution = project.settings?.resolution ?? '1080p';
-      const credits = motion ? motionCreditCost(durationSec, resolution) : facelessCreditCost(durationSec, resolution);
+      const credits = Math.max(0, reelCost(durationSec, resolution) - (project.narrationStats?.creditsCharged ?? 0));
       await startJob({ ...base, type: 'render_project', credits, note: 'Render (batch)' });
       return;
     }

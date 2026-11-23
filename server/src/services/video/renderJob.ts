@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Types } from 'mongoose';
 import { logger } from '../../config/logger.js';
-import { Project, ownedBy } from '../../models/Project.js';
+import { exportKey, Project, ownedBy } from '../../models/Project.js';
 import { Asset } from '../../models/Asset.js';
 import type { JobDoc } from '../../models/Job.js';
 import { applyCreditChange } from '../credit.service.js';
@@ -951,6 +951,7 @@ async function run({ job, signal, progress: report }: JobContext) {
           renderStats: stats,
           captionLines: (captionLines ?? []).map((l) => ({ start: l.start, end: l.end, text: l.words.map((w) => w.text).join(' ').slice(0, 160), keyword: l.keywords[0] !== undefined ? (l.words[l.keywords[0]]?.text ?? '') : '' })),
           captionTimelineKey: timelineKey,
+          exportedFor: exportKey(project),
           ...(clearOverrides ? { captionOverrides: null, captionOverridesKey: null } : {}),
         },
       },

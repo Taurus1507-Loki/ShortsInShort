@@ -1,4 +1,4 @@
-# Credits and the step-by-step flow (2026-11-16)
+# Credits and the step-by-step flow (prices updated 2026-11-23)
 
 This replaces the credit prices in the Phase 2–5 notes. The single source of truth is
 `server/src/config/credits.ts`. The web app reads the same list from `GET /api/meta` (`pricing`).
@@ -21,44 +21,33 @@ unfinished step, or to Export once it's done.
 Continue is blocked only on steps the video can't be made without: Footage, Script, Voice and Scenes. The message
 under the button says what's missing.
 
-## Credit unit
-
-On 2026-11-16, credits were rescaled **10×** at the same rupee prices, so each step can be priced at its real cost:
+## Credit unit (changed 2026-11-23: flat per-video prices, 1 credit ≈ ₹1)
 
 | Plan | ₹ / month | Credits | ₹ per credit |
 |---|---|---|---|
-| Free | 0 | 30 (once, after verification) | — |
-| Starter | 499 | 200 | 2.50 |
-| Creator | 999 | 500 | 2.00 |
-| Pro | 1,999 | 1,200 | 1.67 |
-| Agency | 4,999 | 3,500 | 1.43 |
+| Free | 0 | 800 once, after verification (1 free watermarked video) | — |
+| Starter | 499 | 500 | 1.00 |
+| Creator | 999 | 1,100 | 0.91 |
+| Pro | 1,999 | 2,300 | 0.87 |
+| Agency | 4,999 | 6,000 | 0.83 |
 
-Top-ups: 100 credits for ₹299, 250 for ₹699, 600 for ₹1,499, and 1,500 for ₹3,499.
+Top-ups: 500 credits for ₹599, 1,000 for ₹1,099, 2,500 for ₹2,599, 6,000 for ₹5,999. Plan prices include 18% GST.
+Existing balances were multiplied by 2.5 (migration `2026-11-23-per-video-prices`) so they kept their rupee value.
 
-Existing data is migrated once at API start-up by `services/migrations.ts` (`2026-11-16-credits-x10`). It
-multiplies balances, the ledger, payments, pending job refunds and the "credits charged" figures. A marker in the
-`migrations` collection stops it running twice.
+## Price per video (on par with ReelsDone)
 
-## Price per step
+| Video | Credits | Our cost behind it | Profit (Agency → Starter, after GST and Razorpay) |
+|---|---|---|---|
+| Edit my video (Auto edit) | **499** up to 1 min of footage, **600** up to 3 min, +200 per extra minute | Deepgram ≈ ₹0.36/min, Gemini, render ≈ ₹3–6 | ≈ ₹340 → ₹405 |
+| Faceless reel, stock or animated | **799** up to 2 min, +399 per extra minute | Sarvam ≈ ₹1.20/30 s, render ≈ ₹2–7 | ≈ ₹545 → ₹645 |
+| Talking presenter video (your photo avatar or stock) | **999 per minute**, everything included | HeyGen ≈ ₹195 (photo) – ₹408 (stock) per minute | ≈ ₹280 → ₹600 (stock), more with a photo avatar |
+| Voiceover | 10 per 30 s, charged when made and **deducted from the video price** at the first export | Sarvam ≈ ₹1.20 per 30 s | — |
+| Create your photo avatar | **199, once** (refunded if it fails) | HeyGen ≈ ₹112 | |
+| Corrections | **2 free per video, then 49** — only for the same video (same footage, or same voiceover and presenter); a new script, voiceover or footage is a new video | Our render time, ≈ ₹1–5 | |
+| Analysing footage, Auto edit planning, scripts, scenes, previews | free | Deepgram, Gemini: under ₹2 | |
+| 4K | ×1.5 | | |
 
-Prices are set at about **2× our provider cost**, so they still look light to users.
-
-| Step | Credits | Our cost behind it |
-|---|---|---|
-| Script written by AI | free (daily limit) | Gemini, a fraction of a paisa |
-| Voiceover | **2 per 30 s** (per started 400 characters) | Sarvam Bulbul v3: ₹30 per 10,000 characters ≈ ₹1.20 per 30 s |
-| Scenes, clip swaps, previews | free | Pixabay is free; previews run in the browser |
-| Export, stock footage or voiceover video | **3 per 30 s** (×2 for 4K) | FFmpeg render, storage and bandwidth |
-| Export, animated (Motion Explainer) | **5 per 30 s** (×2 for 4K) | Headless Chrome render, which is heavier |
-| Talking presenter, stock | **160 per 30 s**, reused on re-exports | HeyGen Avatar IV studio avatar ≈ $4.83/min ≈ ₹204 per 30 s. (Was 50 until 2026-11-23, which lost money.) |
-| Talking presenter, your photo avatar | **80 per 30 s**, reused on re-exports | HeyGen Avatar IV photo avatar ≈ $2.31/min ≈ ₹98 per 30 s |
-| Create your photo avatar | **80, once** (refunded if it fails) | HeyGen photo avatar creation ≈ $1.32 ≈ ₹112 |
-| Corrections | **free for the next 2 re-exports of each video** (export part only; a new presenter video is still charged) | Our own render time, ≈ ₹1–5 |
-| AI Video Editor, first render | **5 per minute** of footage | Deepgram ≈ ₹0.36/min, Gemini and the render |
-| AI Video Editor, re-render | **2 per minute** | The transcript is reused, so only the render is charged |
-
-Example: a 30-second stock-footage faceless video costs 2 + 3 = **5 credits**, which is ₹7–12 depending on the
-plan. Changing the captions and exporting again costs 3 more.
+Example: a 60-second faceless reel costs 799 credits — ₹663 on Agency, ₹799 on Starter.
 
 ## Where to change it
 

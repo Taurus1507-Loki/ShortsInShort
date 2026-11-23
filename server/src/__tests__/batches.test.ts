@@ -80,11 +80,12 @@ const balance = async (auth: Record<string, string>) => (await request(app).get(
 
 describe('batch create', () => {
   it('prices a batch, then voices, plans and exports every video on its own', async () => {
-    const { auth } = await user(100);
+    const { auth } = await user(5000);
     const est = (await request(app).post('/api/batches/estimate').set(auth).send(body()).expect(200)).body.data;
     expect(est.videos).toHaveLength(2);
-    expect(est.videos[0]).toMatchObject({ narration: 2, export: 5, total: 7 });
-    expect(est).toMatchObject({ total: 14, balance: 100 });
+    // One flat price per reel (799): the voiceover's 10 credits first, the rest at export.
+    expect(est.videos[0]).toMatchObject({ narration: 10, export: 789, total: 799 });
+    expect(est).toMatchObject({ total: 1598, balance: 5000 });
 
     const created = (await request(app).post('/api/batches').set(auth).send(body()).expect(201)).body.data;
     expect(created.started).toBe(2);
@@ -100,7 +101,7 @@ describe('batch create', () => {
     // Each step was charged like the step pages charge it: voiceover, then export (scene planning is free).
     const notes = (await CreditTransaction.find({ type: 'consume' }).lean()).map((t) => t.note.split(':')[0]).sort();
     expect(notes).toEqual(['Render (batch)', 'Render (batch)', 'Voiceover (batch)', 'Voiceover (batch)']);
-    expect(await balance(auth)).toBe(100 - 14);
+    expect(await balance(auth)).toBe(5000 - 1598);
 
     const list = (await request(app).get('/api/batches').set(auth).expect(200)).body.data;
     expect(list[0]).toMatchObject({ name: 'November tips', videos: 2, done: 2, stopped: 0 });
@@ -109,7 +110,7 @@ describe('batch create', () => {
   it('refuses a batch you cannot afford, and checks the scripts', async () => {
     const { auth } = await user(10);
     const res = await request(app).post('/api/batches').set(auth).send(body()).expect(402);
-    expect(res.body.error.message).toMatch(/needs about 14 credits/);
+    expect(res.body.error.message).toMatch(/needs about 1598 credits/);
     expect((await request(app).get('/api/batches').set(auth).expect(200)).body.data).toHaveLength(0);
     await request(app).post('/api/batches/estimate').set(auth).send(body({ videos: [] })).expect(400);
     await request(app).post('/api/batches/estimate').set(auth).send(body({ videos: [{ script: 'Too short.' }] })).expect(400);
@@ -118,7 +119,7 @@ describe('batch create', () => {
   });
 
   it('stops only the video whose next step cannot start, with a note saying what to do', async () => {
-    const { auth } = await user(100);
+    const { auth } = await user(5000);
     // Stock footage that finds nothing: scenes are planned without clips.
     setStockProvider({ name: 'empty', license: 'test', async searchVideos() { return []; }, async download() { throw new Error('no'); } });
     const created = (await request(app).post('/api/batches').set(auth).send(body({ settings: { ...body().settings, facelessStyle: 'stock' }, videos: [{ script: SCRIPTS[0] }] })).expect(201)).body.data;
@@ -127,13 +128,13 @@ describe('batch create', () => {
     expect(p.autopilot.state).toBe('stopped');
     expect(p.autopilot.error).toMatch(/No stock clip was found for scene 1/);
     expect(p.title).toBe('November tips #1');
-    expect(await balance(auth)).toBe(100 - 2); // only the voiceover was charged
+    expect(await balance(auth)).toBe(5000 - 10); // only the voiceover was charged
   }, 120_000);
 
   it('keeps batches private to their workspace', async () => {
-    const a = await user(100);
+    const a = await user(5000);
     const created = (await request(app).post('/api/batches').set(a.auth).send(body({ videos: [{ script: SCRIPTS[0] }] })).expect(201)).body.data;
-    const b = await user(100);
+    const b = await user(5000);
     await request(app).get(`/api/batches/${created.batch.id}`).set(b.auth).expect(404);
     expect((await request(app).get('/api/batches').set(b.auth).expect(200)).body.data).toHaveLength(0);
   });

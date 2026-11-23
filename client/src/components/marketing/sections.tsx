@@ -170,7 +170,7 @@ export function Pricing() {
   return (
     <section id="pricing" className="scroll-mt-20 py-24">
       <div className="container">
-        <SectionHeading eyebrow="Pricing" title="Simple plans in INR" subtitle="Start free. Upgrade when you're posting every day. You pay per step: a 30-second faceless video is about 5 credits." />
+        <SectionHeading eyebrow="Pricing" title="Pay per video, in INR" subtitle="Your first video is free. Then about ₹499 to edit a video, ₹799 for a faceless reel and ₹999 a minute with your avatar — bigger plans cost less per credit." />
         <div className="mt-8 flex justify-center">
           <div className="inline-flex rounded-xl border border-border bg-card/60 p-1" role="group" aria-label="Billing period">
             {[false, true].map((a) => (
@@ -236,7 +236,7 @@ export function Pricing() {
 /* ── FAQ ────────────────────────────────────────────────────────────── */
 const FAQS = [
   { q: 'Do I need any editing experience?', a: 'No. You upload footage or write a script, choose a style, and the AI produces the edit. You can still fine-tune captions, cuts and music before exporting.' },
-  { q: 'What is a credit?', a: 'Credits pay for the steps that cost money, charged one step at a time: a voiceover is 2 credits per 30 seconds, and exporting a stock-footage video is 3 credits per 30 seconds (animated videos 5, 4K double). Writing scripts, planning scenes and previews are free. Redoing one step only charges that step, you always see the price first, and failed jobs are refunded automatically.' },
+  { q: 'How much does a video cost?', a: 'One flat price per finished video, with 1 credit ≈ ₹1: Edit my video 499 credits (up to 1 minute of footage; 600 up to 3 minutes), a faceless reel 799 (up to 2 minutes), and a video with your avatar or an AI presenter 999 per minute. Captions, B-roll, motion graphics, music and sound effects are always included. Your first 2 corrections of each video are free, then 49 credits each. You always see the price before you confirm, and failed jobs are refunded automatically.' },
   { q: 'Which platforms and formats are supported?', a: 'Vertical 9:16 for Reels, Shorts and TikTok, 16:9 for YouTube, and 1:1 or 4:5 for Instagram feed, at 720p or 1080p (4K on higher plans where supported).' },
   { q: 'Which languages can I use?', a: 'We are launching with English, Hindi, Telugu, Tamil and Marathi for captions and narration, with more languages to follow.' },
   { q: 'Can someone make an avatar of me without permission?', a: 'No. A photo avatar or voice clone needs the person to read a consent sentence aloud (we check it with speech recognition), and someone else’s face or voice also needs their confirmation by email. They can withdraw at any time, which deletes the avatar or voice and their recordings. Videos with an AI presenter are labelled as AI-generated.' },

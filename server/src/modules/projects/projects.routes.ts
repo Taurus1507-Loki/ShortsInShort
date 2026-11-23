@@ -4,12 +4,12 @@ import { Types } from 'mongoose';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/auth.js';
 import { validate, validatedQuery } from '../../middleware/validate.js';
 import { AppError, asyncHandler, badRequest, conflict, notFound } from '../../utils/errors.js';
-import { Project, toPublicProject, type ProjectDoc } from '../../models/Project.js';
+import { exportKey, Project, toPublicProject, type ProjectDoc } from '../../models/Project.js';
 import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { avatarCreditCost, editorAnalyzeCost, FREE_CORRECTIONS_PER_VIDEO, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { CREDIT_COSTS, editorVideoCost, FREE_CORRECTIONS_PER_VIDEO, MAX_NARRATION_CHARS, narrationCreditCost, presenterVideoCost, reelCost, resolutionAllowed } from '../../config/credits.js';
 import { editPatchSchema, keepSegments, segmentsProblem, type EditBroll, type EditDoc, type PoolClip } from '../../services/video/edl.js';
 import { buildEditCaptions } from '../../services/video/analyzeJob.js';
 import type { Word } from '../../services/ai/transcription.js';
@@ -247,7 +247,7 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
       ar?.assetId && ar.avatarId === avatarId && ar.narrationAssetId?.equals(narration._id) && ar.backgroundColor === color && ar.aspectRatio === project.aspectRatio &&
         (await Asset.exists({ _id: ar.assetId, workspaceId, deletedAt: null, status: 'ready' })),
     );
-    if (!presenterReused) presenterCredits = avatarCreditCost(narration.durationSec ?? stats.durationSec ?? 0, photoAvatar);
+    if (!presenterReused) presenterCredits = presenterVideoCost(narration.durationSec ?? stats.durationSec ?? 0, s.resolution ?? '1080p');
   }
   if ((background === 'image' || background === 'video') && !(avatarId && layout === 'full')) {
     const bg = project.backgroundAssetId ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId, deletedAt: null, status: 'ready' }) : null;
@@ -263,7 +263,8 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const resolution = s.resolution ?? '1080p';
   const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
   return {
-    credits: facelessCreditCost(durationSec, resolution) + presenterCredits,
+    // The voiceover's credits were charged when it was made: they're deducted from the video's price.
+    credits: Math.max(0, (avatarId ? presenterVideoCost(durationSec, resolution) : reelCost(durationSec, resolution)) - (stats.creditsCharged ?? 0)),
     presenterCredits,
     presenterReused,
     photoAvatar,
@@ -311,7 +312,8 @@ async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const resolution = s.resolution ?? '1080p';
   const durationSec = narration.durationSec ?? stats.durationSec ?? 0;
   return {
-    credits: motionStyle ? motionCreditCost(durationSec, resolution) : facelessCreditCost(durationSec, resolution),
+    // One flat price per reel; the voiceover's credits (charged when it was made) are deducted.
+    credits: Math.max(0, reelCost(durationSec, resolution) - (stats.creditsCharged ?? 0)),
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: durationSec,
     resolution,
@@ -331,15 +333,28 @@ async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const q = await baseQuote(project, workspaceId);
   const used = project.freeCorrectionsUsed ?? 0;
   const left = Math.max(0, FREE_CORRECTIONS_PER_VIDEO - used);
-  const presenter = 'presenterCredits' in q ? q.presenterCredits : 0;
-  const exportCredits = q.credits - presenter;
-  const freeCorrection = Boolean(project.outputAssetId) && left > 0 && exportCredits > 0;
+  // A re-export of the same video (same footage, or same voiceover and presenter) is a correction.
+  // A new script, voiceover or footage makes it a new video, charged in full.
+  const sameVideo = Boolean(project.outputAssetId) && project.exportedFor === exportKey(project);
+  // A new presenter video (e.g. the background colour or format changed) is paid in full: it costs us at the provider.
+  const presenterNeeded = 'presenterCredits' in q && q.presenterCredits > 0;
+  let credits = q.credits;
+  let correction = false;
+  let freeCorrection = false;
+  if (sameVideo && presenterNeeded) credits = q.presenterCredits;
+  else if (sameVideo) {
+    correction = true;
+    freeCorrection = left > 0;
+    credits = freeCorrection ? 0 : CREDIT_COSTS.correction;
+  }
   return {
     ...q,
-    credits: freeCorrection ? presenter : q.credits,
-    exportCredits,
+    credits,
+    /** The full price of this video (what a new video like it costs). */
+    exportCredits: q.credits,
+    correction,
     freeCorrection,
-    freeCorrectionsLeft: project.outputAssetId ? left : FREE_CORRECTIONS_PER_VIDEO,
+    freeCorrectionsLeft: sameVideo ? left : FREE_CORRECTIONS_PER_VIDEO,
   };
 }
 
@@ -358,7 +373,7 @@ async function baseQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const stt = getTranscriptionProvider();
   const transcribed = !stt || Boolean(await Transcript.exists({ assetId: source._id, provider: stt.name, language: project.settings?.language ?? 'en' }));
   return {
-    credits: editorCreditCost(source.durationSec ?? 0, resolution, transcribed),
+    credits: editorVideoCost(source.durationSec ?? 0, resolution),
     rerender: transcribed,
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: source.durationSec ?? 0,
@@ -442,7 +457,9 @@ async function analyzeQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const stt = getTranscriptionProvider();
   const cached = !stt || Boolean(await Transcript.exists({ assetId: source._id, provider: stt.name, language: project.settings?.language ?? 'en' }));
   const ws = await Workspace.findById(workspaceId).select('creditBalance').lean();
-  return { credits: cached ? 0 : editorAnalyzeCost(source.durationSec ?? 0), balance: ws?.creditBalance ?? 0, sourceDurationSec: source.durationSec ?? 0, transcribes: Boolean(stt) };
+  // Analysing and Auto edit are free: the video is paid for when it's exported.
+  void cached;
+  return { credits: 0, balance: ws?.creditBalance ?? 0, sourceDurationSec: source.durationSec ?? 0, transcribes: Boolean(stt) };
 }
 
 projectsRouter.get(

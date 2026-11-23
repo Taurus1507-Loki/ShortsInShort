@@ -21,22 +21,20 @@ const KINDS: Array<{ id: Kind; name: string; blurb: string }> = [
   { id: 'presenter_stock', name: 'AI presenter — stock', blurb: 'A ready-made presenter speaks your script' },
 ];
 
-const per30 = (sec: number) => Math.max(1, Math.ceil(sec / 30));
-const perMin = (sec: number) => Math.max(1, Math.ceil(sec / 60));
+const extraMin = (sec: number, included: number) => Math.max(0, Math.ceil((sec - included) / 60));
 
+/** Same flat prices as the server (server/src/config/credits.ts). */
 export function creditsFor(kind: Kind, sec: number, pricing: Meta['pricing']) {
   const p = (step: string, fallback: number) => pricing.find((x) => x.step === step)?.credits ?? fallback;
   switch (kind) {
     case 'edit':
-      return perMin(sec) * (p('editor_analyze', 3) + p('editor_rerender', 2));
+      return sec <= 60 ? p('editor', 499) : p('editor_3min', 600) + extraMin(sec, 180) * p('editor_extra_min', 200);
     case 'faceless_stock':
-      return per30(sec) * (p('voice', 2) + p('export', 3));
     case 'faceless_motion':
-      return per30(sec) * (p('voice', 2) + p('export_motion', 5));
+      return p('export', 799) + extraMin(sec, 120) * p('reel_extra_min', 399);
     case 'presenter_photo':
-      return per30(sec) * (p('voice', 2) + p('export', 3) + p('presenter_photo', 80));
     case 'presenter_stock':
-      return per30(sec) * (p('voice', 2) + p('export', 3) + p('presenter', 160));
+      return Math.max(1, Math.ceil(sec / 60)) * p('presenter', 999);
   }
 }
 
@@ -107,7 +105,7 @@ export function PriceCalculator({ className }: { className?: string }) {
                 ≈ {formatInr(Math.round(result.plans[result.plans.length - 1]!.perVideo * 100))}–{formatInr(Math.round(result.plans[0]!.perVideo * 100))} depending on the plan
               </p>
             )}
-            <p className="mt-3 text-xs text-muted-foreground">Includes everything in the video. Fixing it later? The next 2 re-exports of each video are free.</p>
+            <p className="mt-3 text-xs text-muted-foreground">One flat price for the finished video — voiceover, captions, B-roll, graphics, music and sound effects included. The next 2 corrections are free, then 49 credits each.</p>
           </div>
           <div className="grid gap-1.5 text-sm">
             <p className="font-medium">

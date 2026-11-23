@@ -62,7 +62,7 @@ afterAll(() => mongoose.disconnect());
 
 async function editorProject() {
   const u = await registerUser({ verify: true });
-  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 50 });
+  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 3000 });
   const init = await request(app).post('/api/assets/uploads').set(u.auth).send({ filename: 'talk.mp4', contentType: 'video/mp4', sizeBytes: fixture.length }).expect(201);
   await request(app).put(init.body.data.upload.url).set('Content-Type', 'video/mp4').send(fixture).expect(200);
   const asset = (await request(app).post(`/api/assets/${init.body.data.asset.id}/complete`).set(u.auth).expect(200)).body.data;
@@ -113,10 +113,10 @@ describe('AI Video Editor timeline', () => {
     const { auth, p } = await editorProject();
 
     const est = (await request(app).get(`/api/projects/${p.id}/analyze/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ credits: 3, transcribes: true });
+    expect(est).toMatchObject({ credits: 0, transcribes: true }); // analysing is free
     await request(app).post(`/api/projects/${p.id}/analyze`).set(auth).expect(202);
     await worker.runOnce();
-    expect(await balance(auth)).toBe(47);
+    expect(await balance(auth)).toBe(3000);
 
     const analysed = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;
     const edit = analysed.edit as EditDoc;
@@ -156,7 +156,7 @@ describe('AI Video Editor timeline', () => {
 
     // Export: priced as rendering only, and the result is exactly the kept 4 s.
     const quote = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(quote).toMatchObject({ credits: 2, rerender: true });
+    expect(quote).toMatchObject({ credits: 499, rerender: true }); // Edit my video: 499 up to 1 min of footage
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await worker.runOnce();
     const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;
@@ -170,7 +170,7 @@ describe('AI Video Editor timeline', () => {
     expect(done.captionLines[0]).toMatchObject({ text: 'Consistency wins', keyword: 'wins' });
     expect(done.captionLines.map((l: { text: string }) => l.text).join(' ')).not.toMatch(/um/);
     expect(transcribeCalls).toBe(1); // the export reused the analysis transcript
-    expect(await balance(auth)).toBe(45);
+    expect(await balance(auth)).toBe(2501);
   }, 180_000);
 
   it('rebuilds captions for a new caption style', async () => {
@@ -327,7 +327,7 @@ describe('B-roll and music tracks', () => {
     await request(app).post(`/api/projects/${p.id}/auto-edit`).set(auth).send({ pace: 'turbo' }).expect(400);
     await request(app).post(`/api/projects/${p.id}/auto-edit`).set(auth).send({ pace: 'natural' }).expect(202);
     await worker.runOnce();
-    expect(await balance(auth)).toBe(47); // same price as analysing
+    expect(await balance(auth)).toBe(3000); // free, like analysing
     const edit = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data.edit as EditDoc;
     expect(edit.segments.length).toBeGreaterThan(0);
     expect(edit.texts[0]).toMatchObject({ text: 'Talent loses to consistency', position: 'top', style: 'accent', size: 'l' });

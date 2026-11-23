@@ -68,7 +68,7 @@ async function voiced(auth: Record<string, string>, extra: Record<string, unknow
   return p;
 }
 
-async function user(credits = 20) {
+async function user(credits = 3000) {
   const u = await registerUser({ verify: true });
   await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: credits });
   return u;
@@ -135,7 +135,7 @@ describe('voiceover video render', () => {
     const p = await voiced(auth);
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ credits: 3, resolution: '720p', resolutionAllowed: true, narrationOutdated: false });
+    expect(est).toMatchObject({ credits: 789, resolution: '720p', resolutionAllowed: true, narrationOutdated: false });
     expect(est.sourceDurationSec).toBeGreaterThan(1.5);
 
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
@@ -148,7 +148,17 @@ describe('voiceover video render', () => {
     // The video is as long as the voiceover (no pause cutting).
     expect(Math.abs(done.outputAsset.durationSec - done.narrationAsset.durationSec)).toBeLessThan(0.3);
     const ws = await Workspace.findById(u.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(20 - 2 - 3); // voiceover + render
+    expect(ws!.creditBalance).toBe(3000 - 10 - 789); // voiceover + render = one 799-credit reel
+
+    // Re-exporting the same video is a free correction…
+    const fix = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
+    expect(fix).toMatchObject({ credits: 0, correction: true, freeCorrection: true });
+    // …but a new script and voiceover make it a new video, charged in full (no endless 49-credit reels).
+    await request(app).patch(`/api/projects/${p.id}`).set(auth).send({ script: 'A completely different video about saving money every month.' }).expect(200);
+    await request(app).post(`/api/projects/${p.id}/narrate`).set(auth).expect(202);
+    await drain();
+    const fresh = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
+    expect(fresh).toMatchObject({ credits: 789, correction: false, freeCorrection: false });
   }, 120_000);
 
   it('uses an uploaded background image and can switch the AI label off for library voices', async () => {

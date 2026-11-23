@@ -4,7 +4,7 @@ import { Workspace } from '../models/Workspace.js';
 import { CreditTransaction } from '../models/CreditTransaction.js';
 import { Payment } from '../models/Billing.js';
 import { Job } from '../models/Job.js';
-import { Project } from '../models/Project.js';
+import { exportKey, Project } from '../models/Project.js';
 
 /**
  * One-off data migrations, run at API start-up. Each runs at most once per database: its marker is
@@ -59,7 +59,33 @@ const brandKits: Migration = {
   },
 };
 
-export const MIGRATIONS: Migration[] = [creditsX10, brandKits];
+/**
+ * 2026-11-23: flat per-video prices with 1 credit ≈ ₹1 (Starter ₹499 = 500 credits instead of 200).
+ * Balances and the ledger are multiplied by 2.5 (the old Starter rate, ₹2.50 a credit) so nobody's
+ * credits lose rupee value. Exported projects get their export fingerprint so re-exporting them counts
+ * as a correction.
+ */
+const times = (field: string) => [{ $set: { [field]: { $round: [{ $multiply: ['$' + field, 2.5] }, 0] } } }];
+const perVideoPrices: Migration = {
+  id: '2026-11-23-per-video-prices',
+  run: async () => {
+    const r = await Promise.all([
+      Workspace.updateMany({ creditBalance: num }, times('creditBalance')),
+      CreditTransaction.updateMany({ amount: num }, times('amount')),
+      CreditTransaction.updateMany({ balanceAfter: num }, times('balanceAfter')),
+      Job.updateMany({ 'payload.credits': num, status: { $in: ['queued', 'active'] } }, times('payload.credits')),
+    ]);
+    let fingerprints = 0;
+    for await (const p of Project.find({ outputAssetId: { $ne: null }, exportedFor: null }).select('mode sourceAssetId narrationAssetId settings').cursor()) {
+      await Project.updateOne({ _id: p._id }, { $set: { exportedFor: exportKey(p) } });
+      fingerprints++;
+    }
+    return { workspaces: r[0].modifiedCount, ledger: r[1].modifiedCount, ledgerBalances: r[2].modifiedCount, jobs: r[3].modifiedCount, fingerprints };
+  },
+};
+
+export const MIGRATIONS: Migration[] = [creditsX10, brandKits, perVideoPrices];
+
 
 export async function runMigrations(migrations: Migration[] = MIGRATIONS) {
   const col = mongoose.connection.collection<{ _id: string; status: string; startedAt: Date; finishedAt?: Date; result?: unknown }>('migrations');

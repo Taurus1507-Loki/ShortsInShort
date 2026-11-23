@@ -89,7 +89,7 @@ const SETTINGS = { voiceId: 'voiceA1', resolution: '720p', musicMood: 'none', zo
 
 async function setup(script = SCRIPT) {
   const u = await registerUser({ verify: true });
-  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 30 });
+  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 3000 });
   const p = (await request(app).post('/api/projects').set(u.auth).send({ title: 'Coffee', mode: 'faceless', topic: 'coffee culture', script, settings: SETTINGS }).expect(201)).body.data;
   return { ...u, p };
 }
@@ -177,7 +177,7 @@ describe('faceless video flow', () => {
     expect(await CreditTransaction.countDocuments({ workspaceId: user.defaultWorkspaceId, type: 'consume' })).toBe(1); // only the voiceover
 
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ credits: 3, narrationOutdated: false, sceneCount: planned.scenes.length });
+    expect(est).toMatchObject({ credits: 789, narrationOutdated: false, sceneCount: planned.scenes.length });
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
     const done = (await request(app).get(`/api/projects/${p.id}`).set(auth).expect(200)).body.data;

@@ -171,17 +171,18 @@ export function RenderPanel({ project, autoOpen, dirty, onStep }: { project: Pro
                   <span className="text-muted-foreground">Balance: {e.balance}</span>
                   {Boolean(e.presenterCredits) && <span className="text-muted-foreground">incl. {e.presenterCredits} for the presenter</span>}
                   {e.presenterReused && <span className="text-muted-foreground">presenter reused — no extra charge</span>}
-                  {project.mode === 'editor' && e.rerender && <span className="text-muted-foreground">re-render price — speech is already transcribed</span>}
-                  {avatar && <span className="text-muted-foreground">voiceover already paid for</span>}
+                  {avatar && !e.correction && <span className="text-muted-foreground">voiceover credits deducted</span>}
                   {e.freeCorrection ? (
                     <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
                       Free correction · {e.freeCorrectionsLeft} of 2 left for this video
                     </span>
-                  ) : project.outputAsset && e.freeCorrectionsLeft === 0 ? (
-                    <span className="text-muted-foreground">free corrections used</span>
-                  ) : !project.outputAsset ? (
-                    <span className="text-muted-foreground">your next 2 re-exports of this video are free</span>
-                  ) : null}
+                  ) : e.correction ? (
+                    <span className="text-muted-foreground">correction (free ones used)</span>
+                  ) : project.outputAsset ? (
+                    <span className="text-muted-foreground">new video — the script, voiceover or footage changed</span>
+                  ) : (
+                    <span className="text-muted-foreground">the next 2 corrections of this video are free</span>
+                  )}
                 </p>
               ) : null}
             </div>

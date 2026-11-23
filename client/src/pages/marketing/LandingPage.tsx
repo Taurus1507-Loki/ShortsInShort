@@ -125,14 +125,14 @@ const COMPARE = [
   { who: 'Freelance editor', cost: '₹1,500–2,000 per reel', camera: 'You film every video', speed: 'Days per batch' },
   { who: 'Full-time editor', cost: '₹25,000–35,000 a month', camera: 'You film every video', speed: 'Limited to one person’s hours' },
   { who: 'Agency retainer', cost: '₹40,000–60,000 a month, often 4–8 reels', camera: 'Shoot days at their studio', speed: 'Their schedule' },
-  { who: 'ShortsInShort', cost: 'From about ₹10–25 per faceless reel', camera: 'No camera needed (faceless or your avatar)', speed: 'Minutes, any time' },
+  { who: 'ShortsInShort', cost: '₹499 per edited video, ₹799 per faceless reel — pay per video', camera: 'No camera needed (faceless or your avatar)', speed: 'Minutes, any time' },
 ];
 
 function Compare() {
   return (
     <section className="py-20">
       <div className="container max-w-5xl">
-        <SectionHeading eyebrow="Why ShortsInShort" title="The same reels for a fraction of the cost" subtitle="Rough market ranges for 20 reels a month. Use the calculator above for your exact numbers." />
+        <SectionHeading eyebrow="Why ShortsInShort" title="Reels without an editor, a studio or a contract" subtitle="Rough market ranges for 20 reels a month. Use the calculator above for your exact numbers." />
         <div className="mt-10 overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-card/80 text-muted-foreground">

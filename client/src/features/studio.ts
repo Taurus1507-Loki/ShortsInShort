@@ -102,14 +102,15 @@ export function stepPrice(meta: Meta | undefined, p: Pick<Project, 'mode' | 'set
   };
   switch (step) {
     case 'voice':
-      return fmt('voice');
+      return { text: `${price('voice')?.credits ?? 10} credits / 30 s · deducted from the video price`, free: false };
     case 'presenter':
-      return fmt('presenter', 'Optional · presenter ');
+      return fmt('presenter', 'Optional · ');
     case 'edit':
-      return fmt('editor_analyze', 'Once · ');
+      return { text: 'Free', free: true };
     case 'export':
-      if (p.mode === 'editor') return fmt(p.edit ? 'editor_rerender' : 'editor');
-      return fmt(p.mode === 'faceless' && p.settings.facelessStyle === 'motion' ? 'export_motion' : 'export');
+      if (p.mode === 'editor') return fmt('editor');
+      if (p.mode === 'avatar' && p.settings.avatarId) return fmt('presenter');
+      return fmt('export');
     default:
       return { text: 'Free', free: true };
   }

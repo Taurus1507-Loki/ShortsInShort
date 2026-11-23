@@ -153,7 +153,7 @@ function AnalyzeCard({ project }: { project: Project }) {
             </div>
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Coins className="h-4 w-4 text-highlight" />
-              {e ? (e.credits ? `Either option: ${e.credits} credits (3 per minute of footage, once) · you have ${e.balance}` : 'Free — this video was analysed before') : 'Checking the price…'}
+              {e ? `Free — you pay when you export the finished video (499 credits up to 1 min of footage, 600 up to 3 min) · you have ${e.balance}` : 'Checking…'}
             </p>
           </>
         )}

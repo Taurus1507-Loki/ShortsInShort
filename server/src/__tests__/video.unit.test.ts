@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeKeepSegments, parseSilences, totalDuration } from '../services/video/silence.js';
 import { buildRenderArgs, outputSize } from '../services/video/render.js';
-import { avatarCreditCost, editorCreditCost, facelessCreditCost, motionCreditCost, narrationCreditCost, resolutionAllowed } from '../config/credits.js';
+import { editorVideoCost, narrationCreditCost, presenterVideoCost, reelCost, resolutionAllowed } from '../config/credits.js';
 
 describe('silence parsing', () => {
   it('parses silencedetect output, including a trailing open silence', () => {
@@ -64,20 +64,23 @@ describe('render settings', () => {
 });
 
 describe('credit pricing', () => {
-  it('charges the editor per started source minute, less on re-renders, with a 4K multiplier', () => {
-    expect(editorCreditCost(30, '1080p')).toBe(5);
-    expect(editorCreditCost(61, '1080p')).toBe(10);
-    expect(editorCreditCost(30, '4k')).toBe(10);
-    expect(editorCreditCost(61, '1080p', true)).toBe(4); // transcript reused
+  it('prices Edit my video by the length of the footage, with a 4K multiplier', () => {
+    expect(editorVideoCost(30)).toBe(499);
+    expect(editorVideoCost(60)).toBe(499);
+    expect(editorVideoCost(61)).toBe(600);
+    expect(editorVideoCost(180)).toBe(600);
+    expect(editorVideoCost(181)).toBe(800); // + 200 per extra started minute
+    expect(editorVideoCost(30, '4k')).toBe(749);
   });
-  it('prices each step on its own', () => {
-    expect(narrationCreditCost(400)).toBe(2); // ≈ 30 s of speech
-    expect(narrationCreditCost(401)).toBe(4);
-    expect(facelessCreditCost(30, '1080p')).toBe(3);
-    expect(facelessCreditCost(45, '4k')).toBe(12);
-    expect(motionCreditCost(30, '720p')).toBe(5);
-    expect(avatarCreditCost(31)).toBe(320); // stock presenter, 160 per started 30 s
-    expect(avatarCreditCost(31, true)).toBe(160); // your own photo avatar, 80 per started 30 s
+  it('prices faceless reels, presenter videos and voiceovers flat', () => {
+    expect(narrationCreditCost(400)).toBe(10); // ≈ 30 s of speech, deducted from the video price
+    expect(narrationCreditCost(401)).toBe(20);
+    expect(reelCost(30)).toBe(799);
+    expect(reelCost(120)).toBe(799);
+    expect(reelCost(121)).toBe(1198); // + 399 per extra started minute
+    expect(reelCost(45, '4k')).toBe(1199);
+    expect(presenterVideoCost(31)).toBe(999);
+    expect(presenterVideoCost(61)).toBe(1998);
   });
   it('enforces plan resolution caps', () => {
     expect(resolutionAllowed('720p', '720p')).toBe(true);

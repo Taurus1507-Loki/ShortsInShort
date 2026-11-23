@@ -36,7 +36,7 @@ export interface Plan {
   highlights: string[];
 }
 
-export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'presenter_photo' | 'photo_avatar' | 'correction' | 'editor' | 'editor_analyze' | 'editor_rerender';
+export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'presenter_photo' | 'photo_avatar' | 'correction' | 'correction_paid' | 'reel_extra_min' | 'editor_3min' | 'editor_extra_min' | 'editor' | 'editor_analyze' | 'editor_rerender';
 
 export interface Meta {
   currency: 'INR';
@@ -95,6 +95,8 @@ export interface Estimate {
   rerender?: boolean;
   /** Free corrections: this re-export's export part is free (2 per video). */
   freeCorrection?: boolean;
+  /** A re-export of the same video (free or 49 credits). */
+  correction?: boolean;
   freeCorrectionsLeft?: number;
   exportCredits?: number;
   photoAvatar?: boolean;
@@ -392,7 +394,7 @@ export interface PhotoAvatarStatus {
   limit: number;
   used: number;
   createCredits: number;
-  per30sCredits: number;
+  perMinuteCredits: number;
 }
 
 export interface SceneClip {

@@ -114,7 +114,7 @@ async function upload(auth: Record<string, string>, body: Buffer, purpose: strin
   return res;
 }
 
-async function setup(plan = 'creator', credits = 300) {
+async function setup(plan = 'creator', credits = 3000) {
   const u = await registerUser({ verify: true, name: 'Asha Rao' });
   await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { plan, creditBalance: credits });
   const ws = await Workspace.findById(u.user.defaultWorkspaceId);
@@ -149,7 +149,7 @@ describe('photo avatars', () => {
 
     const res = await request(app).post('/api/avatars/photo').set(s.auth).send(body(s)).expect(201);
     expect(res.body.data).toMatchObject({ name: 'Me', status: 'creating', avatarId: null, consent: { status: 'active', kind: 'likeness' } });
-    expect(await balance(s.auth)).toBe(300 - 80);
+    expect(await balance(s.auth)).toBe(3000 - 199);
     await drain();
     expect(avatars.photos).toEqual([{ name: 'Me', mimeType: 'image/png', idempotencyKey: expect.stringContaining('sis-avatar-') }]);
     const list = (await request(app).get('/api/avatars/photo').set(s.auth).expect(200)).body.data;
@@ -160,9 +160,9 @@ describe('photo avatars', () => {
     const presenters = (await request(app).get('/api/ai/avatars').set(s.auth).expect(200)).body;
     expect(presenters.data[0]).toMatchObject({ id: 'photo_1', name: 'Me', own: true });
     expect(presenters.data[1]).toMatchObject({ id: 'look1', own: false });
-    expect(presenters.meta.prices).toEqual({ stockPer30s: 160, ownPer30s: 80 });
+    expect(presenters.meta.prices).toEqual({ perMinute: 999 });
 
-    // A presenter video with your avatar costs 80 per 30 s (a stock presenter 160).
+    // A presenter video with your avatar costs 999 per minute, everything included.
     const p = (
       await request(app)
         .post('/api/projects')
@@ -173,7 +173,7 @@ describe('photo avatars', () => {
     await request(app).post(`/api/projects/${p.id}/narrate`).set(s.auth).expect(202);
     await drain();
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(s.auth).expect(200)).body.data;
-    expect(est).toMatchObject({ presenterCredits: 80, photoAvatar: true });
+    expect(est).toMatchObject({ presenterCredits: 999, photoAvatar: true });
 
     // Removing it withdraws consent: the avatar is deleted at the provider and the photo is gone.
     await request(app).delete(`/api/avatars/photo/${list[0].id}`).set(s.auth).expect(204);
@@ -195,7 +195,7 @@ describe('photo avatars', () => {
     heard = consentStatement('Ravi Kumar', s.ws.name, 'likeness');
     const res = await request(app).post('/api/avatars/photo').set(s.auth).send(body(s, { name: 'Ravi', relationship: 'other', subjectName: 'Ravi Kumar', subjectEmail: 'ravi@example.com' })).expect(201);
     expect(res.body.data).toMatchObject({ status: 'awaiting_consent', consent: { status: 'awaiting_subject' } });
-    expect(await balance(s.auth)).toBe(300); // nothing charged before they agree
+    expect(await balance(s.auth)).toBe(3000); // nothing charged before they agree
     const request_ = sentEmails.find((m) => m.to === 'ravi@example.com' && m.tag === 'consent_request');
     expect(request_?.subject).toMatch(/AI avatar of your face/);
 
@@ -206,7 +206,7 @@ describe('photo avatars', () => {
     await request(app).post('/api/consent/confirm').send({ token: confirm }).expect(200);
     await drain();
     expect(await PhotoAvatar.findOne()).toMatchObject({ status: 'ready', providerLookId: 'photo_1' });
-    expect(await balance(s.auth)).toBe(220);
+    expect(await balance(s.auth)).toBe(2801);
 
     await request(app).post('/api/consent/withdraw').send({ token: withdraw }).expect(200);
     expect(avatars.deleted).toEqual(['ag_1']);
@@ -229,7 +229,7 @@ describe('photo avatars', () => {
     heard = consentStatement('Asha Rao', poor.ws.name, 'likeness');
     expect((await request(app).post('/api/avatars/photo').set(poor.auth).send(body(poor)).expect(402)).body.error.code).toBe('INSUFFICIENT_CREDITS');
 
-    // The provider can't use the photo: the avatar fails and the 80 credits come back.
+    // The provider can't use the photo: the avatar fails and the 199 credits come back.
     heard = consentStatement('Asha Rao', s.ws.name, 'likeness');
     avatars.failLook = 'moderation_failed';
     await request(app).post('/api/avatars/photo').set(s.auth).send(body(s)).expect(201);
@@ -237,6 +237,6 @@ describe('photo avatars', () => {
     const a = await PhotoAvatar.findOne({ workspaceId: s.user.defaultWorkspaceId });
     expect(a!.status).toBe('failed');
     expect(a!.failureReason).toMatch(/moderation_failed/);
-    expect(await balance(s.auth)).toBe(300);
+    expect(await balance(s.auth)).toBe(3000);
   }, 120_000);
 });

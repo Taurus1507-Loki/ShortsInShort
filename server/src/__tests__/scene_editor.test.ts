@@ -88,7 +88,7 @@ const SCRIPT = 'Coffee changed how cities wake up every single day. Millions of 
 
 async function planned() {
   const u = await registerUser({ verify: true });
-  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 40 });
+  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 3000 });
   const p = (
     await request(app)
       .post('/api/projects')

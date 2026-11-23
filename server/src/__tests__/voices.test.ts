@@ -85,10 +85,10 @@ describe('tts helpers', () => {
   });
 
   it('prices voiceovers per started 400 characters', () => {
-    expect(narrationCreditCost(1)).toBe(2);
-    expect(narrationCreditCost(400)).toBe(2);
-    expect(narrationCreditCost(401)).toBe(4);
-    expect(narrationCreditCost(5000)).toBe(26);
+    expect(narrationCreditCost(1)).toBe(10);
+    expect(narrationCreditCost(400)).toBe(10);
+    expect(narrationCreditCost(401)).toBe(20);
+    expect(narrationCreditCost(5000)).toBe(130);
   });
 });
 
@@ -113,14 +113,14 @@ describe('voices API', () => {
 describe('voiceover generation', () => {
   it('charges credits, generates audio with word timings and stores it', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 10 });
+    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 50 });
     const project = await avatarProject(auth);
 
     const est = await request(app).get(`/api/projects/${project.id}/narration/estimate`).set(auth).expect(200);
-    expect(est.body.data).toMatchObject({ credits: 2, balance: 10, characters: 41 });
+    expect(est.body.data).toMatchObject({ credits: 10, balance: 50, characters: 41 });
 
     const gen = await request(app).post(`/api/projects/${project.id}/narrate`).set(auth).expect(202);
-    expect(gen.body.data.credits).toBe(2);
+    expect(gen.body.data.credits).toBe(10);
     await drain();
 
     const res = await request(app).get(`/api/projects/${project.id}`).set(auth).expect(200);
@@ -128,7 +128,7 @@ describe('voiceover generation', () => {
     expect(p.status).toBe('completed');
     expect(p.narrationAsset).toMatchObject({ kind: 'narration_audio', mimeType: 'audio/mpeg', status: 'ready' });
     expect(p.narrationAsset.durationSec as number).toBeGreaterThan(1.4);
-    expect(p.narrationStats).toMatchObject({ voiceId: 'voiceA1', voiceName: 'Asha', chunks: 1, wordCount: 8, timingsAvailable: true, creditsCharged: 2, provider: 'fake-tts' });
+    expect(p.narrationStats).toMatchObject({ voiceId: 'voiceA1', voiceName: 'Asha', chunks: 1, wordCount: 8, timingsAvailable: true, creditsCharged: 10, provider: 'fake-tts' });
     expect(p.narrationWords).toBeUndefined(); // timings stay server-side
 
     const stored = await Project.findById(project.id).select('+narrationWords');
@@ -136,7 +136,7 @@ describe('voiceover generation', () => {
     expect(fake.calls[0]!.opts).toMatchObject({ voiceId: 'voiceA1', language: 'en', speed: 1 });
 
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(8);
+    expect(ws!.creditBalance).toBe(40);
     // The audio is playable through a signed URL.
     const url = await request(app).get(`/api/assets/${p.narrationAsset.id}/url`).set(auth).expect(200);
     expect(url.body.data.url).toContain('/api/storage/');
@@ -144,7 +144,7 @@ describe('voiceover generation', () => {
 
   it('offsets word timings across chunks and replaces the previous voiceover', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 50 });
+    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 250 });
     const script = 'One two three four five six seven eight. '.repeat(70).trim(); // ~2900 chars → 2 chunks
     const project = await avatarProject(auth, { script });
     await request(app).post(`/api/projects/${project.id}/narrate`).set(auth).expect(202);
@@ -167,7 +167,7 @@ describe('voiceover generation', () => {
 
   it('refunds credits once when the provider rejects the request permanently', async () => {
     const { auth, user } = await registerUser({ verify: true });
-    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 5 });
+    await Workspace.updateOne({ _id: user.defaultWorkspaceId }, { creditBalance: 25 });
     const project = await avatarProject(auth);
     fake.failWith = new TtsError('Your ElevenLabs character quota is used up.', 401, true);
     await request(app).post(`/api/projects/${project.id}/narrate`).set(auth).expect(202);
@@ -177,7 +177,7 @@ describe('voiceover generation', () => {
     expect(p!.status).toBe('failed');
     expect(p!.lastError).toMatch(/quota.*refunded/i);
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(5);
+    expect(ws!.creditBalance).toBe(25);
     expect(await CreditTransaction.countDocuments({ workspaceId: user.defaultWorkspaceId, type: 'refund' })).toBe(1);
   });
 
