@@ -37,6 +37,8 @@ import { renderBackground, renderScenes, type BackgroundKind, type SceneTransiti
 import { mixSfx, sfxCues } from '../audio/sfx.js';
 import { captionsToOutput, graphicsToOutput, keepSegments, rangeToOutput, sfxToOutput, type EditDoc } from './edl.js';
 import { getGraphicsRenderer, graphicClipPath } from './graphics.js';
+import { PhotoAvatar } from '../../models/PhotoAvatar.js';
+import { ownPhotoAvatar } from '../voice/consent.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
 import { getMotionRenderer, MOTION_FPS, motionTheme } from './motionRender.js';
@@ -176,6 +178,9 @@ async function ensurePresenter(
   if (!provider) throw new PermanentJobError('Talking presenters are not configured on this server.');
   const s = project.settings ?? {};
   const avatarId = s.avatarId!;
+  if ((await PhotoAvatar.exists({ workspaceId: project.workspaceId, providerLookId: avatarId })) && !(await ownPhotoAvatar(project.workspaceId as Types.ObjectId, avatarId))) {
+    throw new PermanentJobError('This photo avatar was removed or its consent was withdrawn. Choose another presenter.');
+  }
   const layout = s.avatarLayout ?? 'full';
   const backgroundColor = layout === 'overlay' ? KEY_GREEN : (s.backgroundColor ?? '#1E1B4B');
   const aspectRatio = project.aspectRatio as '9:16' | '16:9' | '1:1' | '4:5';

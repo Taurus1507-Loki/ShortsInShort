@@ -31,6 +31,7 @@ const BillingPage = lazy(() => import('@/pages/app/BillingPage'));
 const AdminPage = lazy(() => import('@/pages/app/AdminPage'));
 const TemplatesPage = lazy(() => import('@/pages/app/TemplatesPage'));
 const BatchPage = lazy(() => import('@/pages/app/BatchPage'));
+const AvatarsPage = lazy(() => import('@/pages/app/AvatarsPage'));
 const ConsentPage = lazy(() => import('@/pages/consent/ConsentPage'));
 
 /** Pages announced in the navigation before they are built (none right now). */
@@ -86,6 +87,7 @@ export default function App() {
               <Route path="admin" element={<AdminPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="batch" element={<BatchPage />} />
+              <Route path="avatars" element={<AvatarsPage />} />
               <Route path="batch/:id" element={<BatchPage />} />
               <Route path="help" element={<HelpPage />} />
               {SOON.map(({ path, ...props }) => (

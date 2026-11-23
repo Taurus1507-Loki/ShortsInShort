@@ -120,11 +120,11 @@ export const emails = {
       ),
     };
   },
-  consentRequest(to: string, subjectName: string, requester: string, workspace: string, statement: string, confirmUrl: string, revokeUrl: string): EmailMessage {
+  consentRequest(to: string, subjectName: string, requester: string, workspace: string, statement: string, confirmUrl: string, revokeUrl: string, kind: 'voice' | 'likeness' = 'voice'): EmailMessage {
     return {
       to,
       tag: 'consent_request',
-      subject: `${requester} wants to create an AI copy of your voice`,
+      subject: `${requester} wants to create ${kind === 'likeness' ? 'an AI avatar of your face' : 'an AI copy of your voice'}`,
       text: `Hi ${subjectName},
 
 ${requester} (workspace "${workspace}") uploaded a recording of you saying:
@@ -136,39 +136,43 @@ ${confirmUrl}
 If this wasn't you or you don't agree, do nothing — or withdraw at any time, now or later:
 ${revokeUrl}`,
       html: layout(
-        'Confirm your voice consent',
+        kind === 'likeness' ? 'Confirm your avatar consent' : 'Confirm your voice consent',
         `<p>Hi ${escapeHtml(subjectName)}, <strong>${escapeHtml(requester)}</strong> (workspace “${escapeHtml(workspace)}”) uploaded a recording of you saying:</p><blockquote style="margin:12px 0;padding:10px 14px;border-left:3px solid #7C3AED;background:#F5F3FF">${escapeHtml(statement)}</blockquote><p>Nothing is created until you confirm. The link is valid for 7 days.</p><p style="font-size:13px">Don’t agree, or this wasn’t you? Do nothing, or <a href="${escapeHtml(revokeUrl)}">withdraw consent</a> — that link keeps working later too.</p>`,
         { label: 'Review and confirm', url: confirmUrl },
       ),
     };
   },
-  consentRecorded(to: string, subjectName: string, workspace: string, revokeUrl: string): EmailMessage {
+  consentRecorded(to: string, subjectName: string, workspace: string, revokeUrl: string, kind: 'voice' | 'likeness' = 'voice'): EmailMessage {
+    const what = kind === 'likeness' ? 'an AI avatar of your face' : 'an AI copy of your voice';
+    const gone = kind === 'likeness' ? 'the avatar and your photo' : 'the AI voice and your recordings';
     return {
       to,
       tag: 'consent_recorded',
-      subject: 'Your voice consent for ShortsInShort',
+      subject: kind === 'likeness' ? 'Your avatar consent for ShortsInShort' : 'Your voice consent for ShortsInShort',
       text: `Hi ${subjectName},
 
-You agreed to an AI copy of your voice for the "${workspace}" workspace. Keep this email: you can withdraw at any time with this link, which deletes the voice and your recordings:
+You agreed to ${what} for the "${workspace}" workspace. Keep this email: you can withdraw at any time with this link, which deletes ${gone}:
 ${revokeUrl}`,
       html: layout(
-        'Your voice consent is recorded',
-        `<p>Hi ${escapeHtml(subjectName)}, you agreed to an AI copy of your voice for the “${escapeHtml(workspace)}” workspace.</p><p>Keep this email. You can withdraw at any time — the AI voice and your recordings are deleted straight away.</p>`,
+        kind === 'likeness' ? 'Your avatar consent is recorded' : 'Your voice consent is recorded',
+        `<p>Hi ${escapeHtml(subjectName)}, you agreed to ${what} for the “${escapeHtml(workspace)}” workspace.</p><p>Keep this email. You can withdraw at any time — ${gone} are deleted straight away.</p>`,
         { label: 'Withdraw consent', url: revokeUrl },
       ),
     };
   },
-  consentWithdrawn(to: string, name: string, subjectName: string, voiceName: string): EmailMessage {
+  consentWithdrawn(to: string, name: string, subjectName: string, voiceName: string, kind: 'voice' | 'likeness' = 'voice'): EmailMessage {
+    const item = kind === 'likeness' ? `photo avatar "${voiceName}"` : `custom voice "${voiceName}"`;
+    const use = kind === 'likeness' ? 'new videos' : 'new voiceovers';
     return {
       to,
       tag: 'consent_withdrawn',
-      subject: `${subjectName} withdrew consent for the voice "${voiceName}"`,
+      subject: `${subjectName} withdrew consent for the ${kind === 'likeness' ? 'avatar' : 'voice'} "${voiceName}"`,
       text: `Hi ${name},
 
-${subjectName} withdrew their consent. The custom voice "${voiceName}" and its recordings were deleted and can no longer be used for new voiceovers.`,
+${subjectName} withdrew their consent. The ${item} was deleted and can no longer be used for ${use}.`,
       html: layout(
-        'Voice consent withdrawn',
-        `<p>Hi ${escapeHtml(name)}, ${escapeHtml(subjectName)} withdrew their consent. The custom voice “${escapeHtml(voiceName)}” and its recordings were deleted and can no longer be used for new voiceovers.</p>`,
+        kind === 'likeness' ? 'Avatar consent withdrawn' : 'Voice consent withdrawn',
+        `<p>Hi ${escapeHtml(name)}, ${escapeHtml(subjectName)} withdrew their consent. The ${escapeHtml(item)} was deleted and can no longer be used for ${use}.</p>`,
       ),
     };
   },

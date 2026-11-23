@@ -31,7 +31,8 @@ import { abortLocalJob } from '../../services/queue/worker.js';
 import { audit } from '../../services/audit.service.js';
 import { jobStartLimiter } from '../../middleware/security.js';
 import { getTtsProvider, listVoicesCached } from '../../services/ai/tts.js';
-import { ownCustomVoice } from '../../services/voice/consent.js';
+import { ownCustomVoice, ownPhotoAvatar } from '../../services/voice/consent.js';
+import { PhotoAvatar } from '../../models/PhotoAvatar.js';
 import { scriptHash } from '../../services/audio/narrationJob.js';
 import { CustomVoice } from '../../models/CustomVoice.js';
 import { Transcript } from '../../models/Transcript.js';
@@ -221,22 +222,29 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   const layout = s.avatarLayout ?? 'full';
   let presenterCredits = 0;
   let presenterReused = false;
+  let photoAvatar = false;
   if (avatarId) {
     if (!getAvatarProvider()) throw new AppError(503, 'NOT_CONFIGURED', 'Talking presenters are not configured on this server.');
-    let avatars;
-    try {
-      avatars = await listAvatarsCached();
-    } catch {
-      throw new AppError(502, 'PROVIDER_ERROR', 'Could not reach the avatar provider. Try again shortly.');
+    photoAvatar = Boolean(await ownPhotoAvatar(workspaceId, avatarId));
+    if (!photoAvatar) {
+      if (await PhotoAvatar.exists({ workspaceId, providerLookId: avatarId })) {
+        throw new AppError(409, 'AVATAR_WITHDRAWN', 'This photo avatar was removed or its consent was withdrawn. Choose another presenter.');
+      }
+      let avatars;
+      try {
+        avatars = await listAvatarsCached();
+      } catch {
+        throw new AppError(502, 'PROVIDER_ERROR', 'Could not reach the avatar provider. Try again shortly.');
+      }
+      if (!avatars.some((a) => a.id === avatarId)) throw badRequest('That presenter is no longer available. Choose another one.', 'INVALID_AVATAR');
     }
-    if (!avatars.some((a) => a.id === avatarId)) throw badRequest('That presenter is no longer available. Choose another one.', 'INVALID_AVATAR');
     const ar = project.avatarRender;
     const color = layout === 'overlay' ? KEY_GREEN : (s.backgroundColor ?? '#1E1B4B');
     presenterReused = Boolean(
       ar?.assetId && ar.avatarId === avatarId && ar.narrationAssetId?.equals(narration._id) && ar.backgroundColor === color && ar.aspectRatio === project.aspectRatio &&
         (await Asset.exists({ _id: ar.assetId, workspaceId, deletedAt: null, status: 'ready' })),
     );
-    if (!presenterReused) presenterCredits = avatarCreditCost(narration.durationSec ?? stats.durationSec ?? 0);
+    if (!presenterReused) presenterCredits = avatarCreditCost(narration.durationSec ?? stats.durationSec ?? 0, photoAvatar);
   }
   if ((background === 'image' || background === 'video') && !(avatarId && layout === 'full')) {
     const bg = project.backgroundAssetId ? await Asset.findOne({ _id: project.backgroundAssetId, workspaceId, deletedAt: null, status: 'ready' }) : null;
@@ -255,6 +263,7 @@ async function avatarQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
     credits: facelessCreditCost(durationSec, resolution) + presenterCredits,
     presenterCredits,
     presenterReused,
+    photoAvatar,
     balance: ws?.creditBalance ?? 0,
     sourceDurationSec: durationSec,
     resolution,

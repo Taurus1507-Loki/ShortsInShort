@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -156,7 +157,9 @@ export function PresenterPicker({ settings, onChange }: { settings: ProjectSetti
           className={cn('rounded-lg border p-3 text-left disabled:opacity-50', chosen ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40')}
         >
           <span className="block text-sm font-semibold">Talking presenter</span>
-          <span className="text-xs text-muted-foreground">An AI presenter lip-synced to your voiceover. {meta?.pricing.find((x) => x.step === 'presenter')?.credits ?? 50} credits per 30 s, charged once — re-exports reuse it.</span>
+          <span className="text-xs text-muted-foreground">
+            An AI presenter lip-synced to your voiceover. Your own photo avatar: {meta?.pricing.find((x) => x.step === 'presenter_photo')?.credits ?? 80} credits per 30 s; a stock presenter: {meta?.pricing.find((x) => x.step === 'presenter')?.credits ?? 160}. Charged once — re-exports reuse it.
+          </span>
         </button>
       </div>
 
@@ -180,6 +183,11 @@ export function PresenterPicker({ settings, onChange }: { settings: ProjectSetti
             </Select>
           </div>
           {isError && <Notice tone="error">{errorMessage(error)}</Notice>}
+          {avatars && !avatars.some((a) => a.own) && (
+            <p className="text-xs text-muted-foreground">
+              Want to be the presenter yourself? <Link to="/app/avatars" className="font-medium text-primary hover:underline">Create your avatar from one photo</Link>.
+            </p>
+          )}
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading presenters…</p>
           ) : (
@@ -198,7 +206,10 @@ export function PresenterPicker({ settings, onChange }: { settings: ProjectSetti
                     ) : (
                       <div className="grid aspect-[3/4] w-full place-items-center bg-muted text-xs text-muted-foreground">No preview</div>
                     )}
-                    <span className="block truncate px-2 py-1.5 text-xs font-semibold">{a.name}</span>
+                    <span className="flex items-center gap-1 truncate px-2 py-1.5 text-xs font-semibold">
+                      {a.name}
+                      {a.own && <span className="rounded bg-primary/15 px-1 text-[10px] font-semibold text-primary">You</span>}
+                    </span>
                   </button>
                 </li>
               ))}

@@ -41,7 +41,7 @@ export const AUDIO_TYPES: Record<string, string[]> = {
 const ALLOWED_AUDIO = new Set(Object.values(AUDIO_TYPES).flat());
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export const MAX_AUDIO_SEC = 5 * 60;
-export type UploadPurpose = 'video' | 'logo' | 'background' | 'voice_sample' | 'consent';
+export type UploadPurpose = 'video' | 'logo' | 'background' | 'voice_sample' | 'consent' | 'avatar_photo';
 export const MAX_BACKGROUND_BYTES = 15 * 1024 * 1024;
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
@@ -89,7 +89,8 @@ export async function initiateUpload(input: {
   purpose?: UploadPurpose;
 }) {
   const ext = extensionOf(input.filename);
-  const background = input.purpose === 'background';
+  const photo = input.purpose === 'avatar_photo';
+  const background = input.purpose === 'background' || photo;
   const logo = input.purpose === 'logo' || background;
   const audio = input.purpose === 'voice_sample' || input.purpose === 'consent';
   if (audio) {
@@ -97,6 +98,7 @@ export async function initiateUpload(input: {
     if (input.sizeBytes > MAX_AUDIO_BYTES) throw new AppError(413, 'TOO_LARGE', 'Recordings can be up to 25 MB.');
   } else if (logo) {
     if (!IMAGE_TYPES[ext] || !input.contentType.startsWith('image/')) throw badRequest('Upload a PNG, JPG or WEBP image.', 'UNSUPPORTED_TYPE');
+    if (photo && ext === 'webp') throw badRequest('Upload a PNG or JPG photo.', 'UNSUPPORTED_TYPE');
     const max = background ? MAX_BACKGROUND_BYTES : MAX_LOGO_BYTES;
     if (input.sizeBytes > max) throw new AppError(413, 'TOO_LARGE', background ? 'Background images can be up to 15 MB.' : 'Logos can be up to 5 MB.');
   } else {
@@ -116,7 +118,7 @@ export async function initiateUpload(input: {
     _id: id,
     workspaceId: input.workspaceId,
     createdBy: input.userId,
-    kind: background ? 'background_image' : logo ? 'brand_logo' : input.purpose === 'voice_sample' ? 'voice_sample' : input.purpose === 'consent' ? 'consent_recording' : 'source_video',
+    kind: photo ? 'avatar_photo' : background ? 'background_image' : logo ? 'brand_logo' : input.purpose === 'voice_sample' ? 'voice_sample' : input.purpose === 'consent' ? 'consent_recording' : 'source_video',
     status: 'pending',
     storageKey,
     originalName: input.filename.slice(0, 255),
@@ -154,7 +156,7 @@ export async function completeUpload(workspaceId: Types.ObjectId, assetId: strin
 
   const head = await storage.readHead(asset.storageKey, 4100);
   const detected = await fileTypeFromBuffer(head);
-  if (asset.kind === 'brand_logo' || asset.kind === 'background_image') return completeLogo(asset, workspaceId, s.size, detected?.mime);
+  if (asset.kind === 'brand_logo' || asset.kind === 'background_image' || asset.kind === 'avatar_photo') return completeLogo(asset, workspaceId, s.size, detected?.mime);
   if (asset.kind === 'voice_sample' || asset.kind === 'consent_recording') return completeAudio(asset, workspaceId, s.size, detected?.mime);
   if (!detected || !ALLOWED_DETECTED.has(detected.mime)) {
     return failUpload(asset, 'That file isn’t a supported video (MP4, MOV, WEBM or MKV).');
@@ -259,9 +261,11 @@ async function measureAudioSec(input: string): Promise<number> {
 
 /** Logo validation: real image type, decodable, sensible dimensions. */
 async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: number, mime: string | undefined): Promise<AssetDoc> {
-  const bg = asset.kind === 'background_image';
+  const photo = asset.kind === 'avatar_photo';
+  const bg = asset.kind === 'background_image' || photo;
   if (size > (bg ? MAX_BACKGROUND_BYTES : MAX_LOGO_BYTES)) return failUpload(asset, bg ? 'Background images can be up to 15 MB.' : 'Logos can be up to 5 MB.');
   if (!mime || !ALLOWED_IMAGES.has(mime)) return failUpload(asset, 'That file isn’t a PNG, JPG or WEBP image.');
+  if (photo && mime === 'image/webp') return failUpload(asset, 'Upload a PNG or JPG photo.');
   let info;
   try {
     info = await probe(await storage.getProcessingInput(asset.storageKey));
@@ -270,6 +274,7 @@ async function completeLogo(asset: AssetDoc, workspaceId: Types.ObjectId, size: 
   }
   const w = info.video?.width ?? 0;
   const h = info.video?.height ?? 0;
+  if (photo && (w < 512 || h < 512)) return failUpload(asset, 'Use a sharper photo: at least 512 × 512 pixels.');
   if (bg ? w < 320 || h < 320 || w > 8000 || h > 8000 : w < 32 || h < 32 || w > 6000 || h > 6000) {
     return failUpload(asset, bg ? 'Background images must be between 320 and 8000 pixels on each side.' : 'Logos must be between 32 and 6000 pixels on each side.');
   }

@@ -231,3 +231,19 @@ sound effects); "Suggest graphics" re-plans them; every graphic is editable on t
   step, or the user pressed Stop) stops with a note; the others carry on and it can be finished from its page.
 - The batch page shows each video's step (Voiceover, Planning scenes, Exporting, Ready, Needs you) and links to
   watch and download. Verified locally: 2 videos, voiced by Sarvam, scenes planned by Gemini, exported in ~75 s.
+
+## Personal branding: photo avatars — Release D (2026-11-23)
+
+- **My Avatar** (`/app/avatars`): one clear photo becomes a private talking avatar (HeyGen API v3 photo avatar,
+  `POST /v3/avatars` type `photo`, polled at `GET /v3/avatars/looks/{id}`). Paired with a cloned voice (AI Voices),
+  it makes videos that look and sound like the user without filming.
+- **Consent, same rules as cloned voices:** the person reads a consent sentence naming them and the workspace (checked
+  by speech-to-text); someone else's face also needs their confirmation by email; withdrawing (by the person's link
+  or by removing the avatar) deletes the avatar at the provider, the photo and the consent recording. Kept: the
+  consent record (who, when, how). Presenter videos are always labelled "AI-generated".
+- **Prices (user decision 2026-11-23):** creating an avatar 80 credits once (refunded if it fails); videos with your own
+  avatar 80 per 30 s; stock presenters raised from 50 to 160 per 30 s, because HeyGen's default engine costs about
+  ₹204 per 30 s. Free plan: no photo avatars (same allowance as custom voices).
+- Your avatars are listed first in the presenter picker; another workspace can never use an avatar's id; a withdrawn
+  avatar can't be exported (409 `AVATAR_WITHDRAWN`, and the render re-checks consent).
+- Built and tested with a stand-in provider; going live needs `HEYGEN_API_KEY` (pay-as-you-go API credits).

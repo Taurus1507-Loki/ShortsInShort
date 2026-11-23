@@ -14,10 +14,10 @@ import { LANGUAGES } from '@/config/options';
 import { cn, timeAgo } from '@/lib/utils';
 import type { Asset, CustomVoice } from '@/types/api';
 
-const AUDIO_ACCEPT = 'audio/*,.mp3,.wav,.m4a,.webm,.ogg';
+export const AUDIO_ACCEPT = 'audio/*,.mp3,.wav,.m4a,.webm,.ogg';
 
 /** Records from the microphone and hands back a File ready to upload. */
-function Recorder({ onRecorded, label, maxSec = 300 }: { onRecorded: (f: File) => void; label: string; maxSec?: number }) {
+export function Recorder({ onRecorded, label, maxSec = 300 }: { onRecorded: (f: File) => void; label: string; maxSec?: number }) {
   const [state, setState] = useState<'idle' | 'recording'>('idle');
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +83,7 @@ function Recorder({ onRecorded, label, maxSec = 300 }: { onRecorded: (f: File) =
 }
 
 /** Uploads one File as a voice sample / consent recording, with progress. */
-function useAudioUpload(purpose: 'voice_sample' | 'consent') {
+export function useAudioUpload(purpose: 'voice_sample' | 'consent') {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const upload = async (file: File): Promise<Asset | null> => {

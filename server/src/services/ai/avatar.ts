@@ -39,6 +39,12 @@ export interface AvatarProvider {
   createVideo(req: AvatarVideoRequest): Promise<string>;
   getVideo(videoId: string, signal?: AbortSignal): Promise<{ status: AvatarVideoStatus; videoUrl: string | null; durationSec: number | null; failure: string | null }>;
   download(videoUrl: string, dest: string, signal?: AbortSignal): Promise<void>;
+  /** Personal branding: creates a private avatar from one photo (consent is checked by the caller). */
+  createPhotoAvatar(req: { photoPath: string; mimeType: string; name: string; idempotencyKey: string; signal?: AbortSignal }): Promise<{ groupId: string | null; lookId: string }>;
+  /** Status of a private avatar look. */
+  getLook(lookId: string, signal?: AbortSignal): Promise<{ status: 'processing' | 'pending_consent' | 'completed' | 'failed'; previewImageUrl: string | null; failure: string | null }>;
+  /** Deletes a private avatar at the provider (idempotent: a missing avatar is not an error). */
+  deleteAvatar(groupId: string, signal?: AbortSignal): Promise<void>;
 }
 
 export class AvatarError extends Error {
@@ -151,12 +157,50 @@ export class HeyGenProvider implements AvatarProvider {
   }
 
   private async uploadAudio(file: string, signal?: AbortSignal): Promise<string> {
+    return this.uploadAsset(file, 'audio/mpeg', signal);
+  }
+
+  private async uploadAsset(file: string, mimeType: string, signal?: AbortSignal): Promise<string> {
     const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(await readFile(file))], { type: 'audio/mpeg' }), path.basename(file));
+    form.append('file', new Blob([new Uint8Array(await readFile(file))], { type: mimeType }), path.basename(file));
     const body = await this.call<{ data?: { asset_id?: string; id?: string } }>('/v3/assets', { method: 'POST', body: form, signal });
     const id = body.data?.asset_id ?? body.data?.id;
-    if (!id) throw new AvatarError('The avatar provider did not accept the voiceover upload.');
+    if (!id) throw new AvatarError('The avatar provider did not accept the upload.');
     return id;
+  }
+
+  /** POST /v3/avatars with type "photo": a new private avatar group with one look. */
+  async createPhotoAvatar(req: { photoPath: string; mimeType: string; name: string; idempotencyKey: string; signal?: AbortSignal }) {
+    const assetId = await this.uploadAsset(req.photoPath, req.mimeType, req.signal);
+    const body = await this.call<{ data?: { avatar_item?: { id?: string } | null; avatar_group?: { id?: string } | null } }>('/v3/avatars', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': req.idempotencyKey.slice(0, 255) },
+      body: JSON.stringify({ type: 'photo', name: req.name.slice(0, 60), file: { type: 'asset_id', asset_id: assetId } }),
+      signal: req.signal,
+    });
+    const lookId = body.data?.avatar_item?.id;
+    if (!lookId) throw new AvatarError('The avatar provider returned no avatar id.');
+    return { groupId: body.data?.avatar_group?.id ?? null, lookId };
+  }
+
+  async getLook(lookId: string, signal?: AbortSignal) {
+    const body = await this.call<{ data?: { status?: string; preview_image_url?: string | null; error?: { code?: string; message?: string } | null } }>(
+      `/v3/avatars/looks/${encodeURIComponent(lookId)}`,
+      { signal },
+    );
+    const d = body.data ?? {};
+    const status = d.status === 'completed' || d.status === 'failed' || d.status === 'pending_consent' ? d.status : 'processing';
+    const preview = d.preview_image_url && /^https:\/\//.test(d.preview_image_url) ? d.preview_image_url : null;
+    return { status, previewImageUrl: preview, failure: status === 'failed' ? (d.error?.message ?? d.error?.code ?? 'The provider could not make an avatar from this photo.') : null } as const;
+  }
+
+  async deleteAvatar(groupId: string, signal?: AbortSignal) {
+    try {
+      await this.call(`/v3/avatars/${encodeURIComponent(groupId)}`, { method: 'DELETE', signal });
+    } catch (err) {
+      if (err instanceof AvatarError && err.status === 404) return;
+      throw err;
+    }
   }
 
   async createVideo(req: AvatarVideoRequest): Promise<string> {

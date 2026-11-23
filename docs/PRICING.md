@@ -50,7 +50,9 @@ Prices are set at about **2× our provider cost**, so they still look light to u
 | Scenes, clip swaps, previews | free | Pixabay is free; previews run in the browser |
 | Export, stock footage or voiceover video | **3 per 30 s** (×2 for 4K) | FFmpeg render, storage and bandwidth |
 | Export, animated (Motion Explainer) | **5 per 30 s** (×2 for 4K) | Headless Chrome render, which is heavier |
-| Talking presenter | **50 per 30 s**, reused on re-exports | HeyGen. **Recheck against the live price.** |
+| Talking presenter, stock | **160 per 30 s**, reused on re-exports | HeyGen Avatar IV studio avatar ≈ $4.83/min ≈ ₹204 per 30 s. (Was 50 until 2026-11-23, which lost money.) |
+| Talking presenter, your photo avatar | **80 per 30 s**, reused on re-exports | HeyGen Avatar IV photo avatar ≈ $2.31/min ≈ ₹98 per 30 s |
+| Create your photo avatar | **80, once** (refunded if it fails) | HeyGen photo avatar creation ≈ $1.32 ≈ ₹112 |
 | AI Video Editor, first render | **5 per minute** of footage | Deepgram ≈ ₹0.36/min, Gemini and the render |
 | AI Video Editor, re-render | **2 per minute** | The transcript is reused, so only the render is charged |
 

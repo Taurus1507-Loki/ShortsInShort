@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { PhotoAvatar } from '../../models/PhotoAvatar.js';
+import { ownPhotoAvatar } from '../../services/voice/consent.js';
+import { CREDIT_COSTS } from '../../config/credits.js';
 import { z } from 'zod';
 import { requireAuth, requireVerifiedEmail } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
@@ -45,11 +48,16 @@ aiRouter.post(
 /** Stock talking presenters from the avatar provider (cached). */
 aiRouter.get(
   '/avatars',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     const provider = getAvatarProvider();
     if (!provider) throw new AppError(503, 'NOT_CONFIGURED', 'Talking presenters are not configured on this server.');
     try {
-      res.json({ data: await listAvatarsCached(), meta: { provider: provider.name } });
+      const mine = await PhotoAvatar.find({ workspaceId: req.auth!.workspaceId, status: 'ready', deletedAt: null }).sort({ createdAt: -1 });
+      const own = [];
+      for (const a of mine) if (await ownPhotoAvatar(req.auth!.workspaceId, a.providerLookId!)) own.push(a);
+      const stock = (await listAvatarsCached()).map((a) => ({ ...a, own: false }));
+      const photos = own.map((a) => ({ id: a.providerLookId!, name: a.name, gender: null, previewImageUrl: a.previewImageUrl, previewVideoUrl: null, orientation: null, tags: ['your avatar'], own: true }));
+      res.json({ data: [...photos, ...stock], meta: { provider: provider.name, prices: { stockPer30s: CREDIT_COSTS.presenterPer30s, ownPer30s: CREDIT_COSTS.photoPresenterPer30s } } });
     } catch (err) {
       logger.warn({ err }, 'Avatar list failed');
       throw new AppError(502, 'PROVIDER_ERROR', err instanceof AvatarError ? err.message : 'Could not load presenters. Try again shortly.');

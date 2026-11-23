@@ -11,6 +11,8 @@ import { storage } from '../storage/storage.js';
 import { runFfmpeg } from '../video/ffmpeg.js';
 import { getTranscriptionProvider, TranscriptionError } from '../ai/transcription.js';
 import { getTtsProvider } from '../ai/tts.js';
+import { getAvatarProvider } from '../ai/avatar.js';
+import { PhotoAvatar } from '../../models/PhotoAvatar.js';
 import { audit } from '../audit.service.js';
 import { AppError, badRequest } from '../../utils/errors.js';
 
@@ -18,9 +20,10 @@ import { AppError, badRequest } from '../../utils/errors.js';
 export const STATEMENT_MATCH_THRESHOLD = 0.7;
 
 /** The exact sentence the person must say, naming themselves and the workspace. */
-export function consentStatement(subjectName: string, workspaceName: string): string {
+export function consentStatement(subjectName: string, workspaceName: string, kind: 'voice' | 'likeness' = 'voice'): string {
   const name = subjectName.replace(/\s+/g, ' ').trim();
   const ws = workspaceName.replace(/\s+/g, ' ').trim();
+  if (kind === 'likeness') return `I, ${name}, agree that ShortsInShort may create an AI avatar of my face from my photo for the ${ws} workspace. I understand I can withdraw this consent at any time.`;
   return `I, ${name}, agree that ShortsInShort may create an AI copy of my voice for the ${ws} workspace. I understand I can withdraw this consent at any time.`;
 }
 
@@ -102,6 +105,20 @@ export async function revokeConsent(consent: ConsentDoc, by: 'subject' | 'worksp
     v.set({ status: 'revoked', deletedAt: v.deletedAt ?? new Date(), sampleAssetIds: [] });
     await v.save();
   }
+  // Photo avatars: delete the avatar at the provider and the photo.
+  const avatars = await PhotoAvatar.find({ consentRecordId: consent._id });
+  const avatarProvider = getAvatarProvider();
+  for (const a of avatars) {
+    if (a.providerGroupId && avatarProvider) {
+      await avatarProvider.deleteAvatar(a.providerGroupId).catch((err) => logger.error({ err, avatarId: a._id.toString() }, 'Provider avatar delete failed — remove it manually'));
+    }
+    if (a.photoAssetId) {
+      const p = await Asset.findOne({ _id: a.photoAssetId, deletedAt: null });
+      if (p) await purgeAsset(p).catch((err) => logger.warn({ err }, 'Avatar photo purge failed'));
+    }
+    a.set({ status: 'revoked', deletedAt: a.deletedAt ?? new Date(), photoAssetId: null, previewImageUrl: null });
+    await a.save();
+  }
   if (consent.statementAssetId) {
     const a = await Asset.findOne({ _id: consent.statementAssetId, deletedAt: null });
     if (a) await purgeAsset(a).catch((err) => logger.warn({ err }, 'Consent recording purge failed'));
@@ -119,4 +136,12 @@ export async function ownCustomVoice(workspaceId: Types.ObjectId, providerVoiceI
   if (!voice) return null;
   const consent = await ConsentRecord.findOne({ _id: voice.consentRecordId, status: 'active' });
   return consent ? voice : null;
+}
+
+/** Re-checks at use time that a presenter id is this workspace's own photo avatar with active consent. */
+export async function ownPhotoAvatar(workspaceId: Types.ObjectId, providerLookId: string) {
+  const avatar = await PhotoAvatar.findOne({ workspaceId, providerLookId, status: 'ready', deletedAt: null });
+  if (!avatar) return null;
+  const consent = await ConsentRecord.findOne({ _id: avatar.consentRecordId, status: 'active' });
+  return consent ? avatar : null;
 }

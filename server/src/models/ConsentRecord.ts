@@ -11,7 +11,8 @@ const consentSchema = new Schema(
   {
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    kind: { type: String, enum: ['voice'], required: true },
+    /** voice = a cloned voice; likeness = a photo avatar of the person's face. */
+    kind: { type: String, enum: ['voice', 'likeness'], required: true },
     relationship: { type: String, enum: ['self', 'other'], required: true },
     subjectName: { type: String, required: true, trim: true, maxlength: 80 },
     subjectEmail: { type: String, required: true, lowercase: true, trim: true, maxlength: 254 },

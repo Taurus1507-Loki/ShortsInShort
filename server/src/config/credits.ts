@@ -8,7 +8,9 @@
  *   Voiceover — Sarvam Bulbul v3: ₹30 / 10,000 characters → ~₹1.20 per 30 s (≈400 characters).
  *   Rendering — our own servers (FFmpeg; headless Chrome for Motion Explainer) plus storage and bandwidth.
  *   Transcription — Deepgram ≈ ₹0.36 per minute (charged once per source; re-renders reuse it).
- *   Talking presenter — HeyGen, the most expensive provider (recheck against the live price).
+ *   Talking presenter — HeyGen API (2026-11): stock presenters (Avatar IV studio) ≈ $4.83/min ≈ ₹204 per 30 s;
+ *     photo avatars (Avatar IV photo) ≈ $2.31/min ≈ ₹98 per 30 s; creating a photo avatar ≈ $1.32 ≈ ₹112.
+ *     Recheck against the live price.
  */
 export const CREDIT_COSTS = {
   /** Voiceover: per started block of characters (~30 s of speech). */
@@ -17,8 +19,12 @@ export const CREDIT_COSTS = {
   exportPer30s: 3,
   /** Motion Explainer (headless-browser rendering): per started 30 s. */
   motionExportPer30s: 5,
-  /** Talking presenter (HeyGen): per started 30 s of voiceover. */
-  presenterPer30s: 50,
+  /** Stock talking presenter (HeyGen): per started 30 s of voiceover. */
+  presenterPer30s: 160,
+  /** Your own photo avatar as the presenter: per started 30 s of voiceover. */
+  photoPresenterPer30s: 80,
+  /** Creating a photo avatar from your photo (once). */
+  photoAvatarCreate: 80,
   /** AI Video Editor, first render of a source: transcription + AI + render, per started source minute. */
   editorPerSourceMinute: 5,
   /** AI Video Editor re-render: the transcript is reused, so only rendering is charged. */
@@ -41,7 +47,8 @@ export function narrationCreditCost(characters: number): number {
   return Math.max(1, Math.ceil(characters / NARRATION_CHARS_PER_BLOCK)) * CREDIT_COSTS.narrationPerBlock;
 }
 
-export const avatarCreditCost = (durationSec: number) => per30s(durationSec) * CREDIT_COSTS.presenterPer30s;
+/** Talking presenter: a stock presenter, or the workspace's own photo avatar (cheaper at the provider). */
+export const avatarCreditCost = (durationSec: number, photo = false) => per30s(durationSec) * (photo ? CREDIT_COSTS.photoPresenterPer30s : CREDIT_COSTS.presenterPer30s);
 
 /** Exporting a voiced video (stock faceless, or a voiceover over a background). */
 export const facelessCreditCost = (durationSec: number, resolution: string) => per30s(durationSec) * CREDIT_COSTS.exportPer30s * resMult(resolution);
@@ -66,7 +73,9 @@ export const PRICE_LIST = [
   { step: 'scenes', label: 'Scenes and clip swaps', credits: 0, unit: 'free' },
   { step: 'export', label: 'Export, stock clips or voiceover video', credits: CREDIT_COSTS.exportPer30s, unit: 'per 30 s' },
   { step: 'export_motion', label: 'Export, animated (Motion Explainer)', credits: CREDIT_COSTS.motionExportPer30s, unit: 'per 30 s' },
-  { step: 'presenter', label: 'Talking presenter', credits: CREDIT_COSTS.presenterPer30s, unit: 'per 30 s' },
+  { step: 'presenter', label: 'Talking presenter (stock)', credits: CREDIT_COSTS.presenterPer30s, unit: 'per 30 s' },
+  { step: 'presenter_photo', label: 'Talking presenter (your photo avatar)', credits: CREDIT_COSTS.photoPresenterPer30s, unit: 'per 30 s' },
+  { step: 'photo_avatar', label: 'Create your photo avatar', credits: CREDIT_COSTS.photoAvatarCreate, unit: 'once' },
   { step: 'editor', label: 'AI Video Editor, first render', credits: CREDIT_COSTS.editorPerSourceMinute, unit: 'per minute of footage' },
   { step: 'editor_analyze', label: 'AI Video Editor, analyse footage (once per video)', credits: CREDIT_COSTS.editorAnalyzePerSourceMinute, unit: 'per minute of footage' },
   { step: 'editor_rerender', label: 'AI Video Editor, export', credits: CREDIT_COSTS.editorRerenderPerSourceMinute, unit: 'per minute of footage' },

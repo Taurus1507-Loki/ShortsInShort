@@ -12,6 +12,8 @@ import { Workspace } from '../../models/Workspace.js';
 import { User } from '../../models/User.js';
 import { ConsentRecord, toPublicConsent } from '../../models/ConsentRecord.js';
 import { CustomVoice, toPublicCustomVoice } from '../../models/CustomVoice.js';
+import { PhotoAvatar } from '../../models/PhotoAvatar.js';
+import { startPhotoAvatar } from '../../services/avatar/photoAvatarJob.js';
 import { getTtsProvider, listVoicesCached, TtsError, type VoiceInfo } from '../../services/ai/tts.js';
 import { getTranscriptionProvider } from '../../services/ai/transcription.js';
 import { consentStatement, revokeConsent, STATEMENT_MATCH_THRESHOLD, verifyStatementRecording } from '../../services/voice/consent.js';
@@ -327,6 +329,7 @@ async function findByToken(token: string, purpose: 'confirm' | 'withdraw') {
 async function describe(consentId: Types.ObjectId) {
   const c = await ConsentRecord.findById(consentId);
   const voice = await CustomVoice.findOne({ consentRecordId: consentId });
+  const avatar = c?.kind === 'likeness' ? await PhotoAvatar.findOne({ consentRecordId: consentId }) : null;
   const ws = c ? await Workspace.findById(c.workspaceId).select('name').lean() : null;
   const requester = c ? await User.findById(c.createdBy).select('fullName').lean() : null;
   return {
@@ -336,7 +339,9 @@ async function describe(consentId: Types.ObjectId) {
     relationship: c!.relationship,
     workspaceName: ws?.name ?? '',
     requesterName: requester?.fullName ?? '',
+    kind: c!.kind,
     voiceName: voice?.name ?? '',
+    avatarName: avatar?.name ?? '',
     confirmExpiresAt: c!.confirmExpiresAt,
     revokedAt: c!.revokedAt,
   };
@@ -364,6 +369,14 @@ consentRouter.post(
     await consent.save();
     const voice = await CustomVoice.findOne({ consentRecordId: consent._id, deletedAt: null });
     if (voice) await startClone(voice._id, consent.workspaceId as Types.ObjectId);
+    const avatar = await PhotoAvatar.findOne({ consentRecordId: consent._id, deletedAt: null });
+    if (avatar) {
+      // Charged to the workspace that asked; without credits it waits as "failed" for them to retry.
+      await startPhotoAvatar(avatar._id, consent.workspaceId as Types.ObjectId, null).catch(async (err) => {
+        logger.warn({ err }, 'Photo avatar could not start after consent');
+        await PhotoAvatar.updateOne({ _id: avatar._id }, { $set: { status: 'failed', failureReason: 'Consent confirmed, but the workspace had too few credits. Top up and press Retry.' } });
+      });
+    }
     await audit(req, 'consent.confirmed', { workspaceId: consent.workspaceId as Types.ObjectId, metadata: { consentId: consent._id.toString() } });
     res.json({ data: await describe(consent._id) });
   }),
@@ -380,7 +393,9 @@ consentRouter.post(
     if (!wasRevoked && consent.relationship === 'other') {
       const owner = await User.findById(consent.createdBy).select('email fullName').lean();
       const voice = await CustomVoice.findOne({ consentRecordId: consent._id });
-      if (owner) await sendEmail(emails.consentWithdrawn(owner.email, owner.fullName, consent.subjectName, voice?.name ?? 'custom voice'));
+      const avatar = await PhotoAvatar.findOne({ consentRecordId: consent._id });
+      const likeness = consent.kind === 'likeness';
+      if (owner) await sendEmail(emails.consentWithdrawn(owner.email, owner.fullName, consent.subjectName, (likeness ? avatar?.name : voice?.name) ?? (likeness ? 'photo avatar' : 'custom voice'), likeness ? 'likeness' : 'voice'));
     }
     res.json({ data: await describe(consent._id) });
   }),

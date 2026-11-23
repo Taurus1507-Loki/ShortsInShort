@@ -36,7 +36,7 @@ export interface Plan {
   highlights: string[];
 }
 
-export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'editor' | 'editor_analyze' | 'editor_rerender';
+export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'presenter_photo' | 'photo_avatar' | 'editor' | 'editor_analyze' | 'editor_rerender';
 
 export interface Meta {
   currency: 'INR';
@@ -359,6 +359,29 @@ export interface AvatarInfo {
   previewVideoUrl: string | null;
   orientation: 'portrait' | 'landscape' | 'square' | null;
   tags: string[];
+  /** The workspace's own photo avatar (cheaper than stock presenters). */
+  own?: boolean;
+}
+
+/** A talking avatar made from one consented photo (personal branding). */
+export interface PhotoAvatar {
+  id: string;
+  name: string;
+  status: 'awaiting_consent' | 'creating' | 'ready' | 'failed' | 'revoked';
+  failureReason: string | null;
+  avatarId: string | null;
+  previewImageUrl: string | null;
+  photoAssetId: string | null;
+  createdAt: string;
+  consent: { relationship: 'self' | 'other'; subjectName: string; subjectEmail: string; status: string; grantedAt: string | null } | null;
+}
+export interface PhotoAvatarStatus {
+  avatarsConfigured: boolean;
+  consentCheckConfigured: boolean;
+  limit: number;
+  used: number;
+  createCredits: number;
+  per30sCredits: number;
 }
 
 export interface SceneClip {

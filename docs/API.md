@@ -110,6 +110,19 @@ Sound-effect files for the preview: `GET /api/music/sfx/:kind` (WAV, synthesised
 
 Templates now carry `niches` (creators, tech, doctors, coaches, finance, real_estate, business, educators, food, storytellers).
 
+## Photo avatars — `/avatars` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/photo/status` | `{avatarsConfigured, consentCheckConfigured, limit, used, createCredits, per30sCredits}` |
+| GET | `/photo/statement?subjectName=` | The consent sentence to read aloud (names the person and the workspace) |
+| GET | `/photo` | The workspace's photo avatars with their consent |
+| POST | `/photo` | `{name, relationship: self|other, subjectName, subjectEmail? (other), attestations{rightsAndConsent, notPublicFigure, acceptsUsePolicy}, statementAssetId (purpose consent), photoAssetId (purpose avatar_photo: PNG/JPG ≥ 512×512)}`. Verifies the spoken statement (400 `CONSENT_NOT_MATCHED`). Self: charged 80 credits and created now (`creating` → `ready`); other: they confirm by email first. 402 `INSUFFICIENT_CREDITS`, 403 `PLAN_LIMIT`, 503 `NOT_CONFIGURED` |
+| POST | `/photo/:id/retry` | Retries a failed avatar (charged again; the failed attempt was refunded) |
+| DELETE | `/photo/:id` | Withdraws consent: deletes the avatar at the provider, the photo and the consent recording |
+
+A ready avatar's `avatarId` is used as a project's `settings.avatarId`; `GET /ai/avatars` lists the workspace's own avatars first (`own: true`) and returns `meta.prices`. Presenter estimates add `photoAvatar`; a withdrawn avatar returns 409 `AVATAR_WITHDRAWN`. Consent links (`/consent/lookup|confirm|withdraw`) handle both voices and avatars (`kind`, `avatarName`).
+
 ## Avatar Studio voiceover — `/projects/:id` (auth, mode `avatar`)
 
 | Method | Path | Notes |

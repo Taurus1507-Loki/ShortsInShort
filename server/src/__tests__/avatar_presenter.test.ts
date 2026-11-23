@@ -53,6 +53,13 @@ class FakeAvatars implements AvatarProvider {
   async download(_url: string, dest: string) {
     await copyFile(clip, dest);
   }
+  async createPhotoAvatar() {
+    return { groupId: 'ag_1', lookId: 'photo1' };
+  }
+  async getLook() {
+    return { status: 'completed' as const, previewImageUrl: null, failure: null };
+  }
+  async deleteAvatar() {}
 }
 let avatars: FakeAvatars;
 
@@ -94,7 +101,7 @@ const SETTINGS = { voiceId: 'voiceA1', resolution: '720p', bRollIntensity: 'none
 
 async function setup(settings: Record<string, unknown> = {}) {
   const u = await registerUser({ verify: true });
-  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 100 });
+  await Workspace.updateOne({ _id: u.user.defaultWorkspaceId }, { creditBalance: 400 });
   const p = (
     await request(app)
       .post('/api/projects')
@@ -147,7 +154,7 @@ describe('talking presenter render', () => {
   it('charges for the presenter once, renders it full-frame, and reuses it on re-render', async () => {
     const { auth, p, user } = await setup({ backgroundColor: '#112233' });
     const est = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(est).toMatchObject({ presenterCredits: 50, presenterReused: false, credits: 53 });
+    expect(est).toMatchObject({ presenterCredits: 160, presenterReused: false, credits: 163, photoAvatar: false });
 
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
@@ -169,7 +176,7 @@ describe('talking presenter render', () => {
     expect(avatars.created).toHaveLength(1);
     expect((await Project.findById(p.id))!.renderStats!.presenter).toMatchObject({ reused: true });
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(100 - 2 - 53 - 3); // voiceover, first render, re-render
+    expect(ws!.creditBalance).toBe(400 - 2 - 163 - 3); // voiceover, first render, re-render
   }, 120_000);
 
   it('keys the presenter over the chosen background in overlay layout', async () => {
@@ -199,7 +206,7 @@ describe('talking presenter render', () => {
     const proj = await Project.findById(p.id);
     expect(proj!.status).toBe('failed');
     expect(proj!.avatarRender).toBeNull();
-    expect((await Workspace.findById(user.defaultWorkspaceId))!.creditBalance).toBe(98); // only the voiceover was kept
+    expect((await Workspace.findById(user.defaultWorkspaceId))!.creditBalance).toBe(398); // only the voiceover was kept
   }, 120_000);
 
   it('validates the presenter and configuration before charging', async () => {

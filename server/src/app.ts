@@ -23,6 +23,7 @@ import { adminRouter } from './modules/admin/admin.routes.js';
 import { templatesRouter } from './modules/templates/templates.routes.js';
 import { musicRouter } from './modules/music/music.routes.js';
 import { batchesRouter } from './modules/batches/batches.routes.js';
+import { avatarsRouter } from './modules/avatars/avatars.routes.js';
 import { webhookLimiter } from './middleware/security.js';
 import { spaRouter, storageOrigins } from './services/web/spa.js';
 
@@ -93,6 +94,7 @@ export function createApp() {
   app.use('/api/templates', templatesRouter);
   app.use('/api/music', musicRouter);
   app.use('/api/batches', batchesRouter);
+  app.use('/api/avatars', avatarsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

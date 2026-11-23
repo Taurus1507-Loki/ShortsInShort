@@ -42,7 +42,7 @@ function putWithProgress(url: string, file: File, headers: Record<string, string
 export type UploadPhase = 'preparing' | 'uploading' | 'verifying';
 
 /** initiate (server registers asset + signed URL) → PUT bytes directly to storage → complete (server validates). */
-export async function uploadVideo(file: File, opts: { onPhase?: (p: UploadPhase) => void; onProgress?: (f: number) => void; signal?: AbortSignal; purpose?: 'video' | 'logo' | 'background' } = {}): Promise<Asset> {
+export async function uploadVideo(file: File, opts: { onPhase?: (p: UploadPhase) => void; onProgress?: (f: number) => void; signal?: AbortSignal; purpose?: 'video' | 'logo' | 'background' | 'avatar_photo' } = {}): Promise<Asset> {
   opts.onPhase?.('preparing');
   const init = await api<{ data: { asset: Asset; upload: { url: string; headers: Record<string, string> } } }>('/assets/uploads', {
     method: 'POST',
