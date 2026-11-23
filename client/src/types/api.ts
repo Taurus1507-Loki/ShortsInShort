@@ -36,7 +36,7 @@ export interface Plan {
   highlights: string[];
 }
 
-export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'presenter_photo' | 'photo_avatar' | 'editor' | 'editor_analyze' | 'editor_rerender';
+export type PriceStep = 'script' | 'voice' | 'scenes' | 'export' | 'export_motion' | 'presenter' | 'presenter_photo' | 'photo_avatar' | 'correction' | 'editor' | 'editor_analyze' | 'editor_rerender';
 
 export interface Meta {
   currency: 'INR';
@@ -93,6 +93,11 @@ export interface Estimate {
   sceneCount?: number;
   /** AI Video Editor: the source is already transcribed, so this render is priced as a re-render. */
   rerender?: boolean;
+  /** Free corrections: this re-export's export part is free (2 per video). */
+  freeCorrection?: boolean;
+  freeCorrectionsLeft?: number;
+  exportCredits?: number;
+  photoAvatar?: boolean;
 }
 
 export interface RenderStats {
@@ -156,6 +161,8 @@ export interface ProjectSettings {
   zoomIntensity: 'off' | 'subtle' | 'dynamic';
   /** Overlay the Brand Kit logo on renders. */
   useBrandKit: boolean;
+  /** Which brand kit (null = the workspace's default). */
+  brandKitId?: string | null;
   targetDurationSec: number;
   resolution: '720p' | '1080p' | '4k';
   /** Avatar Studio: provider voice id ('' = not chosen). */
@@ -226,6 +233,7 @@ export interface Project {
   sourceAssetId: string | null;
   outputAssetId: string | null;
   lastJobId: string | null;
+  freeCorrectionsUsed?: number;
   /** Batch create: the batch and its automatic voiceover → scenes → export run. */
   batchId?: string | null;
   autopilot?: { state: 'running' | 'done' | 'stopped'; error: string | null } | null;
@@ -278,6 +286,9 @@ export interface SessionInfo {
 
 export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export interface BrandKit {
+  id: string;
+  name: string;
+  isDefault: boolean;
   logo: Asset | null;
   logoPosition: LogoPosition;
   logoSize: 'small' | 'medium' | 'large';

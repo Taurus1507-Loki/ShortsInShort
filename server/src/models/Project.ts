@@ -50,6 +50,8 @@ const settingsSchema = new Schema(
     zoomIntensity: { type: String, enum: ZOOM_INTENSITIES, default: 'subtle' },
     /** Overlay the workspace Brand Kit logo on renders. */
     useBrandKit: { type: Boolean, default: true },
+    /** Which brand kit (null = the workspace's default kit). */
+    brandKitId: { type: String, default: null },
     targetDurationSec: { type: Number, min: 5, max: 3600, default: 60 },
     resolution: { type: String, enum: RESOLUTIONS, default: '1080p' },
     /** Avatar Studio: provider voice id for the voiceover ('' = not chosen). */
@@ -139,6 +141,8 @@ const projectSchema = new Schema(
     backgroundAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     outputAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     lastJobId: { type: Schema.Types.ObjectId, ref: 'Job', default: null },
+    /** Free corrections used (re-exports after the first export; see FREE_CORRECTIONS_PER_VIDEO). */
+    freeCorrectionsUsed: { type: Number, default: 0, min: 0 },
     /** Batch create: the batch this project belongs to, and its automatic voiceover → scenes → export run. */
     batchId: { type: Schema.Types.ObjectId, ref: 'Batch', default: null, index: true },
     autopilot: {
@@ -281,6 +285,7 @@ export function toPublicProject(p: ProjectDoc) {
     outputAssetId: p.outputAssetId?.toString() ?? null,
     lastJobId: p.lastJobId?.toString() ?? null,
     batchId: p.batchId?.toString() ?? null,
+    freeCorrectionsUsed: p.freeCorrectionsUsed ?? 0,
     autopilot: p.autopilot?.state ? { state: p.autopilot.state, error: p.autopilot.error ?? null } : null,
     lastError: p.lastError,
     lastRenderedAt: p.lastRenderedAt,

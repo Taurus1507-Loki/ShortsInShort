@@ -1,20 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ImagePlus, Loader2, Save, Trash2 } from 'lucide-react';
+import { ImagePlus, Loader2, Plus, Save, Star, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
 import { Button } from '@/components/ui/button';
-import { Select } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Notice, Skeleton } from '@/components/ui/primitives';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { api, errorMessage } from '@/lib/api';
-import { keys, queryClient, useAssetUrl, useBrandKit } from '@/lib/queries';
+import { keys, queryClient, useAssetUrl, useBrandKits } from '@/lib/queries';
 import { uploadVideo } from '@/lib/upload';
 import { CAPTION_STYLES } from '@/config/options';
 import { cn } from '@/lib/utils';
 import type { BrandKit, LogoPosition } from '@/types/api';
 
-type Draft = Omit<BrandKit, 'logo' | 'updatedAt'> & { logoAssetId: string | null };
+type Draft = Omit<BrandKit, 'logo' | 'updatedAt' | 'id' | 'isDefault'> & { logoAssetId: string | null };
 
 const POSITIONS: { id: LogoPosition; label: string }[] = [
   { id: 'top-left', label: 'Top left' },
@@ -68,7 +68,12 @@ function Preview({ draft, logoUrl }: { draft: Draft; logoUrl?: string }) {
 
 export default function BrandKitPage() {
   const { workspace } = useAuth();
-  const { data: kit, isLoading, isError, error } = useBrandKit();
+  const { data: kits, isLoading, isError, error } = useBrandKits();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const list = kits?.data ?? [];
+  const kit = list.find((k) => k.id === selectedId) ?? list.find((k) => k.isDefault) ?? list[0];
+  const limit = kits?.meta.limit ?? 1;
+  const [newName, setNewName] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [logo, setLogo] = useState<BrandKit['logo']>(null);
   const [uploading, setUploading] = useState(false);
@@ -77,16 +82,44 @@ export default function BrandKitPage() {
 
   useEffect(() => {
     if (!kit) return;
-    const { logo: l, updatedAt: _u, ...rest } = kit;
+    const { logo: l, updatedAt: _u, id: _id, isDefault: _d, ...rest } = kit;
     setDraft({ ...rest, logoAssetId: l?.id ?? null });
     setLogo(l);
-  }, [kit]);
+  }, [kit?.id, kit?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const saveKit = (d: Draft) => api<{ data: BrandKit }>(`/brand-kits/${kit!.id}`, { method: 'PATCH', body: d }).then((r) => r.data);
   const save = useMutation({
-    mutationFn: (d: Draft) => api<{ data: BrandKit }>('/brand-kit', { method: 'PUT', body: d }).then((r) => r.data),
-    onSuccess: (k) => {
-      queryClient.setQueryData(keys.brandKit, k);
+    mutationFn: saveKit,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.brandKit });
       toast.success('Brand Kit saved');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const create = useMutation({
+    mutationFn: (name: string) => api<{ data: BrandKit }>('/brand-kits', { method: 'POST', body: { name } }).then((r) => r.data),
+    onSuccess: (k) => {
+      queryClient.invalidateQueries({ queryKey: keys.brandKit });
+      setSelectedId(k.id);
+      setNewName('');
+      toast.success(`“${k.name}” created — add its logo and colours`);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const makeDefault = useMutation({
+    mutationFn: (id: string) => api(`/brand-kits/${id}/default`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.brandKit });
+      toast.success('Default kit changed — new projects use it');
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/brand-kits/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setSelectedId(null);
+      queryClient.invalidateQueries({ queryKey: keys.brandKit });
+      toast.success('Kit deleted — its projects now use the default kit');
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -104,8 +137,8 @@ export default function BrandKitPage() {
       const next = draft ? { ...draft, logoAssetId: asset.id } : null;
       if (next) {
         setDraft(next);
-        const k = await api<{ data: BrandKit }>('/brand-kit', { method: 'PUT', body: next }).then((r) => r.data);
-        queryClient.setQueryData(keys.brandKit, k);
+        await saveKit(next);
+        queryClient.invalidateQueries({ queryKey: keys.brandKit });
       }
       toast.success('Logo saved — it will appear on your next videos');
     } catch (e) {
@@ -115,7 +148,7 @@ export default function BrandKitPage() {
     }
   }
 
-  if (isLoading || !draft) {
+  if (isLoading || !draft || !kit) {
     return isError ? <Notice tone="error">{errorMessage(error)}</Notice> : <Skeleton className="h-96 rounded-xl" />;
   }
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft({ ...draft, [k]: v });
@@ -136,6 +169,63 @@ export default function BrandKitPage() {
           Free plan exports also show a small “Made with ShortsInShort” mark in the top-right corner. Paid plans remove it.
         </Notice>
       )}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Your brands</CardTitle>
+          <CardDescription>
+            {limit > 1
+              ? `Keep one kit per brand or client (${list.length} of ${limit}). The default kit is used for new projects; each project can pick another in its settings.`
+              : 'Your plan has one brand kit. Agencies and teams can keep one per client from the Creator plan up.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Brand kits">
+            {list.map((k) => (
+              <button
+                key={k.id}
+                role="tab"
+                aria-selected={k.id === kit.id}
+                onClick={() => setSelectedId(k.id)}
+                className={cn('flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm', k.id === kit.id ? 'border-primary bg-primary/15 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+              >
+                <span className="h-3 w-3 rounded-full" style={{ background: k.primaryColor }} />
+                {k.name}
+                {k.isDefault && <Star className="h-3 w-3 fill-current text-highlight" aria-label="default" />}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-xs text-muted-foreground">
+              Kit name
+              <Input id="kit-name" value={draft.name} maxLength={60} onChange={(e) => set('name', e.target.value)} className="w-56" />
+            </label>
+            {!kit.isDefault && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => makeDefault.mutate(kit.id)} loading={makeDefault.isPending}>
+                  <Star /> Make default
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => window.confirm(`Delete “${kit.name}”? Projects using it switch to the default kit.`) && remove.mutate(kit.id)} loading={remove.isPending}>
+                  <Trash2 /> Delete kit
+                </Button>
+              </>
+            )}
+            {limit > 1 && (
+              <form
+                className="ml-auto flex items-end gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (newName.trim()) create.mutate(newName.trim());
+                }}
+              >
+                <Input aria-label="New kit name" placeholder="New kit, e.g. Client name" value={newName} maxLength={60} onChange={(e) => setNewName(e.target.value)} className="w-56" />
+                <Button type="submit" size="sm" variant="secondary" disabled={!newName.trim() || list.length >= limit} loading={create.isPending} title={list.length >= limit ? `Your plan includes ${limit} kits` : undefined}>
+                  <Plus /> Add kit
+                </Button>
+              </form>
+            )}
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <div className="grid gap-6">
           <Card>

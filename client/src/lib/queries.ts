@@ -96,8 +96,16 @@ export const useAssetUrl = (id: string | null | undefined, download = false) =>
 export const useAssets = (page: number) =>
   useQuery({ queryKey: keys.assets(page), queryFn: () => api<Paginated<Asset>>(`/assets?page=${page}`), placeholderData: (p) => p });
 
-export const useBrandKit = () =>
-  useQuery({ queryKey: keys.brandKit, queryFn: () => api<{ data: BrandKit }>('/brand-kit').then((r) => r.data) });
+/** All the workspace's brand kits (the default first) and the plan's limit. */
+export const useBrandKits = () =>
+  useQuery({ queryKey: keys.brandKit, queryFn: () => api<{ data: BrandKit[]; meta: { limit: number } }>('/brand-kits') });
+
+/** One brand kit: the given one (a project's choice) or the workspace's default. */
+export function useBrandKit(kitId?: string | null) {
+  const q = useBrandKits();
+  const list = q.data?.data;
+  return { ...q, data: list?.find((k) => k.id === kitId) ?? list?.find((k) => k.isDefault) ?? list?.[0] };
+}
 
 /** Voice library (server caches the provider list for 10 minutes). */
 export const useVoices = (enabled = true) =>

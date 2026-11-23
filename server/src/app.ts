@@ -15,7 +15,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { metaRouter } from './modules/meta/meta.routes.js';
 import { assetsRouter } from './modules/assets/assets.routes.js';
 import { storageRouter } from './modules/storage/storage.routes.js';
-import { brandKitRouter } from './modules/brandkit/brandkit.routes.js';
+import { brandKitRouter, brandKitsRouter } from './modules/brandkit/brandkit.routes.js';
 import { consentRouter, voicesRouter } from './modules/voices/voices.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
 import { billingRouter, razorpayWebhook } from './modules/billing/billing.routes.js';
@@ -86,6 +86,7 @@ export function createApp() {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/assets', assetsRouter);
   app.use('/api/brand-kit', brandKitRouter);
+  app.use('/api/brand-kits', brandKitsRouter);
   app.use('/api/voices', voicesRouter);
   app.use('/api/consent', consentLimiter, consentRouter);
   app.use('/api/ai', aiRouter);

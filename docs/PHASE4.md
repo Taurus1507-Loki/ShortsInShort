@@ -247,3 +247,18 @@ sound effects); "Suggest graphics" re-plans them; every graphic is editable on t
 - Your avatars are listed first in the presenter picker; another workspace can never use an avatar's id; a withdrawn
   avatar can't be exported (409 `AVATAR_WITHDRAWN`, and the render re-checks consent).
 - Built and tested with a stand-in provider; going live needs `HEYGEN_API_KEY` (pay-as-you-go API credits).
+
+## Business side — Release E (2026-11-23)
+
+- **Several brand kits** (user decision: Free 1, Starter 1, Creator 3, Pro 5, Agency 25): one per brand or client,
+  a default kit for new projects, and a per-project choice (`settings.brandKitId`) used by renders and previews.
+  The Brand Kit page has a kit switcher (add, rename, make default, delete). Migration `2026-11-23-brand-kits`
+  turns existing kits into the default "Main brand" and drops the old one-kit unique index.
+- **Free corrections** (user decision: 2 per video): after a video's first export, the next 2 re-exports don't
+  charge the export part; a new talking-presenter video is still charged; a failed or stopped export gives the
+  correction back. The export panel shows "Free correction · N of 2 left".
+- **₹ price calculator** (landing page and Billing): video type, length and videos per month → credits per video,
+  ₹ per video on each plan, and which plan covers the month — from the live prices in `/api/meta`.
+- **Landing page refresh:** the three ways to make videos (Auto edit, faceless, your own avatar), the new features
+  (motion graphics, sound effects, batch create, brand kits), a "Made for" section, the calculator, a cost
+  comparison with editors and agencies (rough market ranges) and new FAQs (corrections, consent, batches).

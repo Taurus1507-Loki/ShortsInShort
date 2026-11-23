@@ -18,6 +18,8 @@ export interface Plan {
   customVoices: number;
   /** Photo avatars (your own face) the workspace can keep. */
   photoAvatars: number;
+  /** Brand kits the workspace can keep (agencies: one per client). */
+  brandKits: number;
   highlights: string[];
 }
 
@@ -35,6 +37,7 @@ export const PLANS: Record<PlanId, Plan> = {
     watermark: true,
     customVoices: 0,
     photoAvatars: 0,
+    brandKits: 1,
     highlights: ['30 credits after email verification', '720p exports', 'Watermarked output'],
   },
   starter: {
@@ -48,6 +51,7 @@ export const PLANS: Record<PlanId, Plan> = {
     watermark: false,
     customVoices: 1,
     photoAvatars: 1,
+    brandKits: 1,
     highlights: ['200 credits / month', '1080p exports', 'No watermark', 'Brand Kit'],
   },
   creator: {
@@ -61,6 +65,7 @@ export const PLANS: Record<PlanId, Plan> = {
     watermark: false,
     customVoices: 3,
     photoAvatars: 3,
+    brandKits: 3,
     highlights: ['500 credits / month', 'Everything in Starter', 'Faceless videos', 'Priority queue'],
   },
   pro: {
@@ -74,6 +79,7 @@ export const PLANS: Record<PlanId, Plan> = {
     watermark: false,
     customVoices: 5,
     photoAvatars: 5,
+    brandKits: 5,
     highlights: ['1,200 credits / month', 'AI Avatar Studio', '4K where supported', 'Premium AI models'],
   },
   agency: {
@@ -87,6 +93,7 @@ export const PLANS: Record<PlanId, Plan> = {
     watermark: false,
     customVoices: 10,
     photoAvatars: 10,
+    brandKits: 25,
     highlights: ['3,500 credits / month', 'Team members', 'Multiple brand kits', 'Dedicated support'],
   },
 };

@@ -39,7 +39,27 @@ const creditsX10: Migration = {
   },
 };
 
-export const MIGRATIONS: Migration[] = [creditsX10];
+/**
+ * 2026-11-23: workspaces can keep several brand kits. Existing kits become the default "Main brand",
+ * and the old one-kit-per-workspace unique index is dropped.
+ */
+const brandKits: Migration = {
+  id: '2026-11-23-brand-kits',
+  run: async () => {
+    const col = mongoose.connection.collection('brandkits');
+    let dropped = 0;
+    try {
+      await col.dropIndex('workspaceId_1');
+      dropped = 1;
+    } catch {
+      /* already gone or never created */
+    }
+    const r = await col.updateMany({ isDefault: { $exists: false } }, { $set: { isDefault: true, name: 'Main brand' } });
+    return { droppedIndex: dropped, kits: r.modifiedCount };
+  },
+};
+
+export const MIGRATIONS: Migration[] = [creditsX10, brandKits];
 
 export async function runMigrations(migrations: Migration[] = MIGRATIONS) {
   const col = mongoose.connection.collection<{ _id: string; status: string; startedAt: Date; finishedAt?: Date; result?: unknown }>('migrations');

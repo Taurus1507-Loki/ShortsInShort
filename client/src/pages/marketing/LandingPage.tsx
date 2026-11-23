@@ -4,7 +4,8 @@ import { ArrowRight, PlayCircle, ShieldCheck, IndianRupee, Languages } from 'luc
 import { Button } from '@/components/ui/button';
 import { ProductPreview } from '@/components/marketing/ProductPreview';
 import { BeforeAfter } from '@/components/marketing/BeforeAfter';
-import { FAQ, Features, FinalCTA, HowItWorks, Pricing, TemplatesShowcase } from '@/components/marketing/sections';
+import { FAQ, Features, FinalCTA, HowItWorks, Pricing, SectionHeading, TemplatesShowcase } from '@/components/marketing/sections';
+import { PriceCalculator } from '@/components/marketing/PriceCalculator';
 
 const PLATFORMS = ['Instagram Reels', 'YouTube Shorts', 'TikTok', 'YouTube', 'Instagram Feed'];
 
@@ -28,7 +29,7 @@ export default function LandingPage() {
               Create <span className="text-gradient">Scroll-Stopping</span> Videos in Minutes with AI.
             </motion.h1>
             <motion.p {...fade(0.12)} className="mt-6 max-w-xl text-lg text-muted-foreground">
-              Transform your footage, scripts, and ideas into professional Instagram Reels, YouTube Shorts, and videos with AI-powered editing. No editing skills required.
+              Upload raw footage and press Auto edit. Or paste a script and get a faceless video — or one with your own face and voice, from a single photo. Hook, captions, B-roll, motion graphics, music and sound effects in every video.
             </motion.p>
             <motion.div {...fade(0.18)} className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg" variant="gradient">
@@ -77,10 +78,84 @@ export default function LandingPage() {
 
       <HowItWorks />
       <Features />
+      <MadeFor />
       <TemplatesShowcase />
       <Pricing />
+      <section id="calculator" className="scroll-mt-20 pb-8">
+        <div className="container max-w-4xl">
+          <PriceCalculator />
+        </div>
+      </section>
+      <Compare />
       <FAQ />
       <FinalCTA />
     </>
+  );
+}
+
+const NICHES = [
+  ['Creators', 'Post every day without editing every night.'],
+  ['Doctors & clinics', 'Health tips in your face and voice — no shoot days.'],
+  ['Coaches', 'Turn one idea into a week of reels.'],
+  ['Finance & CAs', 'Explain money with animated numbers.'],
+  ['Real estate', 'Property tours and offers that sell.'],
+  ['Agencies', 'One brand kit per client, a month of reels in one batch.'],
+];
+
+function MadeFor() {
+  return (
+    <section className="py-20">
+      <div className="container">
+        <SectionHeading eyebrow="Who it’s for" title="Made for people who need reels again and again" />
+        <ul className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {NICHES.map(([name, line]) => (
+            <li key={name} className="rounded-xl border border-border bg-card/60 p-5">
+              <p className="font-semibold">{name}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{line}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+/** Typical ways to get 20 reels a month in India (rough market ranges) next to ShortsInShort. */
+const COMPARE = [
+  { who: 'Freelance editor', cost: '₹1,500–2,000 per reel', camera: 'You film every video', speed: 'Days per batch' },
+  { who: 'Full-time editor', cost: '₹25,000–35,000 a month', camera: 'You film every video', speed: 'Limited to one person’s hours' },
+  { who: 'Agency retainer', cost: '₹40,000–60,000 a month, often 4–8 reels', camera: 'Shoot days at their studio', speed: 'Their schedule' },
+  { who: 'ShortsInShort', cost: 'From about ₹10–25 per faceless reel', camera: 'No camera needed (faceless or your avatar)', speed: 'Minutes, any time' },
+];
+
+function Compare() {
+  return (
+    <section className="py-20">
+      <div className="container max-w-5xl">
+        <SectionHeading eyebrow="Why ShortsInShort" title="The same reels for a fraction of the cost" subtitle="Rough market ranges for 20 reels a month. Use the calculator above for your exact numbers." />
+        <div className="mt-10 overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="bg-card/80 text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Option</th>
+                <th className="px-4 py-3 font-semibold">Cost</th>
+                <th className="px-4 py-3 font-semibold">Filming</th>
+                <th className="px-4 py-3 font-semibold">Speed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARE.map((r) => (
+                <tr key={r.who} className={r.who === 'ShortsInShort' ? 'bg-primary/10 font-medium' : 'border-t border-border'}>
+                  <td className="px-4 py-3">{r.who}</td>
+                  <td className="px-4 py-3">{r.cost}</td>
+                  <td className="px-4 py-3">{r.camera}</td>
+                  <td className="px-4 py-3">{r.speed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }

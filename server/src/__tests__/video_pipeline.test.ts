@@ -406,7 +406,7 @@ describe('captions (with a stand-in transcription provider)', () => {
     const plain = await renderProject(auth, res.body.data.id);
     expect(plain.renderStats).toMatchObject({ captionsAdded: false, fillerWordsRemoved: 1 });
     const again = await request(app).get(`/api/projects/${res.body.data.id}/estimate`).set(auth).expect(200);
-    expect(again.body.data).toMatchObject({ credits: 2, rerender: true });
+    expect(again.body.data).toMatchObject({ credits: 0, exportCredits: 2, freeCorrection: true, rerender: true });
     const plainFrame = await frameAt(plain.outputAsset.id, 0.6);
 
     await request(app).patch(`/api/projects/${res.body.data.id}`).set(auth).send({ settings: { captionsEnabled: true } }).expect(200);

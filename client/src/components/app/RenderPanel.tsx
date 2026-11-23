@@ -173,6 +173,15 @@ export function RenderPanel({ project, autoOpen, dirty, onStep }: { project: Pro
                   {e.presenterReused && <span className="text-muted-foreground">presenter reused — no extra charge</span>}
                   {project.mode === 'editor' && e.rerender && <span className="text-muted-foreground">re-render price — speech is already transcribed</span>}
                   {avatar && <span className="text-muted-foreground">voiceover already paid for</span>}
+                  {e.freeCorrection ? (
+                    <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                      Free correction · {e.freeCorrectionsLeft} of 2 left for this video
+                    </span>
+                  ) : project.outputAsset && e.freeCorrectionsLeft === 0 ? (
+                    <span className="text-muted-foreground">free corrections used</span>
+                  ) : !project.outputAsset ? (
+                    <span className="text-muted-foreground">your next 2 re-exports of this video are free</span>
+                  ) : null}
                 </p>
               ) : null}
             </div>

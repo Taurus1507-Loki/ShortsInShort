@@ -1260,7 +1260,7 @@ function useFootageInput(
   const { data: wordsData } = useQuery({ queryKey: ['words', project.id, project.sourceAssetId], queryFn: () => api<{ data: { words: Word[] } }>(`/projects/${project.id}/words`).then((r) => r.data.words), staleTime: Infinity });
   const words = wordsData ?? [];
   const src = useAssetUrl(project.sourceAssetId);
-  const { data: kit } = useBrandKit();
+  const { data: kit } = useBrandKit(settings.brandKitId);
   const logoUrl = useAssetUrl(settings.useBrandKit !== false ? kit?.logo?.id : null);
   const { workspace } = useAuth();
   const [W, H] = SIZE[project.aspectRatio] ?? SIZE['9:16']!;

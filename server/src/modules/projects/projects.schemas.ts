@@ -36,6 +36,7 @@ export const settingsSchema = z
     framing: z.enum(FRAMINGS),
     zoomIntensity: z.enum(ZOOM_INTENSITIES),
     useBrandKit: z.boolean(),
+    brandKitId: z.string().refine((v) => /^[0-9a-f]{24}$/.test(v), 'Invalid brand kit').nullable(),
     targetDurationSec: z.number().int().min(5).max(3600),
     resolution: z.enum(RESOLUTIONS),
     voiceId: z.string().regex(/^[A-Za-z0-9_-]{0,64}$/, 'Invalid voice'),

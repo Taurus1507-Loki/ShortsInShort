@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { loadLibrary, pickTrack } from '../ai/music.js';
 import { planZooms, type ZoomIntensity } from './zooms.js';
 import { buildWatermarkAss } from './captions.js';
-import { BrandKit, LOGO_WIDTH } from '../../models/BrandKit.js';
+import { LOGO_WIDTH } from '../../models/BrandKit.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
 import type { LogoPosition } from './render.js';
@@ -38,6 +38,7 @@ import { mixSfx, sfxCues } from '../audio/sfx.js';
 import { captionsToOutput, graphicsToOutput, keepSegments, rangeToOutput, sfxToOutput, type EditDoc } from './edl.js';
 import { getGraphicsRenderer, graphicClipPath } from './graphics.js';
 import { PhotoAvatar } from '../../models/PhotoAvatar.js';
+import { kitFor } from '../brandKit.service.js';
 import { ownPhotoAvatar } from '../voice/consent.js';
 import { sceneTimings, scenesKey } from '../faceless/scenes.js';
 import { parseMotionScene } from '../faceless/motion.js';
@@ -282,7 +283,7 @@ async function prepareVoiceoverBase(project: ProjectDoc, workDir: string, signal
     if (!bg) throw new PermanentJobError(`The background ${kind} is missing. Choose it again.`);
     mediaPath = await storage.getProcessingInput(bg.storageKey);
   }
-  const kit = kind === 'brand' ? await BrandKit.findOne({ workspaceId: project.workspaceId }).lean() : null;
+  const kit = kind === 'brand' ? await kitFor(project.workspaceId as Types.ObjectId, project.settings?.brandKitId) : null;
   const colors: [string, string] =
     kind === 'brand' ? [kit?.primaryColor ?? '#7C3AED', kit?.secondaryColor ?? '#0F172A'] : [settings.backgroundColor ?? '#1E1B4B', settings.backgroundColor ?? '#1E1B4B'];
   const durationSec = narration.durationSec ?? project.narrationStats?.durationSec ?? 0;
@@ -391,7 +392,7 @@ async function prepareMotionBase(project: ProjectDoc, narration: AssetDoc, workD
   const timings = sceneTimings(scenes, words, durationSec);
   const settings = project.settings ?? {};
   const size = outputSize(project.aspectRatio as AspectRatio, (settings.resolution ?? '1080p') as Resolution);
-  const kit = await BrandKit.findOne({ workspaceId: project.workspaceId }).lean();
+  const kit = await kitFor(project.workspaceId as Types.ObjectId, project.settings?.brandKitId);
 
   // Captions are drawn inside the animation (word-timed, animated), so they are worked out first —
   // with the same edits, translation and AI keywords as burned-in captions.
@@ -772,7 +773,7 @@ async function run({ job, signal, progress: report }: JobContext) {
     const plan = PLANS[(wsDoc?.plan ?? 'free') as PlanId];
     let logo: { path: string; position: LogoPosition; widthFrac: number; opacity: number } | undefined;
     if (settings.useBrandKit !== false) {
-      const kit = await BrandKit.findOne({ workspaceId: job.workspaceId }).lean();
+      const kit = await kitFor(job.workspaceId as Types.ObjectId, settings.brandKitId);
       const logoAsset = kit?.logoAssetId ? await Asset.findOne({ _id: kit.logoAssetId, workspaceId: job.workspaceId, deletedAt: null, status: 'ready' }) : null;
       if (kit && logoAsset) {
         logo = {
@@ -973,6 +974,10 @@ async function run({ job, signal, progress: report }: JobContext) {
 /** Final failure: mark the project failed and refund the reserved credits exactly once. */
 async function onDead(job: JobDoc) {
   const { projectId, credits } = job.payload as RenderPayload;
+  // A failed free correction is given back.
+  if ((job.payload as { freeCorrection?: boolean }).freeCorrection) {
+    await Project.updateOne({ _id: projectId, freeCorrectionsUsed: { $gt: 0 } }, { $inc: { freeCorrectionsUsed: -1 } });
+  }
   await Project.updateOne(
     { _id: projectId, lastJobId: job._id },
     { $set: { status: 'failed', lastError: friendlyError(job.lastError) } },

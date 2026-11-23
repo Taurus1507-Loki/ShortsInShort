@@ -35,7 +35,7 @@ export function BackgroundPicker({
   asset: Asset | null | undefined;
   onAsset: (a: Asset | null) => void;
 }) {
-  const { data: kit } = useBrandKit();
+  const { data: kit } = useBrandKit(settings.brandKitId);
   const [uploading, setUploading] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
   const preview = useAssetUrl(asset?.kind === 'background_image' ? asset.id : asset?.thumbnailAssetId);

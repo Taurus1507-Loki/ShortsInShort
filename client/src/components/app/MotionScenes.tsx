@@ -15,8 +15,8 @@ const SIZE: Record<AspectRatio, [number, number]> = { '9:16': [1080, 1920], '16:
  * The look the server renders with: the project's theme choice, the Brand Kit colours and a seed
  * from the project id (which varies backgrounds, transitions and stickers), so the preview matches.
  */
-export function useMotionLook(themeId?: string, seedKey = ''): Pick<MotionProps, 'themeId' | 'brand' | 'seed'> {
-  const { data: kit } = useBrandKit();
+export function useMotionLook(themeId?: string, seedKey = '', brandKitId?: string | null): Pick<MotionProps, 'themeId' | 'brand' | 'seed'> {
+  const { data: kit } = useBrandKit(brandKitId);
   return useMemo(
     () => ({ themeId: themeId ?? 'auto', brand: { primary: kit?.primaryColor, secondary: kit?.secondaryColor }, seed: seedFrom(seedKey) }),
     [themeId, seedKey, kit?.primaryColor, kit?.secondaryColor],
@@ -27,8 +27,8 @@ export function useMotionLook(themeId?: string, seedKey = ''): Pick<MotionProps,
 const framesFor = (text: string, language: string) => Math.max(2 * MOTION_FPS, Math.round((text.split(/\s+/).filter(Boolean).length / (language === 'en' ? 2.5 : 2.1)) * MOTION_FPS));
 
 /** Plays the whole explainer in the browser with the same compositions the server renders. */
-export function MotionPreview({ scenes, aspect, language, themeId, seedKey }: { scenes: Scene[]; aspect: AspectRatio; language: string; themeId?: string; seedKey?: string }) {
-  const look = useMotionLook(themeId, seedKey);
+export function MotionPreview({ scenes, aspect, language, themeId, seedKey, brandKitId }: { scenes: Scene[]; aspect: AspectRatio; language: string; themeId?: string; seedKey?: string; brandKitId?: string | null }) {
+  const look = useMotionLook(themeId, seedKey, brandKitId);
   const [w, h] = SIZE[aspect];
   const valid = scenes.filter((s) => s.motion) as Array<Scene & { motion: MotionScene }>;
   const inputProps = useMemo(() => ({ scenes: valid.map((s) => ({ ...s.motion, durationInFrames: framesFor(s.text, language) })), ...look }), [valid, look, language]);
@@ -45,8 +45,8 @@ export function MotionPreview({ scenes, aspect, language, themeId, seedKey }: { 
 }
 
 /** A still of one scene for its card. */
-export function MotionThumb({ scene, aspect, themeId, seedKey }: { scene: Scene; aspect: AspectRatio; themeId?: string; seedKey?: string }) {
-  const look = useMotionLook(themeId, seedKey);
+export function MotionThumb({ scene, aspect, themeId, seedKey, brandKitId }: { scene: Scene; aspect: AspectRatio; themeId?: string; seedKey?: string; brandKitId?: string | null }) {
+  const look = useMotionLook(themeId, seedKey, brandKitId);
   const [w, h] = SIZE[aspect];
   if (!scene.motion) return <div className="grid aspect-video w-full place-items-center rounded-md bg-muted text-xs text-muted-foreground">No animation</div>;
   return (

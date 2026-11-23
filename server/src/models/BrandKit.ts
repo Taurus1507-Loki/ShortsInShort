@@ -8,10 +8,16 @@ export const CAPTION_STYLE_IDS = ['bold_pop', 'clean_minimal', 'karaoke', 'boxed
 
 const hex = { type: String, match: /^#[0-9a-fA-F]{6}$/ };
 
-/** One brand kit per workspace: applied to new projects and overlaid on renders. */
+/**
+ * Brand kits: logo, colours and caption look, overlaid on renders. A workspace has one default kit
+ * (applied to new projects) and, on bigger plans, more — e.g. one per client for agencies. A project
+ * uses its `settings.brandKitId` kit, or the default.
+ */
 const brandKitSchema = new Schema(
   {
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
+    name: { type: String, trim: true, maxlength: 60, default: 'Main brand' },
+    isDefault: { type: Boolean, default: true },
     logoAssetId: { type: Schema.Types.ObjectId, ref: 'Asset', default: null },
     logoPosition: { type: String, enum: LOGO_POSITIONS, default: 'top-right' },
     logoSize: { type: String, enum: LOGO_SIZES, default: 'medium' },
@@ -27,7 +33,9 @@ const brandKitSchema = new Schema(
   { timestamps: true },
 );
 
-brandKitSchema.index({ workspaceId: 1 }, { unique: true });
+brandKitSchema.index({ workspaceId: 1, createdAt: 1 });
+// Exactly one default kit per workspace.
+brandKitSchema.index({ workspaceId: 1, isDefault: 1 }, { unique: true, partialFilterExpression: { isDefault: true } });
 
 export type BrandKitDoc = HydratedDocument<InferSchemaType<typeof brandKitSchema>>;
 export const BrandKit = model('BrandKit', brandKitSchema);

@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CreditCard, Download, Receipt, ShieldCheck, Zap } from 'lucide-react';
 import { PageHeader } from '@/components/app/AppLayout';
+import { PriceCalculator } from '@/components/marketing/PriceCalculator';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, Field, Notice, Skeleton } from '@/components/ui/primitives';
@@ -304,6 +305,7 @@ export default function BillingPage() {
           </div>
         </DialogContent>
       </Dialog>
+      <PriceCalculator className="mt-6" />
     </div>
   );
 }

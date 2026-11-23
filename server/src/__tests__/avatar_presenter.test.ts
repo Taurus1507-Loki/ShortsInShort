@@ -170,13 +170,21 @@ describe('talking presenter render', () => {
 
     // Same voiceover + presenter: no new provider request, no presenter charge.
     const again = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
-    expect(again).toMatchObject({ presenterCredits: 0, presenterReused: true, credits: 3 });
+    // …and the export part is a free correction (2 per video).
+    expect(again).toMatchObject({ presenterCredits: 0, presenterReused: true, credits: 0, exportCredits: 3, freeCorrection: true, freeCorrectionsLeft: 2 });
     await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
     await drain();
     expect(avatars.created).toHaveLength(1);
     expect((await Project.findById(p.id))!.renderStats!.presenter).toMatchObject({ reused: true });
     const ws = await Workspace.findById(user.defaultWorkspaceId);
-    expect(ws!.creditBalance).toBe(400 - 2 - 163 - 3); // voiceover, first render, re-render
+    expect(ws!.creditBalance).toBe(400 - 2 - 163); // voiceover and first render; the re-render was a free correction
+
+    // One more free correction, then corrections are charged again.
+    await request(app).post(`/api/projects/${p.id}/generate`).set(auth).expect(202);
+    await drain();
+    const third = (await request(app).get(`/api/projects/${p.id}/estimate`).set(auth).expect(200)).body.data;
+    expect(third).toMatchObject({ credits: 3, freeCorrection: false, freeCorrectionsLeft: 0 });
+    expect((await Workspace.findById(user.defaultWorkspaceId))!.creditBalance).toBe(400 - 2 - 163);
   }, 120_000);
 
   it('keys the presenter over the chosen background in overlay layout', async () => {

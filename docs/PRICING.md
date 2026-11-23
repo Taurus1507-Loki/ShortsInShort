@@ -53,6 +53,7 @@ Prices are set at about **2× our provider cost**, so they still look light to u
 | Talking presenter, stock | **160 per 30 s**, reused on re-exports | HeyGen Avatar IV studio avatar ≈ $4.83/min ≈ ₹204 per 30 s. (Was 50 until 2026-11-23, which lost money.) |
 | Talking presenter, your photo avatar | **80 per 30 s**, reused on re-exports | HeyGen Avatar IV photo avatar ≈ $2.31/min ≈ ₹98 per 30 s |
 | Create your photo avatar | **80, once** (refunded if it fails) | HeyGen photo avatar creation ≈ $1.32 ≈ ₹112 |
+| Corrections | **free for the next 2 re-exports of each video** (export part only; a new presenter video is still charged) | Our own render time, ≈ ₹1–5 |
 | AI Video Editor, first render | **5 per minute** of footage | Deepgram ≈ ₹0.36/min, Gemini and the render |
 | AI Video Editor, re-render | **2 per minute** | The transcript is reused, so only the render is charged |
 

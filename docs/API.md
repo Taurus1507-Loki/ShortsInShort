@@ -110,6 +110,20 @@ Sound-effect files for the preview: `GET /api/music/sfx/:kind` (WAV, synthesised
 
 Templates now carry `niches` (creators, tech, doctors, coaches, finance, real_estate, business, educators, food, storytellers).
 
+## Brand kits — `/brand-kits` (auth)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/` | All kits (default first) → `{data: [{id, name, isDefault, logo, colours, caption look…}], meta: {limit}}`. Limits: Free 1, Starter 1, Creator 3, Pro 5, Agency 25 |
+| POST | `/` | `{name}` → a new kit copying the default kit's look (no logo). 403 `PLAN_LIMIT` |
+| PATCH | `/:id` | Name, logo and look fields |
+| POST | `/:id/default` | Makes it the default (used for new projects and projects without a chosen kit) |
+| DELETE | `/:id` | Not the default (409 `DEFAULT_KIT`); its projects fall back to the default |
+
+`/brand-kit` (GET/PUT) still edits the default kit. A project picks a kit with `settings.brandKitId` (null = default); renders use that kit.
+
+Export estimates (`GET /projects/:id/estimate`) add `exportCredits`, `freeCorrection` and `freeCorrectionsLeft`: after a video's first export, its next 2 re-exports don't charge the export part (given back if the export fails or is stopped).
+
 ## Photo avatars — `/avatars` (auth)
 
 | Method | Path | Notes |

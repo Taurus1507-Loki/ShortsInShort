@@ -7,7 +7,7 @@ import { Input, Select } from '../ui/input';
 import { Label } from '../ui/primitives';
 import { ASPECTS, CAPTION_STYLES, LANGUAGES, MUSIC_MOODS, STATUS_META, STYLES, modeName } from '@/config/options';
 import { cn, timeAgo } from '@/lib/utils';
-import { useMeta } from '@/lib/queries';
+import { useBrandKits, useMeta } from '@/lib/queries';
 import type { AspectRatio, EditingStyle, Project, ProjectMode, ProjectSettings } from '@/types/api';
 
 const MODE_ICON: Record<ProjectMode, typeof Wand2> = { editor: Wand2, avatar: UserRound, faceless: Clapperboard };
@@ -223,6 +223,7 @@ const CAPTION_SIZES: { id: ProjectSettings['captionSize']; label: string }[] = [
 /** `avatar` hides footage-only settings (framing, pause cutting, spoken language — set in the voiceover panel). */
 export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: CustomizeValue; onChange: (v: CustomizeValue) => void; mode?: ProjectMode }) {
   const { data: meta } = useMeta();
+  const { data: kits } = useBrandKits();
   // Voiceover-based modes share the same reduced settings.
   const avatar = mode === 'avatar' || mode === 'faceless';
   const faceless = mode === 'faceless';
@@ -353,6 +354,18 @@ export function CustomizeForm({ value, onChange, mode = 'editor' }: { value: Cus
             Show my logo on this video
           </label>
         </Setting>
+        {(kits?.data.length ?? 0) > 1 && (
+          <Setting label="Brand kit" status="applied" help="Which brand's logo and colours this video uses (agencies: one kit per client). Manage kits on the Brand Kit page.">
+            <Select id="brand-kit" value={s.brandKitId ?? ''} onChange={(e) => set('brandKitId', e.target.value || null)}>
+              {kits!.data.map((k) => (
+                <option key={k.id} value={k.isDefault ? '' : k.id}>
+                  {k.name}
+                  {k.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </Select>
+          </Setting>
+        )}
       </section>
 
       {/* ── Language ── */}

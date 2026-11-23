@@ -93,7 +93,7 @@ function SceneCard({ project, index, disabled }: { project: Project; index: numb
       <div className="grid content-start gap-1.5">
         {motionStyle ? (
           <Suspense fallback={<div className="aspect-video w-full rounded-md bg-muted" />}>
-            <MotionThumb scene={scene} aspect={project.aspectRatio} themeId={project.settings.motionTheme} seedKey={project.id} />
+            <MotionThumb scene={scene} aspect={project.aspectRatio} themeId={project.settings.motionTheme} seedKey={project.id} brandKitId={project.settings.brandKitId} />
           </Suspense>
         ) : scene.assetId ? (
           scene.assetType === 'image' && ownImage.data ? (

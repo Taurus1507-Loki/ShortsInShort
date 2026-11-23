@@ -388,7 +388,7 @@ export default function ProjectDetailPage() {
                     </div>
                     {(project.scenes?.length ?? 0) > 0 && (
                       <Suspense fallback={<div className="mx-auto aspect-[9/16] w-full max-w-[260px] rounded-lg bg-muted" />}>
-                        <MotionPreview scenes={project.scenes!} aspect={custom.aspectRatio} language={custom.settings.language} themeId={custom.settings.motionTheme} seedKey={project.id} />
+                        <MotionPreview scenes={project.scenes!} aspect={custom.aspectRatio} language={custom.settings.language} themeId={custom.settings.motionTheme} seedKey={project.id} brandKitId={custom.settings.brandKitId} />
                       </Suspense>
                     )}
                   </section>

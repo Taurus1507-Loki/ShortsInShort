@@ -40,7 +40,7 @@ export function LivePreview({
   sampleText?: string;
 }) {
   const poster = useAssetUrl(source?.thumbnailAssetId);
-  const { data: kit } = useBrandKit();
+  const { data: kit } = useBrandKit(settings.brandKitId);
   const logoUrl = useAssetUrl(settings.useBrandKit !== false ? kit?.logo?.id : null);
   const { workspace } = useAuth();
 

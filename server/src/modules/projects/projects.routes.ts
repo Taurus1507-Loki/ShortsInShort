@@ -9,7 +9,7 @@ import { Asset, toPublicAsset } from '../../models/Asset.js';
 import { Job, toPublicJob } from '../../models/Job.js';
 import { Workspace } from '../../models/Workspace.js';
 import { PLANS, type PlanId } from '../../config/plans.js';
-import { avatarCreditCost, editorAnalyzeCost, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
+import { avatarCreditCost, editorAnalyzeCost, FREE_CORRECTIONS_PER_VIDEO, editorCreditCost, facelessCreditCost, motionCreditCost, MAX_NARRATION_CHARS, narrationCreditCost, resolutionAllowed } from '../../config/credits.js';
 import { editPatchSchema, keepSegments, segmentsProblem, type EditBroll, type EditDoc, type PoolClip } from '../../services/video/edl.js';
 import { buildEditCaptions } from '../../services/video/analyzeJob.js';
 import type { Word } from '../../services/ai/transcription.js';
@@ -165,6 +165,9 @@ async function stopProjectJob(req: Request, project: ProjectDoc): Promise<{ cred
       actorId: user._id,
     });
   }
+  if ((job.payload as { freeCorrection?: boolean } | null)?.freeCorrection) {
+    await Project.updateOne({ _id: project._id, freeCorrectionsUsed: { $gt: 0 } }, { $inc: { freeCorrectionsUsed: -1 } });
+  }
   // A project with a finished video stays "completed"; anything else goes back to draft.
   await Project.updateOne({ _id: project._id, lastJobId: job._id }, { $set: { status: project.outputAssetId ? 'completed' : 'draft', lastError: null } });
   await audit(req, 'project.job_stopped', { actorId: user._id, workspaceId, metadata: { projectId: project._id.toString(), jobId: job._id.toString(), type: job.type, credits } });
@@ -319,7 +322,28 @@ async function facelessQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   };
 }
 
+/**
+ * Export price with free corrections: once a video has been exported, its next
+ * FREE_CORRECTIONS_PER_VIDEO re-exports don't charge the export part (a new talking-presenter
+ * video, which costs us at the provider, is still charged).
+ */
 async function quote(project: ProjectDoc, workspaceId: Types.ObjectId) {
+  const q = await baseQuote(project, workspaceId);
+  const used = project.freeCorrectionsUsed ?? 0;
+  const left = Math.max(0, FREE_CORRECTIONS_PER_VIDEO - used);
+  const presenter = 'presenterCredits' in q ? q.presenterCredits : 0;
+  const exportCredits = q.credits - presenter;
+  const freeCorrection = Boolean(project.outputAssetId) && left > 0 && exportCredits > 0;
+  return {
+    ...q,
+    credits: freeCorrection ? presenter : q.credits,
+    exportCredits,
+    freeCorrection,
+    freeCorrectionsLeft: project.outputAssetId ? left : FREE_CORRECTIONS_PER_VIDEO,
+  };
+}
+
+async function baseQuote(project: ProjectDoc, workspaceId: Types.ObjectId) {
   if (project.mode === 'avatar') return avatarQuote(project, workspaceId);
   if (project.mode === 'faceless') return facelessQuote(project, workspaceId);
   if (project.mode !== 'editor') {
@@ -389,7 +413,21 @@ projectsRouter.post(
     if ('narrationOutdated' in q && q.narrationOutdated) {
       throw conflict('Your script, voice, language or speed changed since the voiceover was made. Generate the voiceover again first.', 'NARRATION_OUTDATED');
     }
-    const data = await startProjectJob(req, project, { type: 'render_project', credits: q.credits, note: 'Render', auditAction: 'project.generate' });
+    // A free correction is used when the export starts (given back if the export fails or is stopped).
+    if (q.freeCorrection) await Project.updateOne({ _id: project._id }, { $inc: { freeCorrectionsUsed: 1 } });
+    let data;
+    try {
+      data = await startProjectJob(req, project, {
+        type: 'render_project',
+        credits: q.credits,
+        note: q.freeCorrection ? 'Render (free correction)' : 'Render',
+        payload: q.freeCorrection ? { freeCorrection: true } : undefined,
+        auditAction: 'project.generate',
+      });
+    } catch (err) {
+      if (q.freeCorrection) await Project.updateOne({ _id: project._id, freeCorrectionsUsed: { $gt: 0 } }, { $inc: { freeCorrectionsUsed: -1 } });
+      throw err;
+    }
     res.status(202).json({ data });
   }),
 );

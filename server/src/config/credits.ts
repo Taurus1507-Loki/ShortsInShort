@@ -35,6 +35,9 @@ export const CREDIT_COSTS = {
   resolutionMultiplier: { '720p': 1, '1080p': 1, '4k': 2 } as Record<string, number>,
 } as const;
 
+/** Free corrections: re-exports of a video that was already exported, per video (export part only). */
+export const FREE_CORRECTIONS_PER_VIDEO = 2;
+
 /** Characters in one voiceover block (≈ 30 s of speech). */
 export const NARRATION_CHARS_PER_BLOCK = 400;
 /** Longest script one voiceover accepts (≈ 6 minutes of speech). */
@@ -76,6 +79,7 @@ export const PRICE_LIST = [
   { step: 'presenter', label: 'Talking presenter (stock)', credits: CREDIT_COSTS.presenterPer30s, unit: 'per 30 s' },
   { step: 'presenter_photo', label: 'Talking presenter (your photo avatar)', credits: CREDIT_COSTS.photoPresenterPer30s, unit: 'per 30 s' },
   { step: 'photo_avatar', label: 'Create your photo avatar', credits: CREDIT_COSTS.photoAvatarCreate, unit: 'once' },
+  { step: 'correction', label: 'Corrections: the next 2 re-exports of each video', credits: 0, unit: 'free' },
   { step: 'editor', label: 'AI Video Editor, first render', credits: CREDIT_COSTS.editorPerSourceMinute, unit: 'per minute of footage' },
   { step: 'editor_analyze', label: 'AI Video Editor, analyse footage (once per video)', credits: CREDIT_COSTS.editorAnalyzePerSourceMinute, unit: 'per minute of footage' },
   { step: 'editor_rerender', label: 'AI Video Editor, export', credits: CREDIT_COSTS.editorRerenderPerSourceMinute, unit: 'per minute of footage' },

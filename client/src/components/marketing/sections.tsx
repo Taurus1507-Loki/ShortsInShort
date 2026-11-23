@@ -52,9 +52,9 @@ export function SectionHeading({ eyebrow, title, subtitle }: { eyebrow: string; 
 /* ── How it works ───────────────────────────────────────────────────── */
 const STEPS = [
   { icon: Upload, title: 'Upload or write', body: 'Drop in raw footage, or type a script or topic.' },
-  { icon: SlidersHorizontal, title: 'Pick a style', body: 'Choose an editing style, captions, music and format.' },
-  { icon: Sparkles, title: 'AI does the edit', body: 'Transcription, cuts, captions, B-roll and music, automatically.' },
-  { icon: Download, title: 'Tweak & export', body: 'Preview, adjust anything, then download in HD.' },
+  { icon: SlidersHorizontal, title: 'Pick a template', body: 'Made for your niche: creators, doctors, coaches, real estate and more.' },
+  { icon: Sparkles, title: 'One click: Auto edit', body: 'Hook line, captions, B-roll, motion graphics, music and sound effects — done for you.' },
+  { icon: Download, title: 'Tweak & export', body: 'Change anything on the timeline, then download. Your next 2 fixes are free.' },
 ];
 
 export function HowItWorks() {
@@ -83,14 +83,15 @@ export function HowItWorks() {
 
 /* ── Features ───────────────────────────────────────────────────────── */
 const FEATURES = [
-  { icon: Wand2, title: 'AI Video Editor', body: 'Silence removal, smart cuts, zooms and pacing tuned for short-form retention.', size: 'lg' },
-  { icon: UserRound, title: 'AI Avatar Studio', body: 'Present scripts with your own consented avatar and voice. Consent records built in.', size: 'lg' },
-  { icon: Clapperboard, title: 'Faceless Creator', body: 'Topic → script → scenes → narration, with licensed visuals.' },
-  { icon: Captions, title: 'Professional Captions', body: 'Word-synced, animated, with keyword highlights.' },
-  { icon: Film, title: 'Automated B-roll', body: 'Relevant, licensed cutaways matched to what you say.' },
-  { icon: LayoutTemplate, title: 'Video Templates', body: 'Proven styles for every niche and platform.' },
-  { icon: Palette, title: 'Brand Kit', body: 'Your logo, colours, fonts and intros on every video.' },
-  { icon: Globe2, title: 'Multilingual', body: 'English, Hindi, Telugu, Tamil and Marathi first.' },
+  { icon: Wand2, title: 'Auto edit, one click', body: 'Pauses and “um”s cut, an AI hook line, zooms on key words, B-roll, music matched to the mood and sound effects — then edit anything on a real timeline.', size: 'lg' },
+  { icon: UserRound, title: 'Your face, no camera', body: 'One photo becomes your talking avatar; one short sample becomes your voice. Spoken consent built in, withdraw any time.', size: 'lg' },
+  { icon: Clapperboard, title: 'Faceless videos', body: 'Script → AI voice → stock clips or animated scenes.' },
+  { icon: Captions, title: 'Word-by-word captions', body: 'Animated, with key words highlighted — works on mute.' },
+  { icon: Sparkles, title: 'Motion graphics', body: 'Counting numbers, emoji pop-ups and callout cards, placed by AI.' },
+  { icon: Film, title: 'B-roll & sound', body: 'Licensed cutaways, whooshes and hits on every change.' },
+  { icon: LayoutTemplate, title: 'A month in one go', body: 'Paste 30 scripts — get 30 finished reels with batch create.' },
+  { icon: Palette, title: 'Brand kits', body: 'Logo, colours and captions — one kit per client for agencies.' },
+  { icon: Globe2, title: 'Indian languages', body: 'English, Hindi, Telugu, Tamil and Marathi.' },
 ];
 
 export function Features() {
@@ -238,7 +239,9 @@ const FAQS = [
   { q: 'What is a credit?', a: 'Credits pay for the steps that cost money, charged one step at a time: a voiceover is 2 credits per 30 seconds, and exporting a stock-footage video is 3 credits per 30 seconds (animated videos 5, 4K double). Writing scripts, planning scenes and previews are free. Redoing one step only charges that step, you always see the price first, and failed jobs are refunded automatically.' },
   { q: 'Which platforms and formats are supported?', a: 'Vertical 9:16 for Reels, Shorts and TikTok, 16:9 for YouTube, and 1:1 or 4:5 for Instagram feed, at 720p or 1080p (4K on higher plans where supported).' },
   { q: 'Which languages can I use?', a: 'We are launching with English, Hindi, Telugu, Tamil and Marathi for captions and narration, with more languages to follow.' },
-  { q: 'Can someone make an avatar of me without permission?', a: 'No. Avatars and voice clones require the person’s own verified consent. Consent is recorded, can be revoked at any time, and revoking it deletes the associated avatar assets.' },
+  { q: 'Can someone make an avatar of me without permission?', a: 'No. A photo avatar or voice clone needs the person to read a consent sentence aloud (we check it with speech recognition), and someone else’s face or voice also needs their confirmation by email. They can withdraw at any time, which deletes the avatar or voice and their recordings. Videos with an AI presenter are labelled as AI-generated.' },
+  { q: 'What if I don’t like my video?', a: 'Change anything — captions, music, text, scenes, cuts — and export again. The next 2 re-exports of every video are free; after that it’s the normal export price.' },
+  { q: 'Can I make many videos at once?', a: 'Yes. Batch create takes one template and voice and up to 30 scripts, and makes every video by itself: voiceover, scenes and export. You see the total price before you start.' },
   { q: 'Who owns the videos I create?', a: 'You do. Your uploads stay private to your workspace. Stock media and music we add come from licensed sources and can be used in your published videos under those licences.' },
   { q: 'Can I cancel anytime?', a: 'Yes. Paid plans can be cancelled from your billing page and remain active until the end of the current period.' },
 ];
