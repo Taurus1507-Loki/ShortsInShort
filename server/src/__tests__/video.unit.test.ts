@@ -76,7 +76,8 @@ describe('credit pricing', () => {
     expect(facelessCreditCost(30, '1080p')).toBe(3);
     expect(facelessCreditCost(45, '4k')).toBe(12);
     expect(motionCreditCost(30, '720p')).toBe(5);
-    expect(avatarCreditCost(31)).toBe(100);
+    expect(avatarCreditCost(31)).toBe(320); // stock presenter, 160 per started 30 s
+    expect(avatarCreditCost(31, true)).toBe(160); // your own photo avatar, 80 per started 30 s
   });
   it('enforces plan resolution caps', () => {
     expect(resolutionAllowed('720p', '720p')).toBe(true);
